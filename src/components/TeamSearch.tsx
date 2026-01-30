@@ -1,30 +1,26 @@
 'use client'
 
-import { useState } from 'react'
+import { MagnifyingGlass } from '@phosphor-icons/react'
 
 interface TeamSearchProps {
-  onSearch: (query: string) => void
+  value: string
+  onChange: (value: string) => void
 }
 
-export function TeamSearch({ onSearch }: TeamSearchProps) {
-  const [query, setQuery] = useState('')
-
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const value = e.target.value
-    setQuery(value)
-    onSearch(value)
-  }
-
+export function TeamSearch({ value, onChange }: TeamSearchProps) {
   return (
-    <div className="mb-8">
-      <label htmlFor="team-search" className="sr-only">Search teams</label>
+    <div className="relative max-w-md">
+      <MagnifyingGlass
+        size={20}
+        weight="thin"
+        className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-muted)]"
+      />
       <input
-        id="team-search"
-        type="search"
-        placeholder="Search teams..."
-        value={query}
-        onChange={handleChange}
-        className="w-full max-w-md px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+        type="text"
+        placeholder="Search teams or conferences..."
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="w-full pl-10 pr-4 py-2 bg-[var(--bg-surface)] border border-[var(--border)] rounded text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--color-run)] focus:border-transparent"
       />
     </div>
   )

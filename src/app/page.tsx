@@ -4,22 +4,30 @@ import { Team } from '@/lib/types/database'
 
 export default async function Home() {
   const supabase = await createClient()
+
   const { data: teams, error } = await supabase
     .from('teams')
     .select('*')
-    .not('conference', 'is', null)
     .order('school')
 
   if (error) {
-    return <div className="p-8 text-red-500">Error loading teams: {error.message}</div>
+    console.error('Error fetching teams:', error)
   }
 
   return (
-    <main className="max-w-6xl mx-auto p-8">
-      <h1 className="text-3xl font-bold mb-2">CFB Team 360</h1>
-      <p className="text-gray-600 mb-8">Select a team to view analytics</p>
+    <div className="p-8">
+      {/* Page Header */}
+      <header className="mb-8">
+        <h1 className="font-headline text-3xl text-[var(--text-primary)] underline-sketch inline-block">
+          All Teams
+        </h1>
+        <p className="text-[var(--text-secondary)] mt-2">
+          2024 Season · {teams?.length || 0} FBS Programs
+        </p>
+      </header>
 
-      <TeamList teams={teams as Team[]} />
-    </main>
+      {/* Team Grid */}
+      <TeamList teams={(teams as Team[]) || []} />
+    </div>
   )
 }
