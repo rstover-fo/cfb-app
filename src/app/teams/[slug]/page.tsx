@@ -4,6 +4,7 @@ import { Team, TeamSeasonEpa, TeamStyleProfile, TeamSeasonTrajectory, DrivePatte
 import { MetricsCards } from '@/components/team/MetricsCards'
 import { StyleProfile } from '@/components/team/StyleProfile'
 import { DrivePatterns } from '@/components/visualizations/DrivePatterns'
+import { TrajectoryChart } from '@/components/team/TrajectoryChart'
 
 interface TeamPageProps {
   params: Promise<{ slug: string }>
@@ -116,15 +117,11 @@ export default async function TeamPage({ params }: TeamPageProps) {
         )}
       </section>
 
-      {/* Historical Trajectory - Placeholder */}
+      {/* Historical Trajectory */}
       <section className="mb-10">
         <h2 className="font-headline text-2xl text-[var(--text-primary)] mb-4">Historical Trajectory</h2>
         {trajectory && trajectory.length > 0 ? (
-          <div className="card p-6">
-            <p className="text-[var(--text-muted)] text-center py-8">
-              Chart visualization coming soon
-            </p>
-          </div>
+          <TrajectoryChart trajectory={trajectory} />
         ) : (
           <p className="text-[var(--text-muted)]">No trajectory data available</p>
         )}
