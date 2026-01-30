@@ -29,7 +29,7 @@ const OUTCOME_LABELS = {
 
 const OUTCOME_ORDER = ['touchdown', 'field_goal', 'punt', 'turnover', 'downs', 'end_of_half']
 
-export function DrivePatterns({ drives, teamName: _teamName }: DrivePatternsProps) {
+export function DrivePatterns({ drives }: DrivePatternsProps) {
   const [selectedOutcome, setSelectedOutcome] = useState<string | null>(null)
   const [tooltip, setTooltip] = useState<{ x: number; y: number; data: DrivePattern } | null>(null)
   const [animatedArcs, setAnimatedArcs] = useState<Set<number>>(new Set())

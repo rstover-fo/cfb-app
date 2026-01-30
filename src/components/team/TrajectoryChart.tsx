@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { TeamSeasonTrajectory } from '@/lib/types/database'
 
 interface TrajectoryChartProps {
@@ -15,9 +15,12 @@ const METRICS: { key: MetricKey; label: string; getValue: (t: TeamSeasonTrajecto
   { key: 'rank', label: 'Rank', getValue: t => t.off_epa_rank, format: v => `#${v}`, invert: true },
 ]
 
+const ANIMATION_DURATION = 800
+
 export function TrajectoryChart({ trajectory }: TrajectoryChartProps) {
   const [selectedMetric, setSelectedMetric] = useState<MetricKey>('wins')
   const [animationProgress, setAnimationProgress] = useState(0)
+  const animationRef = useRef<number | null>(null)
 
   const metric = METRICS.find(m => m.key === selectedMetric)!
   const data = trajectory
@@ -25,24 +28,28 @@ export function TrajectoryChart({ trajectory }: TrajectoryChartProps) {
     .filter((d): d is { season: number; value: number } => d.value !== null)
     .sort((a, b) => a.season - b.season)
 
-  // Reset animation on metric change
+  // Start animation on metric change
   useEffect(() => {
-    setAnimationProgress(0)
-    const duration = 800
     const startTime = performance.now()
 
-    const animate = (currentTime: number) => {
+    function animate(currentTime: number) {
       const elapsed = currentTime - startTime
-      const progress = Math.min(elapsed / duration, 1)
+      const progress = Math.min(elapsed / ANIMATION_DURATION, 1)
       setAnimationProgress(progress)
 
       if (progress < 1) {
-        requestAnimationFrame(animate)
+        animationRef.current = requestAnimationFrame(animate)
       }
     }
 
-    requestAnimationFrame(animate)
-  }, [selectedMetric, trajectory])
+    animationRef.current = requestAnimationFrame(animate)
+
+    return () => {
+      if (animationRef.current) {
+        cancelAnimationFrame(animationRef.current)
+      }
+    }
+  }, [selectedMetric])
 
   if (data.length === 0) {
     return (

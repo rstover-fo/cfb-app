@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useSyncExternalStore } from 'react'
 
 type Theme = 'light' | 'dark' | 'system'
 type ResolvedTheme = 'light' | 'dark'
@@ -17,32 +17,31 @@ function getStoredTheme(): Theme {
   return (localStorage.getItem(STORAGE_KEY) as Theme) || 'system'
 }
 
+// Subscribe to system theme changes
+function subscribeToSystemTheme(callback: () => void) {
+  const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)')
+  mediaQuery.addEventListener('change', callback)
+  return () => mediaQuery.removeEventListener('change', callback)
+}
+
 export function useTheme() {
-  const [theme, setThemeState] = useState<Theme>('system')
-  const [resolvedTheme, setResolvedTheme] = useState<ResolvedTheme>('light')
+  // Use lazy initialization to avoid setState in effect
+  const [theme, setThemeState] = useState<Theme>(() => {
+    if (typeof window === 'undefined') return 'system'
+    return getStoredTheme()
+  })
 
-  // Initialize from storage
-  useEffect(() => {
-    const stored = getStoredTheme()
-    setThemeState(stored)
-    setResolvedTheme(stored === 'system' ? getSystemTheme() : stored)
-  }, [])
+  // Use useSyncExternalStore for system theme to avoid setState in effect
+  const systemTheme = useSyncExternalStore(
+    subscribeToSystemTheme,
+    getSystemTheme,
+    () => 'light' as ResolvedTheme
+  )
 
-  // Listen for system theme changes
-  useEffect(() => {
-    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)')
+  // Derive resolvedTheme instead of storing it
+  const resolvedTheme: ResolvedTheme = theme === 'system' ? systemTheme : theme
 
-    const handleChange = () => {
-      if (theme === 'system') {
-        setResolvedTheme(getSystemTheme())
-      }
-    }
-
-    mediaQuery.addEventListener('change', handleChange)
-    return () => mediaQuery.removeEventListener('change', handleChange)
-  }, [theme])
-
-  // Apply theme to document
+  // Apply theme to document (side effect only, no setState)
   useEffect(() => {
     const root = document.documentElement
     if (theme === 'system') {
@@ -50,7 +49,6 @@ export function useTheme() {
     } else {
       root.setAttribute('data-theme', theme)
     }
-    setResolvedTheme(theme === 'system' ? getSystemTheme() : theme)
   }, [theme])
 
   const setTheme = useCallback((newTheme: Theme) => {
