@@ -35,7 +35,7 @@
 
 /* Dark Mode (Inverted Editorial) */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme]) {
     --bg-primary: #1A1814;
     --bg-surface: #252019;
     --bg-surface-alt: #302920;
@@ -49,6 +49,31 @@
     --shadow-soft: 0 4px 20px rgba(0, 0, 0, 0.3);
     --shadow-hover: 0 8px 30px rgba(0, 0, 0, 0.4);
   }
+}
+
+/* Explicit theme overrides */
+[data-theme="light"] {
+  --bg-primary: #F5F0E8;
+  --bg-surface: #FFFFFF;
+  --bg-surface-alt: #EDE8DF;
+  --text-primary: #1A1814;
+  --text-secondary: #4A4740;
+  --text-muted: #6B635A;
+  --border: #D9D2C7;
+  --shadow-soft: 0 4px 20px rgba(26, 24, 20, 0.08);
+  --shadow-hover: 0 8px 30px rgba(26, 24, 20, 0.12);
+}
+
+[data-theme="dark"] {
+  --bg-primary: #1A1814;
+  --bg-surface: #252019;
+  --bg-surface-alt: #302920;
+  --text-primary: #F5F0E8;
+  --text-secondary: #C9C2B7;
+  --text-muted: #8A847A;
+  --border: #3D362E;
+  --shadow-soft: 0 4px 20px rgba(0, 0, 0, 0.3);
+  --shadow-hover: 0 8px 30px rgba(0, 0, 0, 0.4);
 }
 
 /* ===========================================
