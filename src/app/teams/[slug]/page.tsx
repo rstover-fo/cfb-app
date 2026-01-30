@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation'
 import { Team, TeamSeasonEpa, TeamStyleProfile, TeamSeasonTrajectory, DrivePattern } from '@/lib/types/database'
 import { MetricsCards } from '@/components/team/MetricsCards'
 import { StyleProfile } from '@/components/team/StyleProfile'
+import { DrivePatterns } from '@/components/visualizations/DrivePatterns'
 
 interface TeamPageProps {
   params: Promise<{ slug: string }>
@@ -76,13 +77,13 @@ export default async function TeamPage({ params }: TeamPageProps) {
         </div>
       </header>
 
-      {/* Placeholder sections */}
-      <section className="mb-8 p-6 border rounded-lg bg-gray-50">
+      <section className="mb-8">
         <h2 className="text-xl font-semibold mb-4">Drive Patterns</h2>
-        <p className="text-gray-500">Visualization coming next...</p>
-        <pre className="mt-4 text-xs bg-white p-4 rounded overflow-auto max-h-40">
-          {JSON.stringify(drives?.slice(0, 5), null, 2)}
-        </pre>
+        {drives && drives.length > 0 ? (
+          <DrivePatterns drives={drives} teamName={team.school} />
+        ) : (
+          <p className="text-gray-500">No drive data available</p>
+        )}
       </section>
 
       <section className="mb-8">
