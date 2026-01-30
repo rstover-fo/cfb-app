@@ -18,7 +18,7 @@ const OUTCOME_STYLES = {
   end_of_half: { color: '#8b5cf6', dash: '6,2', label: 'End of Half' },
 } as const
 
-export function DrivePatterns({ drives, teamName }: DrivePatternsProps) {
+export function DrivePatterns({ drives, teamName: _teamName }: DrivePatternsProps) {
   const [selectedOutcome, setSelectedOutcome] = useState<string | null>(null)
   const [tooltip, setTooltip] = useState<{ x: number; y: number; data: DrivePattern } | null>(null)
 

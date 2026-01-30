@@ -34,7 +34,7 @@ export function TeamList({ teams }: TeamListProps) {
       <TeamSearch onSearch={setSearchQuery} />
 
       {Object.keys(byConference).length === 0 ? (
-        <p className="text-gray-500">No teams found matching "{searchQuery}"</p>
+        <p className="text-gray-500">No teams found matching &ldquo;{searchQuery}&rdquo;</p>
       ) : (
         Object.entries(byConference).sort().map(([conference, confTeams]) => (
           <section key={conference} className="mb-8">
