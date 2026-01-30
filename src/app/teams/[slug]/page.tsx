@@ -30,7 +30,6 @@ export default async function TeamPage({ params }: TeamPageProps) {
 
   const currentSeason = 2024
 
-  // Fetch all data in parallel
   const [metricsResult, styleResult, trajectoryResult, drivesResult] = await Promise.all([
     supabase
       .from('team_epa_season')
@@ -61,57 +60,75 @@ export default async function TeamPage({ params }: TeamPageProps) {
   const drives = drivesResult.data as DrivePattern[] | null
 
   return (
-    <main className="max-w-6xl mx-auto p-8">
-      {/* Header */}
-      <header className="flex items-center gap-4 mb-8">
-        {team.logo && (
+    <div className="p-8">
+      {/* Page Header */}
+      <header className="flex items-center gap-6 mb-8 pb-6 border-b border-[var(--border)]">
+        {team.logo ? (
           <img
             src={team.logo}
             alt={`${team.school} logo`}
-            className="w-16 h-16 object-contain"
+            className="w-20 h-20 object-contain"
           />
+        ) : (
+          <div className="w-20 h-20 rounded-full bg-[var(--bg-surface-alt)] flex items-center justify-center">
+            <span className="font-headline text-2xl text-[var(--text-muted)]">
+              {team.school.split(' ').map(w => w[0]).join('').slice(0, 2)}
+            </span>
+          </div>
         )}
         <div>
-          <h1 className="text-3xl font-bold">{team.school}</h1>
-          <p className="text-gray-600">{team.conference || 'Independent'} • {currentSeason} Season</p>
+          <h1 className="font-headline text-4xl text-[var(--text-primary)] underline-sketch inline-block">
+            {team.school}
+          </h1>
+          <p className="text-[var(--text-secondary)] mt-1">
+            {team.conference || 'Independent'} · {currentSeason} Season
+          </p>
         </div>
       </header>
 
-      <section className="mb-8">
-        <h2 className="text-xl font-semibold mb-4">Drive Patterns</h2>
+      {/* Drive Patterns */}
+      <section className="mb-10">
+        <h2 className="font-headline text-2xl text-[var(--text-primary)] mb-4">Drive Patterns</h2>
         {drives && drives.length > 0 ? (
           <DrivePatterns drives={drives} teamName={team.school} />
         ) : (
-          <p className="text-gray-500">No drive data available</p>
+          <p className="text-[var(--text-muted)]">No drive data available</p>
         )}
       </section>
 
-      <section className="mb-8">
-        <h2 className="text-xl font-semibold mb-4">Performance Metrics</h2>
+      {/* Performance Metrics */}
+      <section className="mb-10">
+        <h2 className="font-headline text-2xl text-[var(--text-primary)] mb-4">Performance Metrics</h2>
         {metrics ? (
           <MetricsCards metrics={metrics} />
         ) : (
-          <p className="text-gray-500">No metrics available for this season</p>
+          <p className="text-[var(--text-muted)]">No metrics available for this season</p>
         )}
       </section>
 
-      <section className="mb-8">
-        <h2 className="text-xl font-semibold mb-4">Style Profile</h2>
+      {/* Style Profile */}
+      <section className="mb-10">
+        <h2 className="font-headline text-2xl text-[var(--text-primary)] mb-4">Style Profile</h2>
         {style ? (
           <StyleProfile style={style} />
         ) : (
-          <p className="text-gray-500">No style data available</p>
+          <p className="text-[var(--text-muted)]">No style data available</p>
         )}
       </section>
 
-      <section className="mb-8 p-6 border rounded-lg">
-        <h2 className="text-xl font-semibold mb-4">Historical Trajectory</h2>
-        {trajectory ? (
-          <pre className="text-sm max-h-60 overflow-auto">{JSON.stringify(trajectory, null, 2)}</pre>
+      {/* Historical Trajectory - Placeholder */}
+      <section className="mb-10">
+        <h2 className="font-headline text-2xl text-[var(--text-primary)] mb-4">Historical Trajectory</h2>
+        {trajectory && trajectory.length > 0 ? (
+          <div className="card p-6">
+            <p className="text-[var(--text-muted)] text-center py-8">
+              Chart visualization coming soon
+            </p>
+          </div>
         ) : (
-          <p className="text-gray-500">No trajectory data available</p>
+          <p className="text-[var(--text-muted)]">No trajectory data available</p>
         )}
       </section>
-    </main>
+    </div>
   )
 }
