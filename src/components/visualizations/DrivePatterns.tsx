@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { FootballField, yardToX } from './FootballField'
 import { DrivePattern } from '@/lib/types/database'
 
@@ -9,21 +9,51 @@ interface DrivePatternsProps {
   teamName: string
 }
 
-const OUTCOME_STYLES = {
-  touchdown: { color: '#22c55e', dash: 'none', label: 'Touchdown' },
-  field_goal: { color: '#3b82f6', dash: '8,4', label: 'Field Goal' },
-  punt: { color: '#6b7280', dash: '4,4', label: 'Punt' },
-  turnover: { color: '#ef4444', dash: 'none', label: 'Turnover' },
-  downs: { color: '#f59e0b', dash: '2,2', label: 'Turnover on Downs' },
-  end_of_half: { color: '#8b5cf6', dash: '6,2', label: 'End of Half' },
+const OUTCOME_COLORS = {
+  touchdown: 'var(--color-positive)',
+  field_goal: 'var(--color-field-goal)',
+  punt: 'var(--color-neutral)',
+  turnover: 'var(--color-negative)',
+  downs: 'var(--color-run)',
+  end_of_half: 'var(--color-pass)',
 } as const
+
+const OUTCOME_LABELS = {
+  touchdown: 'Touchdown',
+  field_goal: 'Field Goal',
+  punt: 'Punt',
+  turnover: 'Turnover',
+  downs: 'Turnover on Downs',
+  end_of_half: 'End of Half',
+} as const
+
+const OUTCOME_ORDER = ['touchdown', 'field_goal', 'punt', 'turnover', 'downs', 'end_of_half']
 
 export function DrivePatterns({ drives, teamName: _teamName }: DrivePatternsProps) {
   const [selectedOutcome, setSelectedOutcome] = useState<string | null>(null)
   const [tooltip, setTooltip] = useState<{ x: number; y: number; data: DrivePattern } | null>(null)
+  const [animatedArcs, setAnimatedArcs] = useState<Set<number>>(new Set())
+  const svgRef = useRef<SVGGElement>(null)
 
-  const fieldWidth = 1000 - (1000 / 120) * 20  // Subtract end zones
+  const fieldWidth = 1000 - (1000 / 120) * 20
   const fieldHeight = 400
+
+  // Animate arcs by outcome group
+  useEffect(() => {
+    const grouped = OUTCOME_ORDER.map(outcome =>
+      drives.map((d, i) => ({ drive: d, index: i })).filter(({ drive }) => drive.outcome === outcome)
+    ).flat()
+
+    let delay = 0
+    grouped.forEach(({ index }) => {
+      setTimeout(() => {
+        setAnimatedArcs(prev => new Set([...prev, index]))
+      }, delay)
+      delay += 150
+    })
+
+    return () => setAnimatedArcs(new Set())
+  }, [drives])
 
   // Generate arc path
   function getArcPath(drive: DrivePattern): string {
@@ -31,10 +61,9 @@ export function DrivePatterns({ drives, teamName: _teamName }: DrivePatternsProp
     const endX = yardToX(drive.end_yard, fieldWidth)
     const midX = (startX + endX) / 2
 
-    // Arc height based on drive length, scaled by count
     const driveLength = Math.abs(drive.end_yard - drive.start_yard)
     const baseHeight = Math.min(driveLength * 2, fieldHeight * 0.4)
-    const arcHeight = baseHeight * (1 + Math.log10(drive.count) * 0.2)
+    const arcHeight = baseHeight * (1 + Math.log10(Math.max(drive.count, 1)) * 0.2)
 
     const midY = fieldHeight / 2
     const controlY = midY - arcHeight
@@ -47,29 +76,31 @@ export function DrivePatterns({ drives, teamName: _teamName }: DrivePatternsProp
   return (
     <div className="relative">
       {/* Legend */}
-      <div className="flex flex-wrap gap-4 mb-4" role="list" aria-label="Drive outcome legend">
+      <div className="flex flex-wrap gap-3 mb-4" role="list" aria-label="Drive outcome legend">
         {outcomes.map(outcome => {
-          const style = OUTCOME_STYLES[outcome as keyof typeof OUTCOME_STYLES] || { color: '#999', dash: 'none', label: outcome }
+          const color = OUTCOME_COLORS[outcome as keyof typeof OUTCOME_COLORS] || '#999'
+          const label = OUTCOME_LABELS[outcome as keyof typeof OUTCOME_LABELS] || outcome
           const isSelected = selectedOutcome === null || selectedOutcome === outcome
 
           return (
             <button
               key={outcome}
               onClick={() => setSelectedOutcome(selectedOutcome === outcome ? null : outcome)}
-              className={`flex items-center gap-2 px-3 py-1 rounded border transition-opacity ${
+              className={`flex items-center gap-2 px-3 py-1.5 border-[1.5px] border-[var(--border)] rounded-sm transition-all ${
                 isSelected ? 'opacity-100' : 'opacity-40'
-              }`}
+              } ${selectedOutcome === outcome ? 'bg-[var(--bg-surface-alt)] border-[var(--color-run)]' : 'bg-transparent'}`}
               aria-pressed={selectedOutcome === outcome}
             >
               <svg width={24} height={12}>
-                <line
-                  x1={0} y1={6} x2={24} y2={6}
-                  stroke={style.color}
-                  strokeWidth={3}
-                  strokeDasharray={style.dash}
+                <path
+                  d="M 0 6 Q 12 0 24 6"
+                  fill="none"
+                  stroke={color}
+                  strokeWidth={2}
+                  style={{ stroke: color }}
                 />
               </svg>
-              <span className="text-sm">{style.label}</span>
+              <span className="text-sm text-[var(--text-secondary)]">{label}</span>
             </button>
           )
         })}
@@ -77,80 +108,93 @@ export function DrivePatterns({ drives, teamName: _teamName }: DrivePatternsProp
 
       {/* Field with Arcs */}
       <FootballField width={1000} height={400}>
-        {drives.map((drive, i) => {
-          const style = OUTCOME_STYLES[drive.outcome as keyof typeof OUTCOME_STYLES] || { color: '#999', dash: 'none' }
-          const isVisible = selectedOutcome === null || selectedOutcome === drive.outcome
+        <g ref={svgRef}>
+          {drives.map((drive, i) => {
+            const color = OUTCOME_COLORS[drive.outcome as keyof typeof OUTCOME_COLORS] || '#999'
+            const isVisible = selectedOutcome === null || selectedOutcome === drive.outcome
+            const isAnimated = animatedArcs.has(i)
+            const pathLength = 500
 
-          return (
-            <path
-              key={i}
-              d={getArcPath(drive)}
-              fill="none"
-              stroke={style.color}
-              strokeWidth={Math.max(2, Math.min(drive.count / 2, 8))}
-              strokeDasharray={style.dash}
-              opacity={isVisible ? 0.7 : 0.1}
-              className="transition-opacity cursor-pointer hover:opacity-100"
-              onMouseEnter={(e) => {
-                const rect = e.currentTarget.getBoundingClientRect()
-                setTooltip({ x: rect.x + rect.width / 2, y: rect.y, data: drive })
-              }}
-              onMouseLeave={() => setTooltip(null)}
-              onFocus={(e) => {
-                const rect = e.currentTarget.getBoundingClientRect()
-                setTooltip({ x: rect.x + rect.width / 2, y: rect.y, data: drive })
-              }}
-              onBlur={() => setTooltip(null)}
-              tabIndex={0}
-              role="button"
-              aria-label={`${drive.count} drives from ${drive.start_yard} to ${drive.end_yard} yard line, ${drive.outcome}`}
-            />
-          )
-        })}
+            return (
+              <path
+                key={i}
+                d={getArcPath(drive)}
+                fill="none"
+                stroke={color}
+                strokeWidth={Math.max(2, Math.min(drive.count / 2, 8))}
+                opacity={isVisible ? (isAnimated ? 0.8 : 0) : 0.1}
+                strokeLinecap="round"
+                strokeDasharray={pathLength}
+                strokeDashoffset={isAnimated ? 0 : pathLength}
+                style={{
+                  transition: 'stroke-dashoffset 400ms ease-out, opacity 200ms ease',
+                  filter: 'url(#roughen)',
+                }}
+                className="cursor-pointer hover:opacity-100"
+                onMouseEnter={(e) => {
+                  const rect = e.currentTarget.getBoundingClientRect()
+                  setTooltip({ x: rect.x + rect.width / 2, y: rect.y, data: drive })
+                }}
+                onMouseLeave={() => setTooltip(null)}
+                tabIndex={isVisible ? 0 : -1}
+                role="button"
+                aria-label={`${drive.count} drives from ${drive.start_yard} to ${drive.end_yard} yard line, ${drive.outcome}`}
+              />
+            )
+          })}
+        </g>
+        {/* SVG filter for slight roughness */}
+        <defs>
+          <filter id="roughen">
+            <feTurbulence type="turbulence" baseFrequency="0.02" numOctaves="2" result="noise" />
+            <feDisplacementMap in="SourceGraphic" in2="noise" scale="1.5" />
+          </filter>
+        </defs>
       </FootballField>
 
       {/* Tooltip */}
       {tooltip && (
         <div
-          className="absolute bg-black text-white text-sm px-3 py-2 rounded shadow-lg pointer-events-none z-10"
+          className="absolute bg-[var(--bg-surface)] text-[var(--text-primary)] text-sm px-4 py-3 rounded border border-[var(--border)] shadow-lg pointer-events-none z-10"
           style={{
             left: tooltip.x,
-            top: tooltip.y - 60,
+            top: tooltip.y - 80,
             transform: 'translateX(-50%)'
           }}
         >
-          <p className="font-semibold capitalize">{tooltip.data.outcome.replace('_', ' ')}</p>
-          <p>{tooltip.data.count} drives</p>
-          <p>{tooltip.data.start_yard} → {tooltip.data.end_yard} yard line</p>
-          <p>Avg: {tooltip.data.avg_plays} plays, {tooltip.data.avg_yards} yards</p>
+          <p className="font-headline text-base capitalize mb-1">
+            {tooltip.data.outcome.replace('_', ' ')}
+          </p>
+          <p className="text-[var(--text-secondary)]">{tooltip.data.count} drives</p>
+          <p className="text-[var(--text-muted)] text-xs">
+            {tooltip.data.start_yard} → {tooltip.data.end_yard} yd | {tooltip.data.avg_plays} plays avg
+          </p>
         </div>
       )}
 
-      {/* Data Table Toggle */}
+      {/* Data Table */}
       <details className="mt-4">
-        <summary className="cursor-pointer text-sm text-blue-600 hover:underline">
-          View as table (screen reader accessible)
+        <summary className="cursor-pointer text-sm text-[var(--text-muted)] hover:text-[var(--text-secondary)]">
+          View as table
         </summary>
         <table className="mt-2 w-full text-sm border-collapse">
           <thead>
-            <tr className="border-b">
-              <th className="text-left p-2">Outcome</th>
-              <th className="text-left p-2">Start</th>
-              <th className="text-left p-2">End</th>
-              <th className="text-left p-2">Count</th>
-              <th className="text-left p-2">Avg Plays</th>
-              <th className="text-left p-2">Avg Yards</th>
+            <tr className="border-b border-[var(--border)]">
+              <th className="text-left p-2 text-[var(--text-muted)]">Outcome</th>
+              <th className="text-left p-2 text-[var(--text-muted)]">Start</th>
+              <th className="text-left p-2 text-[var(--text-muted)]">End</th>
+              <th className="text-left p-2 text-[var(--text-muted)]">Count</th>
+              <th className="text-left p-2 text-[var(--text-muted)]">Avg Plays</th>
             </tr>
           </thead>
           <tbody>
             {drives.map((drive, i) => (
-              <tr key={i} className="border-b">
-                <td className="p-2 capitalize">{drive.outcome.replace('_', ' ')}</td>
-                <td className="p-2">{drive.start_yard}</td>
-                <td className="p-2">{drive.end_yard}</td>
-                <td className="p-2">{drive.count}</td>
-                <td className="p-2">{drive.avg_plays}</td>
-                <td className="p-2">{drive.avg_yards}</td>
+              <tr key={i} className="border-b border-[var(--border)]">
+                <td className="p-2 capitalize text-[var(--text-primary)]">{drive.outcome.replace('_', ' ')}</td>
+                <td className="p-2 text-[var(--text-secondary)]">{drive.start_yard}</td>
+                <td className="p-2 text-[var(--text-secondary)]">{drive.end_yard}</td>
+                <td className="p-2 text-[var(--text-secondary)]">{drive.count}</td>
+                <td className="p-2 text-[var(--text-secondary)]">{drive.avg_plays}</td>
               </tr>
             ))}
           </tbody>
