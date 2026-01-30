@@ -1,5 +1,9 @@
+'use client'
+
 import { TeamSeasonEpa } from '@/lib/types/database'
 import { formatRank } from '@/lib/utils'
+import { useCountUp } from '@/hooks/useCountUp'
+import { Info, TrendDown, TrendUp } from '@phosphor-icons/react'
 
 interface MetricsCardsProps {
   metrics: TeamSeasonEpa
@@ -7,53 +11,88 @@ interface MetricsCardsProps {
 
 interface MetricCardProps {
   label: string
-  value: string
+  value: number
+  decimals?: number
+  suffix?: string
   rank?: number
-  trend?: 'up' | 'down' | 'neutral'
-  trendLabel?: string
+  tooltip?: string
+  trend?: 'positive' | 'negative' | 'neutral'
 }
 
-function MetricCard({ label, value, rank, trend, trendLabel }: MetricCardProps) {
+function MetricCard({ label, value, decimals = 3, suffix = '', rank, tooltip, trend }: MetricCardProps) {
+  const displayValue = useCountUp(value, { decimals, duration: 800 })
+
+  const valueColorClass = trend === 'positive'
+    ? 'text-[var(--color-positive)]'
+    : trend === 'negative'
+    ? 'text-[var(--color-negative)]'
+    : 'text-[var(--text-primary)]'
+
   return (
-    <div className="p-4 border rounded-lg bg-white">
-      <p className="text-sm text-gray-500 mb-1">{label}</p>
-      <p className="text-2xl font-bold">{value}</p>
-      <div className="flex items-center gap-2 mt-1">
-        {rank && (
-          <span className="text-sm text-gray-600">{formatRank(rank)} nationally</span>
-        )}
-        {trend && trendLabel && (
-          <span className={`text-sm ${
-            trend === 'up' ? 'text-green-600' :
-            trend === 'down' ? 'text-red-600' : 'text-gray-500'
-          }`}>
-            {trend === 'up' ? '↑' : trend === 'down' ? '↓' : '→'} {trendLabel}
-          </span>
+    <div className="card p-5">
+      <div className="flex items-center justify-between mb-2">
+        <p className="text-sm text-[var(--text-muted)]">{label}</p>
+        {tooltip && (
+          <button
+            className="text-[var(--text-muted)] hover:text-[var(--text-secondary)]"
+            aria-label={`Info about ${label}`}
+            title={tooltip}
+          >
+            <Info size={16} weight="thin" />
+          </button>
         )}
       </div>
+
+      <p className={`font-headline text-4xl ${valueColorClass} underline-sketch inline-block`}>
+        {displayValue}{suffix}
+      </p>
+
+      {rank && (
+        <div className="flex items-center gap-1 mt-3 text-sm text-[var(--text-secondary)]">
+          {rank <= 50 ? (
+            <TrendUp size={14} weight="thin" className="text-[var(--color-positive)]" />
+          ) : rank > 100 ? (
+            <TrendDown size={14} weight="thin" className="text-[var(--color-negative)]" />
+          ) : null}
+          <span>{formatRank(rank)} nationally</span>
+        </div>
+      )}
     </div>
   )
 }
 
 export function MetricsCards({ metrics }: MetricsCardsProps) {
+  const epaTrend = metrics.epa_per_play > 0 ? 'positive' : metrics.epa_per_play < -0.05 ? 'negative' : 'neutral'
+  const successTrend = metrics.success_rate > 0.45 ? 'positive' : metrics.success_rate < 0.4 ? 'negative' : 'neutral'
+
   return (
     <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
       <MetricCard
         label="EPA per Play"
-        value={metrics.epa_per_play.toFixed(3)}
+        value={metrics.epa_per_play}
+        decimals={3}
         rank={metrics.off_epa_rank}
+        tooltip="Expected Points Added per play measures offensive efficiency"
+        trend={epaTrend}
       />
       <MetricCard
         label="Success Rate"
-        value={`${(metrics.success_rate * 100).toFixed(1)}%`}
+        value={metrics.success_rate * 100}
+        decimals={1}
+        suffix="%"
+        tooltip="Percentage of plays that are considered successful"
+        trend={successTrend}
       />
       <MetricCard
         label="Explosiveness"
-        value={metrics.explosiveness.toFixed(3)}
+        value={metrics.explosiveness}
+        decimals={3}
+        tooltip="Average EPA on successful plays"
       />
       <MetricCard
         label="Games Played"
-        value={metrics.games.toString()}
+        value={metrics.games}
+        decimals={0}
       />
     </div>
   )

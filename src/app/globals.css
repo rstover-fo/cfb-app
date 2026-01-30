@@ -1,26 +1,130 @@
 @import "tailwindcss";
 
+/* ===========================================
+   DESIGN TOKENS - CFB Team 360 Editorial Theme
+   =========================================== */
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* Light Mode Colors */
+  --bg-primary: #F5F0E8;
+  --bg-surface: #FFFFFF;
+  --bg-surface-alt: #EDE8DF;
+
+  --text-primary: #1A1814;
+  --text-secondary: #4A4740;
+  --text-muted: #6B635A;
+
+  --border: #D9D2C7;
+
+  /* Semantic Colors (same in both modes) */
+  --color-run: #C47A5A;
+  --color-pass: #5C5A7A;
+  --color-positive: #4A7A5C;
+  --color-negative: #A65A5A;
+  --color-neutral: #6B635A;
+  --color-field-goal: #5A7AC4;
+
+  /* Shadows */
+  --shadow-soft: 0 4px 20px rgba(26, 24, 20, 0.08);
+  --shadow-hover: 0 8px 30px rgba(26, 24, 20, 0.12);
+
+  /* Typography */
+  --font-headline: 'Libre Baskerville', Georgia, serif;
+  --font-body: 'DM Sans', system-ui, sans-serif;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
+/* Dark Mode (Inverted Editorial) */
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --bg-primary: #1A1814;
+    --bg-surface: #252019;
+    --bg-surface-alt: #302920;
+
+    --text-primary: #F5F0E8;
+    --text-secondary: #C9C2B7;
+    --text-muted: #8A847A;
+
+    --border: #3D362E;
+
+    --shadow-soft: 0 4px 20px rgba(0, 0, 0, 0.3);
+    --shadow-hover: 0 8px 30px rgba(0, 0, 0, 0.4);
   }
 }
 
+/* ===========================================
+   BASE STYLES
+   =========================================== */
+
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: var(--font-body);
+}
+
+/* Headlines use serif font */
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-headline);
+}
+
+/* ===========================================
+   UTILITY CLASSES
+   =========================================== */
+
+.text-headline {
+  font-family: var(--font-headline);
+}
+
+.text-body {
+  font-family: var(--font-body);
+}
+
+.bg-surface {
+  background: var(--bg-surface);
+}
+
+.bg-surface-alt {
+  background: var(--bg-surface-alt);
+}
+
+.border-theme {
+  border-color: var(--border);
+}
+
+.text-muted {
+  color: var(--text-muted);
+}
+
+.text-secondary {
+  color: var(--text-secondary);
+}
+
+/* Card base style */
+.card {
+  background: var(--bg-surface);
+  border: 1.5px solid var(--border);
+  border-radius: 3px;
+  box-shadow: var(--shadow-soft);
+  transition: all 200ms ease;
+}
+
+.card:hover {
+  box-shadow: var(--shadow-hover);
+  transform: translateY(-2px);
+}
+
+/* Hand-drawn underline effect */
+.underline-sketch {
+  position: relative;
+}
+
+.underline-sketch::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  bottom: -4px;
+  width: 100%;
+  height: 2px;
+  background: var(--color-run);
+  border-radius: 1px;
+  transform: rotate(-0.5deg);
 }
