@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Libre_Baskerville, DM_Sans } from "next/font/google";
 import "./globals.css";
+import { Sidebar } from "@/components/Sidebar";
 
 const libreBaskerville = Libre_Baskerville({
   variable: "--font-headline",
@@ -29,7 +30,10 @@ export default function RootLayout({
       <body
         className={`${libreBaskerville.variable} ${dmSans.variable} antialiased`}
       >
-        {children}
+        <Sidebar />
+        <main className="ml-60 min-h-screen transition-all duration-200">
+          {children}
+        </main>
       </body>
     </html>
   );
