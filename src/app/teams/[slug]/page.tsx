@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { notFound } from 'next/navigation'
 import { Team, TeamSeasonEpa, TeamStyleProfile, TeamSeasonTrajectory, DrivePattern } from '@/lib/types/database'
+import { MetricsCards } from '@/components/team/MetricsCards'
 
 interface TeamPageProps {
   params: Promise<{ slug: string }>
@@ -83,12 +84,12 @@ export default async function TeamPage({ params }: TeamPageProps) {
         </pre>
       </section>
 
-      <section className="mb-8 p-6 border rounded-lg">
-        <h2 className="text-xl font-semibold mb-4">Metrics</h2>
+      <section className="mb-8">
+        <h2 className="text-xl font-semibold mb-4">Performance Metrics</h2>
         {metrics ? (
-          <pre className="text-sm">{JSON.stringify(metrics, null, 2)}</pre>
+          <MetricsCards metrics={metrics} />
         ) : (
-          <p className="text-gray-500">No metrics available</p>
+          <p className="text-gray-500">No metrics available for this season</p>
         )}
       </section>
 
