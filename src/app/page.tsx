@@ -5,7 +5,6 @@ import { Team } from '@/lib/types/database'
 export default async function Home() {
   const supabase = await createClient()
   const { data: teams, error } = await supabase
-    .schema('ref')
     .from('teams')
     .select('*')
     .not('conference', 'is', null)

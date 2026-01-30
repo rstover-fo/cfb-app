@@ -10,7 +10,7 @@ interface TeamPageProps {
 }
 
 async function getTeamBySlug(supabase: ReturnType<typeof createClient> extends Promise<infer T> ? T : never, slug: string): Promise<Team | null> {
-  const { data: teams } = await supabase.schema('ref').from('teams').select('*')
+  const { data: teams } = await supabase.from('teams').select('*')
 
   return teams?.find((team: Team) => {
     const teamSlug = team.school.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')
@@ -33,21 +33,18 @@ export default async function TeamPage({ params }: TeamPageProps) {
   // Fetch all data in parallel
   const [metricsResult, styleResult, trajectoryResult, drivesResult] = await Promise.all([
     supabase
-      .schema('marts')
       .from('team_epa_season')
       .select('*')
       .eq('team', team.school)
       .eq('season', currentSeason)
       .single(),
     supabase
-      .schema('marts')
       .from('team_style_profile')
       .select('*')
       .eq('team', team.school)
       .eq('season', currentSeason)
       .single(),
     supabase
-      .schema('marts')
       .from('team_season_trajectory')
       .select('*')
       .eq('team', team.school)
