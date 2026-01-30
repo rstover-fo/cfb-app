@@ -1,18 +1,25 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useSyncExternalStore } from 'react'
 import { Sun, Moon } from '@phosphor-icons/react'
 
+function subscribe(callback: () => void) {
+  const darkQuery = window.matchMedia('(prefers-color-scheme: dark)')
+  darkQuery.addEventListener('change', callback)
+  return () => darkQuery.removeEventListener('change', callback)
+}
+
+function getSnapshot() {
+  return window.matchMedia('(prefers-color-scheme: dark)').matches
+}
+
+function getServerSnapshot() {
+  return false
+}
+
 export function ThemeToggle() {
-  const [isDark, setIsDark] = useState(false)
+  const isDark = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot)
 
-  useEffect(() => {
-    // Check system preference on mount
-    const darkQuery = window.matchMedia('(prefers-color-scheme: dark)')
-    setIsDark(darkQuery.matches)
-  }, [])
-
-  // For now, just show current state - full theme switching would need more work
   return (
     <button
       className="flex items-center gap-3 w-full px-3 py-2 rounded text-[var(--text-muted)] hover:bg-[var(--bg-surface-alt)] transition-colors"

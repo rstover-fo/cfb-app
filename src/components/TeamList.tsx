@@ -29,7 +29,7 @@ export function TeamList({ teams }: TeamListProps) {
       </div>
       {filteredTeams.length === 0 && (
         <p className="text-center text-[var(--text-muted)] py-12">
-          No teams found matching "{searchQuery}"
+          No teams found matching &ldquo;{searchQuery}&rdquo;
         </p>
       )}
     </div>
