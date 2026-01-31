@@ -100,3 +100,51 @@ export interface TrajectoryAverages {
   fbs_def_epa_rank: number | null
   fbs_recruiting_rank: number | null
 }
+
+export interface RedZoneSplit {
+  side: 'offense' | 'defense'
+  trips: number
+  touchdowns: number
+  field_goals: number
+  turnovers: number
+  td_rate: number
+  fg_rate: number
+  scoring_rate: number
+  points_per_trip: number
+  epa_per_play: number
+}
+
+export interface FieldPositionSplit {
+  zone: 'own_1_20' | 'own_21_50' | 'opp_49_21' | 'opp_20_1'
+  zone_label: string
+  side: 'offense' | 'defense'
+  play_count: number
+  success_rate: number
+  epa_per_play: number
+  yards_per_play: number
+  scoring_rate: number
+}
+
+export interface HomeAwaySplit {
+  location: 'home' | 'away'
+  games: number
+  wins: number
+  win_pct: number
+  points_per_game: number
+  points_allowed_per_game: number
+  epa_per_play: number
+  success_rate: number
+  yards_per_play: number
+}
+
+export interface ConferenceSplit {
+  opponent_type: 'conference' | 'non_conference'
+  games: number
+  wins: number
+  win_pct: number
+  points_per_game: number
+  points_allowed_per_game: number
+  epa_per_play: number
+  success_rate: number
+  margin_per_game: number
+}
