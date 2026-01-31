@@ -58,16 +58,11 @@ export default async function TeamPage({ params }: TeamPageProps) {
   ])
 
   // Fetch down/distance splits separately with error handling (RPC may not exist in all environments)
-  let downDistanceSplits: DownDistanceSplit[] | null = null
-  try {
-    const downDistanceResult = await supabase.rpc('get_down_distance_splits', {
-      p_team: team.school,
-      p_season: currentSeason
-    })
-    downDistanceSplits = downDistanceResult.data as DownDistanceSplit[] | null
-  } catch {
-    // RPC not available - silently fail
-  }
+  const downDistanceResult = await supabase.rpc('get_down_distance_splits', {
+    p_team: team.school,
+    p_season: currentSeason
+  })
+  const downDistanceSplits = downDistanceResult.error ? null : (downDistanceResult.data as DownDistanceSplit[] | null)
 
   const metrics = metricsResult.data as TeamSeasonEpa | null
   const style = styleResult.data as TeamStyleProfile | null
