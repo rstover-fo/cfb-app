@@ -19,10 +19,10 @@ export default async function Home() {
       {/* Page Header */}
       <header className="mb-8">
         <h1 className="font-headline text-3xl text-[var(--text-primary)] underline-sketch inline-block">
-          All Teams
+          Teams
         </h1>
         <p className="text-[var(--text-secondary)] mt-2">
-          2024 Season · {teams?.length || 0} FBS Programs
+          2024 Season
         </p>
       </header>
 

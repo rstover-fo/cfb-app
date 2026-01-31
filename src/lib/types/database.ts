@@ -4,6 +4,7 @@ export interface Team {
   mascot: string | null
   abbreviation: string | null
   conference: string | null
+  classification: string | null
   color: string | null
   alt_color: string | null
   logo: string | null
