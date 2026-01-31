@@ -64,8 +64,6 @@ export function KeySituationsCards({ data }: KeySituationsCardsProps) {
     : null
 
   const fourthDownTotal = fourthDown.reduce((sum, d) => sum + d.play_count, 0)
-  const fourthDownConversions = fourthDown.reduce((sum, d) => sum + (d.conversion_rate || 0) * d.play_count, 0)
-  const fourthDownRate = fourthDownTotal > 0 ? fourthDownConversions / fourthDownTotal : null
 
   const secondLongRate = secondLong.length > 0
     ? secondLong.reduce((sum, d) => sum + d.success_rate * d.play_count, 0) / secondLong.reduce((sum, d) => sum + d.play_count, 0)
