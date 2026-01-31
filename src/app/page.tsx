@@ -5,9 +5,11 @@ import { Team } from '@/lib/types/database'
 export default async function Home() {
   const supabase = await createClient()
 
+  // Only fetch FBS and FCS teams (265 total) to avoid Supabase's 1000 row default limit
   const { data: teams, error } = await supabase
     .from('teams')
     .select('*')
+    .in('classification', ['fbs', 'fcs'])
     .order('school')
 
   if (error) {
