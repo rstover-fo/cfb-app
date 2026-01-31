@@ -1,12 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { notFound } from 'next/navigation'
 import { Team, TeamSeasonEpa, TeamStyleProfile, TeamSeasonTrajectory, DrivePattern, DownDistanceSplit } from '@/lib/types/database'
-import { MetricsCards } from '@/components/team/MetricsCards'
-import { StyleProfile } from '@/components/team/StyleProfile'
-import { DrivePatterns } from '@/components/visualizations/DrivePatterns'
-import { TrajectoryChart } from '@/components/team/TrajectoryChart'
-import { TeamTabs, TabId } from '@/components/team/TeamTabs'
-import { SituationalView } from '@/components/team/SituationalView'
+import { TeamPageClient } from '@/components/team/TeamPageClient'
 
 interface TeamPageProps {
   params: Promise<{ slug: string }>
@@ -70,92 +65,14 @@ export default async function TeamPage({ params }: TeamPageProps) {
   const drives = drivesResult.data as DrivePattern[] | null
 
   return (
-    <div className="p-8">
-      {/* Page Header */}
-      <header className="flex items-center gap-6 mb-8 pb-6 border-b border-[var(--border)]">
-        {team.logo ? (
-          <img
-            src={team.logo}
-            alt={`${team.school} logo`}
-            className="w-20 h-20 object-contain"
-          />
-        ) : (
-          <div className="w-20 h-20 rounded-full bg-[var(--bg-surface-alt)] flex items-center justify-center">
-            <span className="font-headline text-2xl text-[var(--text-muted)]">
-              {team.school.split(' ').map(w => w[0]).join('').slice(0, 2)}
-            </span>
-          </div>
-        )}
-        <div>
-          <h1 className="font-headline text-4xl text-[var(--text-primary)] underline-sketch inline-block">
-            {team.school}
-          </h1>
-          <p className="text-[var(--text-secondary)] mt-1">
-            {team.conference || 'Independent'} · {currentSeason} Season
-          </p>
-        </div>
-      </header>
-
-      {/* Tabbed Content */}
-      <TeamTabs>
-        {(activeTab: TabId) => (
-          <>
-            {activeTab === 'overview' && (
-              <>
-                {/* Drive Patterns */}
-                <section className="mb-10">
-                  <h2 className="font-headline text-2xl text-[var(--text-primary)] mb-4">Drive Patterns</h2>
-                  {drives && drives.length > 0 ? (
-                    <DrivePatterns drives={drives} teamName={team.school} />
-                  ) : (
-                    <p className="text-[var(--text-muted)]">No drive data available</p>
-                  )}
-                </section>
-
-                {/* Performance Metrics */}
-                <section className="mb-10">
-                  <h2 className="font-headline text-2xl text-[var(--text-primary)] mb-4">Performance Metrics</h2>
-                  {metrics ? (
-                    <MetricsCards metrics={metrics} />
-                  ) : (
-                    <p className="text-[var(--text-muted)]">No metrics available for this season</p>
-                  )}
-                </section>
-
-                {/* Style Profile */}
-                <section className="mb-10">
-                  <h2 className="font-headline text-2xl text-[var(--text-primary)] mb-4">Style Profile</h2>
-                  {style ? (
-                    <StyleProfile style={style} />
-                  ) : (
-                    <p className="text-[var(--text-muted)]">No style data available</p>
-                  )}
-                </section>
-
-                {/* Historical Trajectory */}
-                <section className="mb-10">
-                  <h2 className="font-headline text-2xl text-[var(--text-primary)] mb-4">Historical Trajectory</h2>
-                  {trajectory && trajectory.length > 0 ? (
-                    <TrajectoryChart trajectory={trajectory} />
-                  ) : (
-                    <p className="text-[var(--text-muted)]">No trajectory data available</p>
-                  )}
-                </section>
-              </>
-            )}
-
-            {activeTab === 'situational' && (
-              <SituationalView downDistanceData={downDistanceSplits} />
-            )}
-
-            {(activeTab === 'schedule' || activeTab === 'roster' || activeTab === 'compare') && (
-              <div className="text-center py-12">
-                <p className="text-[var(--text-muted)]">Coming soon.</p>
-              </div>
-            )}
-          </>
-        )}
-      </TeamTabs>
-    </div>
+    <TeamPageClient
+      team={team}
+      currentSeason={currentSeason}
+      metrics={metrics}
+      style={style}
+      trajectory={trajectory}
+      drives={drives}
+      downDistanceSplits={downDistanceSplits}
+    />
   )
 }
