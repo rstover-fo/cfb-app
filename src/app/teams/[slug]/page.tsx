@@ -1,6 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { notFound } from 'next/navigation'
-import { Team, TeamSeasonEpa, TeamStyleProfile, TeamSeasonTrajectory, DrivePattern, DownDistanceSplit } from '@/lib/types/database'
+import { Team, TeamSeasonEpa, TeamStyleProfile, TeamSeasonTrajectory, DrivePattern, DownDistanceSplit, TrajectoryAverages } from '@/lib/types/database'
 import { TeamPageClient } from '@/components/team/TeamPageClient'
 
 interface TeamPageProps {
@@ -59,6 +59,12 @@ export default async function TeamPage({ params }: TeamPageProps) {
   })
   const downDistanceSplits = downDistanceResult.error ? null : (downDistanceResult.data as DownDistanceSplit[] | null)
 
+  // Fetch trajectory averages for conference and FBS comparison
+  const trajectoryAvgResult = await supabase.rpc('get_trajectory_averages', {
+    p_conference: team.conference || 'SEC'
+  })
+  const trajectoryAverages = trajectoryAvgResult.error ? null : (trajectoryAvgResult.data as TrajectoryAverages[] | null)
+
   const metrics = metricsResult.data as TeamSeasonEpa | null
   const style = styleResult.data as TeamStyleProfile | null
   const trajectory = trajectoryResult.data as TeamSeasonTrajectory[] | null
@@ -71,6 +77,7 @@ export default async function TeamPage({ params }: TeamPageProps) {
       metrics={metrics}
       style={style}
       trajectory={trajectory}
+      trajectoryAverages={trajectoryAverages}
       drives={drives}
       downDistanceSplits={downDistanceSplits}
     />

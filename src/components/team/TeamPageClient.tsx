@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Team, TeamSeasonEpa, TeamStyleProfile, TeamSeasonTrajectory, DrivePattern, DownDistanceSplit } from '@/lib/types/database'
+import { Team, TeamSeasonEpa, TeamStyleProfile, TeamSeasonTrajectory, DrivePattern, DownDistanceSplit, TrajectoryAverages } from '@/lib/types/database'
 import { MetricsCards } from '@/components/team/MetricsCards'
 import { StyleProfile } from '@/components/team/StyleProfile'
 import { DrivePatterns } from '@/components/visualizations/DrivePatterns'
@@ -30,6 +30,7 @@ interface TeamPageClientProps {
   metrics: TeamSeasonEpa | null
   style: TeamStyleProfile | null
   trajectory: TeamSeasonTrajectory[] | null
+  trajectoryAverages: TrajectoryAverages[] | null
   drives: DrivePattern[] | null
   downDistanceSplits: DownDistanceSplit[] | null
 }
@@ -40,6 +41,7 @@ export function TeamPageClient({
   metrics,
   style,
   trajectory,
+  trajectoryAverages,
   drives,
   downDistanceSplits
 }: TeamPageClientProps) {
@@ -139,7 +141,11 @@ export function TeamPageClient({
             <section className="mb-10">
               <h2 className="font-headline text-2xl text-[var(--text-primary)] mb-4">Historical Trajectory</h2>
               {trajectory && trajectory.length > 0 ? (
-                <TrajectoryChart trajectory={trajectory} />
+                <TrajectoryChart
+                  trajectory={trajectory}
+                  averages={trajectoryAverages}
+                  conference={team.conference || 'FBS'}
+                />
               ) : (
                 <p className="text-[var(--text-muted)]">No trajectory data available</p>
               )}

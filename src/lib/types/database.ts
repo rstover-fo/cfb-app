@@ -82,3 +82,21 @@ export interface KeySituation {
   rank: number
   trend: number
 }
+
+export interface TrajectoryAverages {
+  season: number
+  conf_wins: number | null
+  conf_win_pct: number | null
+  conf_epa_per_play: number | null
+  conf_success_rate: number | null
+  conf_off_epa_rank: number | null
+  conf_def_epa_rank: number | null
+  conf_recruiting_rank: number | null
+  fbs_wins: number | null
+  fbs_win_pct: number | null
+  fbs_epa_per_play: number | null
+  fbs_success_rate: number | null
+  fbs_off_epa_rank: number | null
+  fbs_def_epa_rank: number | null
+  fbs_recruiting_rank: number | null
+}

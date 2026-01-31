@@ -53,7 +53,7 @@ function AnimatedValue({ value, decimals = 3 }: { value: number | null; decimals
 
 export function StyleProfile({ style }: StyleProfileProps) {
   const runPercent = Math.round(style.run_rate * 100)
-  const passPercent = Math.round(style.pass_rate * 100)
+  const passPercent = 100 - runPercent  // Ensure bar always fills to 100%
 
   return (
     <div className="card p-6">
