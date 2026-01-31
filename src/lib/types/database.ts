@@ -62,3 +62,23 @@ export interface DrivePattern {
   avg_plays: number
   avg_yards: number
 }
+
+export interface DownDistanceSplit {
+  down: 1 | 2 | 3 | 4
+  distance_bucket: '1-3' | '4-6' | '7-10' | '11+'
+  side: 'offense' | 'defense'
+  play_count: number
+  success_rate: number
+  epa_per_play: number
+  conversion_rate: number | null
+  national_rank?: number
+}
+
+export interface KeySituation {
+  label: string
+  description: string
+  value: number
+  format: 'percent' | 'count'
+  rank: number
+  trend: number
+}
