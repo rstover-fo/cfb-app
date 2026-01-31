@@ -33,7 +33,7 @@ export default async function TeamPage({ params }: TeamPageProps) {
 
   const currentSeason = 2024
 
-  const [metricsResult, styleResult, trajectoryResult, drivesResult, downDistanceResult] = await Promise.all([
+  const [metricsResult, styleResult, trajectoryResult, drivesResult] = await Promise.all([
     supabase
       .from('team_epa_season')
       .select('*')
@@ -54,18 +54,25 @@ export default async function TeamPage({ params }: TeamPageProps) {
     supabase.rpc('get_drive_patterns', {
       p_team: team.school,
       p_season: currentSeason
-    }),
-    supabase.rpc('get_down_distance_splits', {
+    })
+  ])
+
+  // Fetch down/distance splits separately with error handling (RPC may not exist in all environments)
+  let downDistanceSplits: DownDistanceSplit[] | null = null
+  try {
+    const downDistanceResult = await supabase.rpc('get_down_distance_splits', {
       p_team: team.school,
       p_season: currentSeason
     })
-  ])
+    downDistanceSplits = downDistanceResult.data as DownDistanceSplit[] | null
+  } catch {
+    // RPC not available - silently fail
+  }
 
   const metrics = metricsResult.data as TeamSeasonEpa | null
   const style = styleResult.data as TeamStyleProfile | null
   const trajectory = trajectoryResult.data as TeamSeasonTrajectory[] | null
   const drives = drivesResult.data as DrivePattern[] | null
-  const downDistanceSplits = downDistanceResult.data as DownDistanceSplit[] | null
 
   return (
     <div className="p-8">
