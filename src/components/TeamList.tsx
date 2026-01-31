@@ -7,11 +7,19 @@ import { TeamSearch } from './TeamSearch'
 
 type Division = 'fbs' | 'fcs' | 'all'
 
-interface TeamListProps {
-  teams: Team[]
+export interface TeamMetrics {
+  epa: number
+  rank: number
+  wins: number
+  losses: number
 }
 
-export function TeamList({ teams }: TeamListProps) {
+interface TeamListProps {
+  teams: Team[]
+  metricsMap: Record<string, TeamMetrics>
+}
+
+export function TeamList({ teams, metricsMap }: TeamListProps) {
   const [division, setDivision] = useState<Division>('fbs')
   const [conference, setConference] = useState<string>('all')
   const [searchQuery, setSearchQuery] = useState('')
@@ -71,7 +79,14 @@ export function TeamList({ teams }: TeamListProps) {
         <select
           value={division}
           onChange={(e) => handleDivisionChange(e.target.value as Division)}
-          className="px-3 py-1.5 text-sm border-[1.5px] border-[var(--border)] rounded-sm bg-[var(--bg-surface)] text-[var(--text-secondary)] cursor-pointer hover:border-[var(--text-muted)] transition-colors"
+          className="px-3 py-2 text-sm border-[1.5px] border-[var(--border)] rounded-sm
+            bg-[var(--bg-surface)] text-[var(--text-primary)]
+            cursor-pointer hover:border-[var(--text-muted)] transition-colors
+            appearance-none bg-no-repeat bg-right pr-8"
+          style={{
+            backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%236B635A' d='M3 4.5L6 8l3-3.5H3z'/%3E%3C/svg%3E")`,
+            backgroundPosition: 'right 0.75rem center'
+          }}
         >
           <option value="fbs">FBS</option>
           <option value="fcs">FCS</option>
@@ -121,7 +136,7 @@ export function TeamList({ teams }: TeamListProps) {
       {/* Team Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
         {filteredTeams.map((team) => (
-          <TeamCard key={team.id} team={team} />
+          <TeamCard key={team.id} team={team} metrics={metricsMap[team.school]} />
         ))}
       </div>
 

@@ -1,8 +1,10 @@
 import Link from 'next/link'
 import { Team } from '@/lib/types/database'
+import { TeamMetrics } from './TeamList'
 
 interface TeamCardProps {
   team: Team
+  metrics?: TeamMetrics
 }
 
 function TeamInitials({ school }: { school: string }) {
@@ -22,7 +24,7 @@ function TeamInitials({ school }: { school: string }) {
   )
 }
 
-export function TeamCard({ team }: TeamCardProps) {
+export function TeamCard({ team, metrics }: TeamCardProps) {
   const slug = team.school.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')
 
   return (
@@ -53,19 +55,25 @@ export function TeamCard({ team }: TeamCardProps) {
         </p>
       </div>
 
-      {/* Stats Preview - placeholder for now */}
+      {/* Stats Preview */}
       <div className="flex justify-between text-sm border-t border-[var(--border)] pt-4">
         <div className="text-center">
           <p className="text-[var(--text-muted)]">EPA</p>
-          <p className="text-[var(--text-primary)] font-medium">--</p>
+          <p className="text-[var(--text-primary)] font-medium">
+            {metrics?.epa ? metrics.epa.toFixed(2) : '--'}
+          </p>
         </div>
         <div className="text-center">
           <p className="text-[var(--text-muted)]">W-L</p>
-          <p className="text-[var(--text-primary)] font-medium">--</p>
+          <p className="text-[var(--text-primary)] font-medium">
+            {metrics ? `${metrics.wins}-${metrics.losses}` : '--'}
+          </p>
         </div>
         <div className="text-center">
           <p className="text-[var(--text-muted)]">Rank</p>
-          <p className="text-[var(--text-primary)] font-medium">--</p>
+          <p className="text-[var(--text-primary)] font-medium">
+            {metrics?.rank ? `#${metrics.rank}` : '--'}
+          </p>
         </div>
       </div>
     </Link>
