@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Team, TeamSeasonEpa, TeamStyleProfile, TeamSeasonTrajectory, DrivePattern, DownDistanceSplit, TrajectoryAverages } from '@/lib/types/database'
+import { Team, TeamSeasonEpa, TeamStyleProfile, TeamSeasonTrajectory, DrivePattern, DownDistanceSplit, TrajectoryAverages, RedZoneSplit, FieldPositionSplit, HomeAwaySplit, ConferenceSplit } from '@/lib/types/database'
 import { MetricsCards } from '@/components/team/MetricsCards'
 import { StyleProfile } from '@/components/team/StyleProfile'
 import { DrivePatterns } from '@/components/visualizations/DrivePatterns'
@@ -33,6 +33,10 @@ interface TeamPageClientProps {
   trajectoryAverages: TrajectoryAverages[] | null
   drives: DrivePattern[] | null
   downDistanceSplits: DownDistanceSplit[] | null
+  redZoneSplits: RedZoneSplit[] | null
+  fieldPositionSplits: FieldPositionSplit[] | null
+  homeAwaySplits: HomeAwaySplit[] | null
+  conferenceSplits: ConferenceSplit[] | null
 }
 
 export function TeamPageClient({
@@ -43,7 +47,11 @@ export function TeamPageClient({
   trajectory,
   trajectoryAverages,
   drives,
-  downDistanceSplits
+  downDistanceSplits,
+  redZoneSplits,
+  fieldPositionSplits,
+  homeAwaySplits,
+  conferenceSplits
 }: TeamPageClientProps) {
   const [activeTab, setActiveTab] = useState<TabId>('overview')
 
@@ -154,7 +162,14 @@ export function TeamPageClient({
         )}
 
         {activeTab === 'situational' && (
-          <SituationalView downDistanceData={downDistanceSplits} />
+          <SituationalView
+            downDistanceData={downDistanceSplits}
+            redZoneData={redZoneSplits}
+            fieldPositionData={fieldPositionSplits}
+            homeAwayData={homeAwaySplits}
+            conferenceData={conferenceSplits}
+            conference={team.conference || 'FBS'}
+          />
         )}
 
         {(activeTab === 'schedule' || activeTab === 'roster' || activeTab === 'compare') && (

@@ -1,6 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { notFound } from 'next/navigation'
-import { Team, TeamSeasonEpa, TeamStyleProfile, TeamSeasonTrajectory, DrivePattern, DownDistanceSplit, TrajectoryAverages } from '@/lib/types/database'
+import { Team, TeamSeasonEpa, TeamStyleProfile, TeamSeasonTrajectory, DrivePattern, DownDistanceSplit, TrajectoryAverages, RedZoneSplit, FieldPositionSplit, HomeAwaySplit, ConferenceSplit } from '@/lib/types/database'
 import { TeamPageClient } from '@/components/team/TeamPageClient'
 
 interface TeamPageProps {
@@ -59,6 +59,34 @@ export default async function TeamPage({ params }: TeamPageProps) {
   })
   const downDistanceSplits = downDistanceResult.error ? null : (downDistanceResult.data as DownDistanceSplit[] | null)
 
+  // Fetch red zone splits
+  const redZoneResult = await supabase.rpc('get_red_zone_splits', {
+    p_team: team.school,
+    p_season: currentSeason
+  })
+  const redZoneSplits = redZoneResult.error ? null : (redZoneResult.data as RedZoneSplit[] | null)
+
+  // Fetch field position splits
+  const fieldPosResult = await supabase.rpc('get_field_position_splits', {
+    p_team: team.school,
+    p_season: currentSeason
+  })
+  const fieldPositionSplits = fieldPosResult.error ? null : (fieldPosResult.data as FieldPositionSplit[] | null)
+
+  // Fetch home/away splits
+  const homeAwayResult = await supabase.rpc('get_home_away_splits', {
+    p_team: team.school,
+    p_season: currentSeason
+  })
+  const homeAwaySplits = homeAwayResult.error ? null : (homeAwayResult.data as HomeAwaySplit[] | null)
+
+  // Fetch conference splits
+  const confSplitResult = await supabase.rpc('get_conference_splits', {
+    p_team: team.school,
+    p_season: currentSeason
+  })
+  const conferenceSplits = confSplitResult.error ? null : (confSplitResult.data as ConferenceSplit[] | null)
+
   // Fetch trajectory averages for conference and FBS comparison
   const trajectoryAvgResult = await supabase.rpc('get_trajectory_averages', {
     p_conference: team.conference || 'SEC'
@@ -80,6 +108,10 @@ export default async function TeamPage({ params }: TeamPageProps) {
       trajectoryAverages={trajectoryAverages}
       drives={drives}
       downDistanceSplits={downDistanceSplits}
+      redZoneSplits={redZoneSplits}
+      fieldPositionSplits={fieldPositionSplits}
+      homeAwaySplits={homeAwaySplits}
+      conferenceSplits={conferenceSplits}
     />
   )
 }

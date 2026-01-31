@@ -1,9 +1,13 @@
 'use client'
 
 import { useState } from 'react'
-import { DownDistanceSplit } from '@/lib/types/database'
+import { DownDistanceSplit, RedZoneSplit, FieldPositionSplit, HomeAwaySplit, ConferenceSplit } from '@/lib/types/database'
 import { DownDistanceHeatmap } from '@/components/visualizations/DownDistanceHeatmap'
 import { KeySituationsCards } from './KeySituationsCards'
+import { RedZoneView } from './RedZoneView'
+import { FieldPositionView } from './FieldPositionView'
+import { HomeAwayView } from './HomeAwayView'
+import { ConferenceView } from './ConferenceView'
 
 type SubTab = 'down-distance' | 'red-zone' | 'field-position' | 'home-away' | 'vs-conference'
 
@@ -15,17 +19,29 @@ interface SubTabConfig {
 
 const SUB_TABS: SubTabConfig[] = [
   { id: 'down-distance', label: 'Down & Distance', enabled: true },
-  { id: 'red-zone', label: 'Red Zone', enabled: false },
-  { id: 'field-position', label: 'Field Position', enabled: false },
-  { id: 'home-away', label: 'Home vs Away', enabled: false },
-  { id: 'vs-conference', label: 'vs Conference', enabled: false },
+  { id: 'red-zone', label: 'Red Zone', enabled: true },
+  { id: 'field-position', label: 'Field Position', enabled: true },
+  { id: 'home-away', label: 'Home vs Away', enabled: true },
+  { id: 'vs-conference', label: 'vs Conference', enabled: true },
 ]
 
 interface SituationalViewProps {
   downDistanceData: DownDistanceSplit[] | null
+  redZoneData: RedZoneSplit[] | null
+  fieldPositionData: FieldPositionSplit[] | null
+  homeAwayData: HomeAwaySplit[] | null
+  conferenceData: ConferenceSplit[] | null
+  conference: string
 }
 
-export function SituationalView({ downDistanceData }: SituationalViewProps) {
+export function SituationalView({
+  downDistanceData,
+  redZoneData,
+  fieldPositionData,
+  homeAwayData,
+  conferenceData,
+  conference
+}: SituationalViewProps) {
   const [activeSubTab, setActiveSubTab] = useState<SubTab>('down-distance')
 
   return (
@@ -61,21 +77,10 @@ export function SituationalView({ downDistanceData }: SituationalViewProps) {
         <div>
           {downDistanceData && downDistanceData.length > 0 ? (
             <>
-              {/* Heatmaps */}
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-                <DownDistanceHeatmap
-                  data={downDistanceData}
-                  side="offense"
-                  title="Offense"
-                />
-                <DownDistanceHeatmap
-                  data={downDistanceData}
-                  side="defense"
-                  title="Defense"
-                />
+                <DownDistanceHeatmap data={downDistanceData} side="offense" title="Offense" />
+                <DownDistanceHeatmap data={downDistanceData} side="defense" title="Defense" />
               </div>
-
-              {/* Key Situations */}
               <KeySituationsCards data={downDistanceData} />
             </>
           ) : (
@@ -86,10 +91,20 @@ export function SituationalView({ downDistanceData }: SituationalViewProps) {
         </div>
       )}
 
-      {activeSubTab !== 'down-distance' && (
-        <p className="text-[var(--text-muted)] text-center py-8">
-          Coming soon.
-        </p>
+      {activeSubTab === 'red-zone' && (
+        <RedZoneView data={redZoneData} />
+      )}
+
+      {activeSubTab === 'field-position' && (
+        <FieldPositionView data={fieldPositionData} />
+      )}
+
+      {activeSubTab === 'home-away' && (
+        <HomeAwayView data={homeAwayData} />
+      )}
+
+      {activeSubTab === 'vs-conference' && (
+        <ConferenceView data={conferenceData} conference={conference} />
       )}
     </div>
   )
