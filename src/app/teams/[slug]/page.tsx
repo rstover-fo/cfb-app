@@ -1,6 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { notFound } from 'next/navigation'
-import { Team, TeamSeasonEpa, TeamStyleProfile, TeamSeasonTrajectory, DrivePattern, DownDistanceSplit, TrajectoryAverages, RedZoneSplit, FieldPositionSplit, HomeAwaySplit, ConferenceSplit } from '@/lib/types/database'
+import { Team, TeamSeasonEpa, TeamStyleProfile, TeamSeasonTrajectory, DrivePattern, DownDistanceSplit, TrajectoryAverages, RedZoneSplit, FieldPositionSplit, HomeAwaySplit, ConferenceSplit, RosterPlayer, PlayerSeasonStat } from '@/lib/types/database'
 import { TeamPageClient } from '@/components/team/TeamPageClient'
 
 interface TeamPageProps {
@@ -93,6 +93,23 @@ export default async function TeamPage({ params }: TeamPageProps) {
   })
   const trajectoryAverages = trajectoryAvgResult.error ? null : (trajectoryAvgResult.data as TrajectoryAverages[] | null)
 
+  // Fetch roster
+  const rosterResult = await supabase
+    .from('roster')
+    .select('id, first_name, last_name, jersey, position, height, weight, home_city, home_state, year')
+    .eq('team', team.school)
+    .eq('year', currentSeason)
+    .order('last_name')
+
+  const roster = rosterResult.error ? null : (rosterResult.data as RosterPlayer[] | null)
+
+  // Fetch player stats (pivoted)
+  const playerStatsResult = await supabase.rpc('get_player_season_stats_pivoted', {
+    p_team: team.school,
+    p_season: currentSeason
+  })
+  const playerStats = playerStatsResult.error ? null : (playerStatsResult.data as PlayerSeasonStat[] | null)
+
   const metrics = metricsResult.data as TeamSeasonEpa | null
   const style = styleResult.data as TeamStyleProfile | null
   const trajectory = trajectoryResult.data as TeamSeasonTrajectory[] | null
@@ -112,6 +129,8 @@ export default async function TeamPage({ params }: TeamPageProps) {
       fieldPositionSplits={fieldPositionSplits}
       homeAwaySplits={homeAwaySplits}
       conferenceSplits={conferenceSplits}
+      roster={roster}
+      playerStats={playerStats}
     />
   )
 }
