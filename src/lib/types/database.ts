@@ -149,3 +149,55 @@ export interface ConferenceSplit {
   success_rate: number
   margin_per_game: number
 }
+
+export interface RosterPlayer {
+  id: string
+  first_name: string
+  last_name: string
+  jersey: number | null
+  position: string
+  height: number | null
+  weight: number | null
+  home_city: string | null
+  home_state: string | null
+  year: number
+}
+
+export interface PlayerSeasonStat {
+  player_id: string
+  player: string
+  position: string
+  // Passing
+  pass_att?: number
+  pass_comp?: number
+  pass_yds?: number
+  pass_td?: number
+  pass_int?: number
+  // Rushing
+  rush_car?: number
+  rush_yds?: number
+  rush_td?: number
+  rush_ypc?: number
+  // Receiving
+  rec?: number
+  rec_yds?: number
+  rec_td?: number
+  rec_ypr?: number
+  // Defense
+  tackles?: number
+  solo?: number
+  tfl?: number
+  sacks?: number
+  int?: number
+  pd?: number
+  // Kicking
+  fg_made?: number
+  fg_att?: number
+  xp_made?: number
+  xp_att?: number
+  points?: number
+}
+
+export interface RosterPlayerWithStats extends RosterPlayer {
+  stats: PlayerSeasonStat | null
+}
