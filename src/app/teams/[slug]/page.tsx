@@ -93,9 +93,8 @@ export default async function TeamPage({ params }: TeamPageProps) {
   })
   const trajectoryAverages = trajectoryAvgResult.error ? null : (trajectoryAvgResult.data as TrajectoryAverages[] | null)
 
-  // Fetch roster (core schema)
+  // Fetch roster (via public view)
   const rosterResult = await supabase
-    .schema('core')
     .from('roster')
     .select('id, first_name, last_name, jersey, position, height, weight, home_city, home_state, year')
     .eq('team', team.school)
