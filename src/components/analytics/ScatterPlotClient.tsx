@@ -141,6 +141,7 @@ interface DataPoint {
   color: string
   logo: string | null
   conference: string | null
+  compositeScore?: number
 }
 
 export function ScatterPlotClient({ teams, metrics, styles, havoc, tempo, currentSeason }: ScatterPlotClientProps) {
@@ -177,7 +178,7 @@ export function ScatterPlotClient({ teams, metrics, styles, havoc, tempo, curren
   }, [tempo])
 
   // Transform data based on active plot
-  const plotData: DataPoint[] = useMemo(() => {
+  const plotData = useMemo(() => {
     return teams
       .filter(team => !selectedConference || team.conference === selectedConference)
       .map(team => {
@@ -227,6 +228,12 @@ export function ScatterPlotClient({ teams, metrics, styles, havoc, tempo, curren
             return null
         }
 
+        // Calculate composite score for point sizing
+        const maxRank = 134
+        const offPct = ((maxRank - teamMetrics.off_epa_rank) / maxRank) * 100
+        const defPct = ((maxRank - teamMetrics.def_epa_rank) / maxRank) * 100
+        const compositeScore = (offPct + defPct) / 2
+
         return {
           id: team.id,
           name: team.school,
@@ -234,10 +241,11 @@ export function ScatterPlotClient({ teams, metrics, styles, havoc, tempo, curren
           y,
           color: team.color || '#6B635A',
           logo: team.logo,
-          conference: team.conference
+          conference: team.conference,
+          compositeScore
         }
       })
-      .filter((p): p is DataPoint => p !== null)
+      .filter((p): p is NonNullable<typeof p> => p !== null)
   }, [teams, metricsMap, stylesMap, havocMap, tempoMap, activePlot, selectedConference])
 
   // Find highlighted team based on search

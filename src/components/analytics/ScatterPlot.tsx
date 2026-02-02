@@ -11,6 +11,7 @@ interface DataPoint {
   color: string
   logo: string | null
   conference: string | null
+  compositeScore?: number  // Optional third dimension for point sizing
 }
 
 interface QuadrantLabels {
@@ -326,7 +327,12 @@ export function ScatterPlot({ data, xLabel, yLabel, xInvert = false, yInvert = f
           const isActive = isHovered || isHighlighted
           const cx = xScale(point.x)
           const cy = yScale(point.y)
-          const radius = isActive ? 16 : 10
+          // Scale radius based on composite score (0.7x to 1.3x of base)
+          const baseRadius = 10
+          const sizeScale = point.compositeScore !== undefined
+            ? 0.7 + (point.compositeScore / 100) * 0.6
+            : 1
+          const radius = isActive ? 16 : baseRadius * sizeScale
           const useLogo = showLogos && point.logo
           // Dim non-highlighted points when search is active
           const isDimmed = highlightedTeamId !== null && !isHighlighted && !isHovered
