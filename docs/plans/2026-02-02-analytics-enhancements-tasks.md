@@ -17,8 +17,10 @@ Enhance the `/analytics` page with improved rankings, sortable tables, expanded 
 
 **Priority**: P1
 **Estimated Complexity**: Small
+**Wave**: 1 (foundation)
 **Blocked By**: None
-**Blocks**: None
+**Blocks**: Task 2
+**Parallel Safe With**: Tasks 3, 4, 6
 
 ### Description
 Add click-to-sort functionality on the Rankings table columns. Users should be able to sort by Composite, Offense, or Defense to quickly find teams that excel in specific areas.
@@ -42,8 +44,10 @@ Keep sorting client-side — data is already loaded. Consider using a small chev
 
 **Priority**: P1
 **Estimated Complexity**: Small
-**Blocked By**: None
-**Blocks**: None
+**Wave**: 2 (after sortable table)
+**Blocked By**: Task 1
+**Blocks**: Task 2B
+**Parallel Safe With**: Tasks 5, 7
 
 ### Description
 Show the actual FBS-only rank numbers (Off #12, Def #5) alongside percentile scores. Users want to see "Oklahoma is #8 defense" not just "92% percentile."
@@ -67,8 +71,10 @@ Data already exists in `rankedTeams` — this is pure display work. Can be done 
 
 **Priority**: P1
 **Estimated Complexity**: Small-Medium
-**Blocked By**: None
+**Wave**: 3 (final integration)
+**Blocked By**: Task 2
 **Blocks**: None
+**Parallel Safe With**: Task 8
 
 ### Description
 Add win-loss record column to the Rankings table. Provides context that pure EPA rankings miss — Oklahoma may have lower EPA but a winning record.
@@ -94,8 +100,10 @@ Check `core.records` table structure. May need `public.records` view. Could also
 
 **Priority**: P2
 **Estimated Complexity**: Medium
+**Wave**: 1 (foundation)
 **Blocked By**: None
 **Blocks**: Task 5
+**Parallel Safe With**: Tasks 1, 4, 6 (can bundle with Task 4)
 
 ### Description
 Create a dedicated Offense spider/radar chart with offensive-specific metrics: Rush EPA, Pass EPA, Success Rate, Explosiveness, Red Zone Efficiency.
@@ -121,8 +129,10 @@ Check if we have Red Zone data. If not, substitute with another offensive metric
 
 **Priority**: P2
 **Estimated Complexity**: Medium
+**Wave**: 1 (foundation)
 **Blocked By**: None
 **Blocks**: Task 5
+**Parallel Safe With**: Tasks 1, 3, 6 (can bundle with Task 3)
 
 ### Description
 Create a dedicated Defense spider chart with defensive metrics: EPA Allowed, Havoc Rate, Stuff Rate, Pass D Rank, Run D Rank, Turnovers Forced.
@@ -147,8 +157,10 @@ Create a dedicated Defense spider chart with defensive metrics: EPA Allowed, Hav
 
 **Priority**: P2
 **Estimated Complexity**: Small
-**Blocked By**: Task 3, Task 4
+**Wave**: 2 (after radars exist)
+**Blocked By**: Tasks 3, 4
 **Blocks**: None
+**Parallel Safe With**: Tasks 2, 7
 
 ### Description
 Add a toggle in the Rankings view to switch between Combined (current), Offense-only, and Defense-only spider charts.
@@ -172,8 +184,10 @@ This is primarily UI wiring — the hard work is in Tasks 3 and 4. Keep it simpl
 
 **Priority**: P1
 **Estimated Complexity**: Small
+**Wave**: 1 (foundation, research only)
 **Blocked By**: None
-**Blocks**: Task 7, Task 8
+**Blocks**: Task 7 → Task 8
+**Parallel Safe With**: Tasks 1, 2, 3, 4 (no code changes)
 
 ### Description
 Investigate what special teams and strength-of-schedule data exists in cfb-database. Document findings and identify gaps.
@@ -198,8 +212,10 @@ This is research only — no code changes. Output is documentation that informs 
 
 **Priority**: P3
 **Estimated Complexity**: Medium-Large
+**Wave**: 2 (after data exploration)
 **Blocked By**: Task 6
 **Blocks**: Task 8
+**Parallel Safe With**: Tasks 2, 5 (different codebase: cfb-database)
 
 ### Description
 If Task 6 finds special teams data, create marts and public views to expose it. If data doesn't exist, create pipeline to ingest from CollegeFootballData API.
@@ -224,8 +240,10 @@ Depends entirely on Task 6 findings. May be skipped if data isn't available.
 
 **Priority**: P3
 **Estimated Complexity**: Medium
+**Wave**: 3 (final integration)
 **Blocked By**: Task 7
 **Blocks**: None
+**Parallel Safe With**: Task 2B (different files)
 
 ### Description
 Add special teams factor to composite ranking formula. Update spider chart to include ST spoke.
@@ -248,28 +266,111 @@ May want to make ST weight configurable (10%, 20%, etc.) since its impact varies
 ## Dependency Graph
 
 ```
-Task 1 (sortable) ←──────────────────────────────┐
-Task 2 (show ranks) ←────────────────────────────┤ (parallel, no deps)
-                                                 │
-Task 3 (offense radar) ─────┐                    │
-Task 4 (defense radar) ─────┼──→ Task 5 (toggle) │
-                            │                    │
-Task 6 (data exploration) ──┼──→ Task 7 (ST pipeline) ──→ Task 8 (integrate ST)
+                    ┌─────────────────────────────────────────────┐
+                    │           PARALLEL GROUP 1                  │
+                    │  (No dependencies - can all run together)   │
+                    └─────────────────────────────────────────────┘
+                                        │
+        ┌───────────────────────────────┼───────────────────────────────┐
+        │                               │                               │
+        ▼                               ▼                               ▼
+┌───────────────┐               ┌───────────────┐               ┌───────────────┐
+│ Task 1        │               │ Task 3        │               │ Task 6        │
+│ Sortable      │               │ Offense Radar │               │ ST Data       │
+│ Table         │               │               │               │ Exploration   │
+└───────┬───────┘               └───────┬───────┘               └───────┬───────┘
+        │                               │                               │
+        ▼                               │                               ▼
+┌───────────────┐               ┌───────┴───────┐               ┌───────────────┐
+│ Task 2        │               │ Task 4        │               │ Task 7        │
+│ Show Ranks    │◄──────────────│ Defense Radar │               │ ST Pipeline   │
+│ (needs sort)  │               │               │               │ (needs T6)    │
+└───────┬───────┘               └───────┬───────┘               └───────┬───────┘
+        │                               │                               │
+        ▼                               ▼                               ▼
+┌───────────────┐               ┌───────────────┐               ┌───────────────┐
+│ Task 2B       │               │ Task 5        │               │ Task 8        │
+│ W-L Record    │               │ Radar Toggle  │               │ Integrate ST  │
+│ (needs T2)    │               │ (needs T3+T4) │               │ (needs T7)    │
+└───────────────┘               └───────────────┘               └───────────────┘
 ```
 
-## Suggested Session Order
+## Execution Waves (Parallel Strategy)
 
-**Session 1**: Tasks 1 + 2 (parallel, both small, quick wins)
-**Session 2**: Task 3 (Offense Radar)
-**Session 3**: Task 4 (Defense Radar)
-**Session 4**: Tasks 5 + 6 (Toggle is small; Data exploration is research)
-**Session 5**: Tasks 7 + 8 (if ST data exists)
+### Wave 1: Foundation (3 parallel agents)
+| Agent | Task | Dependencies | Files |
+|-------|------|--------------|-------|
+| A | Task 1: Sortable Table | None | RankedTable.tsx |
+| B | Tasks 3+4: Both Radars | None | OffenseRadar.tsx, DefenseRadar.tsx (new) |
+| C | Task 6: ST Data Exploration | None | docs/ only |
 
-## Parallel Opportunities
+**Why parallel**:
+- Agent A touches only RankedTable.tsx
+- Agent B creates new files, doesn't touch RankedTable
+- Agent C is research-only, no code changes
 
-- **Tasks 1 & 2**: Both modify RankedTable, but touch different concerns
-- **Tasks 3 & 4**: Independent radar charts, could theoretically parallelize
-- **Task 6**: Research task, can happen anytime
+### Wave 2: Build on Foundation (2-3 parallel agents)
+| Agent | Task | Dependencies | Files |
+|-------|------|--------------|-------|
+| A | Task 2: Show Ranks | Task 1 ✓ | RankedTable.tsx |
+| B | Task 5: Radar Toggle | Tasks 3+4 ✓ | ScatterPlotClient.tsx |
+| C | Task 7: ST Pipeline | Task 6 ✓ | cfb-database (if data exists) |
+
+**Why sequential from Wave 1**:
+- Task 2 adds columns to the now-sortable table
+- Task 5 wires up the radars built in Wave 1
+- Task 7 depends on Task 6 findings
+
+### Wave 3: Final Integration
+| Agent | Task | Dependencies | Files |
+|-------|------|--------------|-------|
+| A | Task 2B: W-L Record | Task 2 ✓ | RankedTable.tsx, page.tsx |
+| B | Task 8: Integrate ST | Task 7 ✓ | ScatterPlotClient.tsx, RadarChart.tsx |
+
+## File Conflict Matrix
+
+```
+                    RankedTable  ScatterPlot  RadarChart  New Files  page.tsx
+Task 1 (sort)          ✗
+Task 2 (ranks)         ✗
+Task 2B (W-L)          ✗                                              ✗
+Task 3 (off radar)                   ✗                      ✗
+Task 4 (def radar)                   ✗                      ✗
+Task 5 (toggle)                      ✗
+Task 6 (explore)                                            (docs)
+Task 7 (ST pipe)                                            (db)
+Task 8 (integrate)                   ✗           ✗                    ✗
+```
+
+**Safe parallel combinations**:
+- Tasks 1 + 3 + 6 ✅ (no file overlap)
+- Tasks 1 + 4 + 6 ✅ (no file overlap)
+- Tasks 3 + 4 ✅ (both create new files)
+- Tasks 2 + 5 ✅ (different files)
+- Tasks 2B + 5 ❌ (both may touch page.tsx)
+
+## Suggested Execution Plan
+
+```bash
+# Wave 1 (parallel)
+claude-agent-a "Task 1: Sortable Table" &
+claude-agent-b "Tasks 3+4: Offense + Defense Radars" &
+claude-agent-c "Task 6: ST Data Exploration" &
+wait
+
+# Wave 2 (parallel, after Wave 1)
+claude-agent-a "Task 2: Show Ranks" &
+claude-agent-b "Task 5: Radar Toggle" &
+claude-agent-c "Task 7: ST Pipeline" &  # only if T6 found data
+wait
+
+# Wave 3 (parallel, after Wave 2)
+claude-agent-a "Task 2B: W-L Record" &
+claude-agent-b "Task 8: Integrate ST" &  # only if T7 complete
+wait
+```
+
+**Total time**: 3 waves vs 9 sequential tasks = ~3x faster
 
 ---
 

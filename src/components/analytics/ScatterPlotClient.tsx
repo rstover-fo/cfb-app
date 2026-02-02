@@ -1,10 +1,14 @@
 'use client'
 
 import { useState, useMemo } from 'react'
-import { Team, TeamSeasonEpa, TeamStyleProfile, DefensiveHavoc, TeamTempoMetrics } from '@/lib/types/database'
+import { Team, TeamSeasonEpa, TeamStyleProfile, DefensiveHavoc, TeamTempoMetrics, TeamRecord, TeamSpecialTeamsSos } from '@/lib/types/database'
 import { ScatterPlot } from './ScatterPlot'
 import { RankedTable } from './RankedTable'
 import { RadarChart } from './RadarChart'
+import { OffenseRadar } from './OffenseRadar'
+import { DefenseRadar } from './DefenseRadar'
+
+type RadarViewMode = 'combined' | 'offense' | 'defense'
 
 interface ScatterPlotClientProps {
   teams: Team[]
@@ -12,8 +16,17 @@ interface ScatterPlotClientProps {
   styles: TeamStyleProfile[]
   havoc: DefensiveHavoc[]
   tempo: TeamTempoMetrics[]
+  records: TeamRecord[]
+  specialTeams: TeamSpecialTeamsSos[]
   currentSeason: number
 }
+
+// Composite ranking weight configuration (must sum to 1.0)
+const RANKING_WEIGHTS = {
+  offense: 0.40,
+  defense: 0.40,
+  specialTeams: 0.20
+} as const
 
 type MetricKey =
   | 'epa_vs_success'
@@ -144,13 +157,14 @@ interface DataPoint {
   compositeScore?: number
 }
 
-export function ScatterPlotClient({ teams, metrics, styles, havoc, tempo, currentSeason }: ScatterPlotClientProps) {
+export function ScatterPlotClient({ teams, metrics, styles, havoc, tempo, records, specialTeams, currentSeason }: ScatterPlotClientProps) {
   const [viewMode, setViewMode] = useState<'scatter' | 'rankings'>('scatter')
   const [activePlot, setActivePlot] = useState<MetricKey>('epa_vs_success')
   const [selectedConference, setSelectedConference] = useState<string | null>(null)
   const [showLogos, setShowLogos] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedTeamForRadar, setSelectedTeamForRadar] = useState<string | null>(null)
+  const [radarViewMode, setRadarViewMode] = useState<RadarViewMode>('combined')
 
   const activeOption = PLOT_OPTIONS.find(p => p.id === activePlot)!
 
@@ -177,6 +191,14 @@ export function ScatterPlotClient({ teams, metrics, styles, havoc, tempo, curren
     return new Map(tempo.map(t => [t.team, t]))
   }, [tempo])
 
+  const recordsMap = useMemo(() => {
+    return new Map(records.map(r => [r.team, r]))
+  }, [records])
+
+  const specialTeamsMap = useMemo(() => {
+    return new Map(specialTeams.map(st => [st.team, st]))
+  }, [specialTeams])
+
   // Calculate FBS-only ranks (recalculated within filtered team set)
   const fbsRanks = useMemo(() => {
     // Build list of teams with their EPA values
@@ -184,11 +206,14 @@ export function ScatterPlotClient({ teams, metrics, styles, havoc, tempo, curren
       .map(team => {
         const m = metricsMap.get(team.school)
         const h = havocMap.get(team.school)
+        const st = specialTeamsMap.get(team.school)
         if (!m) return null
         return {
           team: team.school,
           offEpa: m.epa_per_play,
-          defEpa: h?.opp_epa_per_play ?? 999 // Use defensive havoc for true defensive EPA
+          defEpa: h?.opp_epa_per_play ?? 999, // Use defensive havoc for true defensive EPA
+          stEfficiency: st?.fpi_st_efficiency ?? 50, // Default to median if missing
+          sosRank: st?.sos_rank ?? 0 // 0 means no data
         }
       })
       .filter((t): t is NonNullable<typeof t> => t !== null)
@@ -201,10 +226,17 @@ export function ScatterPlotClient({ teams, metrics, styles, havoc, tempo, curren
     const byDefense = [...teamsWithEpa].sort((a, b) => a.defEpa - b.defEpa)
     const defRankMap = new Map(byDefense.map((t, i) => [t.team, i + 1]))
 
+    // Sort by ST efficiency (higher = better = lower rank)
+    const bySpecialTeams = [...teamsWithEpa].sort((a, b) => b.stEfficiency - a.stEfficiency)
+    const stRankMap = new Map(bySpecialTeams.map((t, i) => [t.team, i + 1]))
+
+    // Store SOS rank directly (already a rank, not a value to rank)
+    const sosRankMap = new Map(teamsWithEpa.map(t => [t.team, t.sosRank]))
+
     const maxRank = teamsWithEpa.length
 
-    return { offRankMap, defRankMap, maxRank }
-  }, [teams, metricsMap, havocMap])
+    return { offRankMap, defRankMap, stRankMap, sosRankMap, maxRank }
+  }, [teams, metricsMap, havocMap, specialTeamsMap])
 
   // Transform data based on active plot
   const plotData = useMemo(() => {
@@ -281,7 +313,7 @@ export function ScatterPlotClient({ teams, metrics, styles, havoc, tempo, curren
 
   // Compute composite rankings using FBS-only ranks
   const rankedTeams = useMemo(() => {
-    const { offRankMap, defRankMap, maxRank } = fbsRanks
+    const { offRankMap, defRankMap, stRankMap, sosRankMap, maxRank } = fbsRanks
 
     return teams
       .map(team => {
@@ -290,11 +322,27 @@ export function ScatterPlotClient({ teams, metrics, styles, havoc, tempo, curren
 
         const offRank = offRankMap.get(team.school) ?? maxRank
         const defRank = defRankMap.get(team.school) ?? maxRank
+        const stRank = stRankMap.get(team.school) ?? maxRank
+        const sosRank = sosRankMap.get(team.school) ?? 0
 
         // Convert FBS-only ranks to percentiles (rank 1 → 100%, rank N → 0%)
         const offPct = ((maxRank - offRank + 1) / maxRank) * 100
         const defPct = ((maxRank - defRank + 1) / maxRank) * 100
-        const composite = (offPct + defPct) / 2
+        const stPct = ((maxRank - stRank + 1) / maxRank) * 100
+
+        // Weighted composite: 40% Off + 40% Def + 20% ST
+        const composite = (
+          offPct * RANKING_WEIGHTS.offense +
+          defPct * RANKING_WEIGHTS.defense +
+          stPct * RANKING_WEIGHTS.specialTeams
+        )
+
+        // Get win-loss record
+        const record = recordsMap.get(team.school)
+        const wins = record?.total__wins ?? null
+        const losses = record?.total__losses ?? null
+        const confWins = record?.conference_games__wins ?? null
+        const confLosses = record?.conference_games__losses ?? null
 
         return {
           rank: 0, // Will be assigned after sorting
@@ -304,15 +352,22 @@ export function ScatterPlotClient({ teams, metrics, styles, havoc, tempo, curren
           compositeScore: composite,
           offenseScore: offPct,
           defenseScore: defPct,
+          specialTeamsScore: stPct,
           offRank,
           defRank,
-          conference: team.conference
+          stRank,
+          sosRank,
+          conference: team.conference,
+          wins,
+          losses,
+          confWins,
+          confLosses
         }
       })
       .filter((t): t is NonNullable<typeof t> => t !== null)
       .sort((a, b) => b.compositeScore - a.compositeScore)
       .map((t, i) => ({ ...t, rank: i + 1 }))
-  }, [teams, metricsMap, fbsRanks])
+  }, [teams, metricsMap, fbsRanks, recordsMap])
 
   // Compute radar chart metrics for selected team using FBS-only ranks
   const radarMetrics = useMemo(() => {
@@ -324,9 +379,10 @@ export function ScatterPlotClient({ teams, metrics, styles, havoc, tempo, curren
 
     if (!team || !m) return null
 
-    const { offRankMap, defRankMap, maxRank } = fbsRanks
+    const { offRankMap, defRankMap, stRankMap, maxRank } = fbsRanks
     const offRank = offRankMap.get(selectedTeamForRadar) ?? maxRank
     const defRank = defRankMap.get(selectedTeamForRadar) ?? maxRank
+    const stRank = stRankMap.get(selectedTeamForRadar) ?? maxRank
 
     return {
       teamName: team.school,
@@ -334,6 +390,7 @@ export function ScatterPlotClient({ teams, metrics, styles, havoc, tempo, curren
       metrics: [
         { label: 'Off EPA', value: ((maxRank - offRank + 1) / maxRank) * 100 },
         { label: 'Def EPA', value: ((maxRank - defRank + 1) / maxRank) * 100 },
+        { label: 'Spec Teams', value: ((maxRank - stRank + 1) / maxRank) * 100 },
         { label: 'Success', value: m.success_rate * 100 },
         { label: 'Explosive', value: Math.min(m.explosiveness * 200, 100) },
         { label: 'Havoc', value: h ? h.havoc_rate * 500 : 50 },
@@ -341,6 +398,65 @@ export function ScatterPlotClient({ teams, metrics, styles, havoc, tempo, curren
       ]
     }
   }, [selectedTeamForRadar, teams, metricsMap, stylesMap, havocMap, fbsRanks])
+
+  // Compute offense radar data for all teams
+  const allOffenseData = useMemo(() => {
+    return teams
+      .map(team => {
+        const m = metricsMap.get(team.school)
+        const s = stylesMap.get(team.school)
+        if (!m || !s) return null
+        return {
+          team: team.school,
+          metrics: {
+            rushEpa: s.epa_rushing,
+            passEpa: s.epa_passing,
+            successRate: m.success_rate,
+            explosiveness: m.explosiveness
+          }
+        }
+      })
+      .filter((t): t is NonNullable<typeof t> => t !== null)
+  }, [teams, metricsMap, stylesMap])
+
+  // Compute defense radar data for all teams
+  const allDefenseData = useMemo(() => {
+    return teams
+      .map(team => {
+        const h = havocMap.get(team.school)
+        if (!h) return null
+        return {
+          team: team.school,
+          metrics: {
+            epaAllowed: h.opp_epa_per_play,
+            havocRate: h.havoc_rate,
+            stuffRate: h.stuff_rate,
+            sacks: h.sacks,
+            interceptions: h.interceptions,
+            tfls: h.tfls
+          }
+        }
+      })
+      .filter((t): t is NonNullable<typeof t> => t !== null)
+  }, [teams, havocMap])
+
+  // Get selected team's offense/defense data
+  const selectedOffenseData = useMemo(() => {
+    if (!selectedTeamForRadar) return null
+    return allOffenseData.find(t => t.team === selectedTeamForRadar) ?? null
+  }, [selectedTeamForRadar, allOffenseData])
+
+  const selectedDefenseData = useMemo(() => {
+    if (!selectedTeamForRadar) return null
+    return allDefenseData.find(t => t.team === selectedTeamForRadar) ?? null
+  }, [selectedTeamForRadar, allDefenseData])
+
+  // Get team color for selected team
+  const selectedTeamColor = useMemo(() => {
+    if (!selectedTeamForRadar) return '#6B635A'
+    const team = teams.find(t => t.school === selectedTeamForRadar)
+    return team?.color || '#6B635A'
+  }, [selectedTeamForRadar, teams])
 
   return (
     <div>
@@ -488,13 +604,62 @@ export function ScatterPlotClient({ teams, metrics, styles, havoc, tempo, curren
               onTeamClick={setSelectedTeamForRadar}
             />
           </div>
-          {radarMetrics && (
+          {selectedTeamForRadar && (
             <div className="w-80 card p-6">
-              <RadarChart
-                metrics={radarMetrics.metrics}
-                teamName={radarMetrics.teamName}
-                teamColor={radarMetrics.teamColor}
-              />
+              {/* Radar View Toggle */}
+              <div className="flex gap-1 mb-4">
+                {(['combined', 'offense', 'defense'] as const).map((mode) => (
+                  <button
+                    key={mode}
+                    onClick={() => setRadarViewMode(mode)}
+                    className={`flex-1 px-2 py-1.5 border rounded-sm text-xs transition-all ${
+                      radarViewMode === mode
+                        ? 'bg-[var(--bg-surface)] border-[var(--color-run)] text-[var(--text-primary)]'
+                        : 'border-[var(--border)] text-[var(--text-muted)] hover:border-[var(--text-secondary)]'
+                    }`}
+                  >
+                    {mode.charAt(0).toUpperCase() + mode.slice(1)}
+                  </button>
+                ))}
+              </div>
+
+              {/* Radar Chart based on selected mode */}
+              <div className="transition-opacity duration-200">
+                {radarViewMode === 'combined' && radarMetrics && (
+                  <RadarChart
+                    metrics={radarMetrics.metrics}
+                    teamName={radarMetrics.teamName}
+                    teamColor={radarMetrics.teamColor}
+                  />
+                )}
+                {radarViewMode === 'offense' && selectedOffenseData && (
+                  <OffenseRadar
+                    teamData={selectedOffenseData}
+                    allTeamsData={allOffenseData}
+                    teamColor={selectedTeamColor}
+                    size={280}
+                  />
+                )}
+                {radarViewMode === 'defense' && selectedDefenseData && (
+                  <DefenseRadar
+                    teamData={selectedDefenseData}
+                    allTeamsData={allDefenseData}
+                    teamColor={selectedTeamColor}
+                    size={280}
+                  />
+                )}
+                {/* Fallback when data is missing */}
+                {radarViewMode === 'offense' && !selectedOffenseData && (
+                  <div className="text-center py-10 text-[var(--text-muted)] text-sm">
+                    Offense data unavailable for this team.
+                  </div>
+                )}
+                {radarViewMode === 'defense' && !selectedDefenseData && (
+                  <div className="text-center py-10 text-[var(--text-muted)] text-sm">
+                    Defense data unavailable for this team.
+                  </div>
+                )}
+              </div>
             </div>
           )}
         </div>

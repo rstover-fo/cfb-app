@@ -1,5 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
-import type { Team, TeamSeasonEpa, TeamStyleProfile, DefensiveHavoc, TeamTempoMetrics } from '@/lib/types/database'
+import type { Team, TeamSeasonEpa, TeamStyleProfile, DefensiveHavoc, TeamTempoMetrics, TeamRecord, TeamSpecialTeamsSos } from '@/lib/types/database'
 import { ScatterPlotClient } from '@/components/analytics/ScatterPlotClient'
 
 // FBS conferences only (excludes FCS, D2, etc. which often have placeholder logos)
@@ -21,12 +21,14 @@ export default async function AnalyticsPage() {
   const supabase = await createClient()
   const currentSeason = 2025
 
-  const [teamsResult, metricsResult, stylesResult, havocResult, tempoResult] = await Promise.all([
+  const [teamsResult, metricsResult, stylesResult, havocResult, tempoResult, recordsResult, specialTeamsResult] = await Promise.all([
     supabase.from('teams_with_logos').select('*').in('conference', FBS_CONFERENCES),
     supabase.from('team_epa_season').select('*').eq('season', currentSeason),
     supabase.from('team_style_profile').select('*').eq('season', currentSeason),
     supabase.from('defensive_havoc').select('*').eq('season', currentSeason),
-    supabase.from('team_tempo_metrics').select('*').eq('season', currentSeason)
+    supabase.from('team_tempo_metrics').select('*').eq('season', currentSeason),
+    supabase.from('records').select('team, year, total__wins, total__losses, conference_games__wins, conference_games__losses').eq('year', currentSeason).eq('classification', 'fbs'),
+    supabase.from('team_special_teams_sos').select('*').eq('season', currentSeason)
   ])
 
   const teams = (teamsResult.data as Team[]) || []
@@ -34,6 +36,8 @@ export default async function AnalyticsPage() {
   const styles = (stylesResult.data as TeamStyleProfile[]) || []
   const havoc = (havocResult.data as DefensiveHavoc[]) || []
   const tempo = (tempoResult.data as TeamTempoMetrics[]) || []
+  const records = (recordsResult.data as TeamRecord[]) || []
+  const specialTeams = (specialTeamsResult.data as TeamSpecialTeamsSos[]) || []
 
   return (
     <div className="p-8">
@@ -52,6 +56,8 @@ export default async function AnalyticsPage() {
         styles={styles}
         havoc={havoc}
         tempo={tempo}
+        records={records}
+        specialTeams={specialTeams}
         currentSeason={currentSeason}
       />
     </div>

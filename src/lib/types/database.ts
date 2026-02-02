@@ -253,3 +253,25 @@ export interface TeamTempoMetrics {
   success_rate: number
   explosiveness: number
 }
+
+export interface TeamRecord {
+  year: number
+  team: string
+  team_id: number
+  classification: string
+  conference: string
+  total__wins: number
+  total__losses: number
+  total__ties: number
+  conference_games__wins: number
+  conference_games__losses: number
+  conference_games__ties: number
+}
+
+export interface TeamSpecialTeamsSos {
+  season: number
+  team: string
+  sp_st_rating: number      // SP+ special teams rating (typically -3.0 to +3.0)
+  fpi_st_efficiency: number // FPI special teams efficiency (0-100 scale)
+  sos_rank: number          // FPI strength of schedule rank (1 = hardest)
+}
