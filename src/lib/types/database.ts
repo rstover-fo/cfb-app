@@ -201,3 +201,26 @@ export interface PlayerSeasonStat {
 export interface RosterPlayerWithStats extends RosterPlayer {
   stats: PlayerSeasonStat | null
 }
+
+export interface Game {
+  id: number
+  season: number
+  week: number
+  start_date: string
+  home_team: string
+  home_points: number | null
+  away_team: string
+  away_points: number | null
+  completed: boolean
+  conference_game: boolean
+  neutral_site: boolean
+}
+
+export interface ScheduleGame extends Game {
+  opponent: string
+  opponent_logo: string | null
+  is_home: boolean
+  team_score: number | null
+  opponent_score: number | null
+  result: 'W' | 'L' | null
+}
