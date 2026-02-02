@@ -4,7 +4,7 @@ import { ScatterPlotClient } from '@/components/analytics/ScatterPlotClient'
 
 export default async function AnalyticsPage() {
   const supabase = await createClient()
-  const currentSeason = 2024
+  const currentSeason = 2025
 
   const [teamsResult, metricsResult, stylesResult] = await Promise.all([
     supabase.from('teams_with_logos').select('*'),

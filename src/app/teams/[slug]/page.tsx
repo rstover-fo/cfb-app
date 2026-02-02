@@ -26,7 +26,7 @@ export default async function TeamPage({ params }: TeamPageProps) {
     notFound()
   }
 
-  const currentSeason = 2024
+  const currentSeason = 2025
 
   const [metricsResult, styleResult, trajectoryResult, drivesResult] = await Promise.all([
     supabase
