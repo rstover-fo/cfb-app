@@ -31,8 +31,15 @@ interface DataPoint {
 
 export function ScatterPlotClient({ teams, metrics, styles, currentSeason }: ScatterPlotClientProps) {
   const [activePlot, setActivePlot] = useState<MetricKey>('epa_vs_success')
+  const [selectedConference, setSelectedConference] = useState<string | null>(null)
 
   const activeOption = PLOT_OPTIONS.find(p => p.id === activePlot)!
+
+  // Get unique conferences
+  const conferences = useMemo(() => {
+    const confSet = new Set(teams.map(t => t.conference).filter(Boolean))
+    return Array.from(confSet).sort() as string[]
+  }, [teams])
 
   // Build lookup maps
   const metricsMap = useMemo(() => {
@@ -46,6 +53,7 @@ export function ScatterPlotClient({ teams, metrics, styles, currentSeason }: Sca
   // Transform data based on active plot
   const plotData: DataPoint[] = useMemo(() => {
     return teams
+      .filter(team => !selectedConference || team.conference === selectedConference)
       .map(team => {
         const teamMetrics = metricsMap.get(team.school)
         const teamStyle = stylesMap.get(team.school)
@@ -83,7 +91,7 @@ export function ScatterPlotClient({ teams, metrics, styles, currentSeason }: Sca
         }
       })
       .filter((p): p is DataPoint => p !== null)
-  }, [teams, metricsMap, stylesMap, activePlot])
+  }, [teams, metricsMap, stylesMap, activePlot, selectedConference])
 
   return (
     <div>
@@ -100,6 +108,33 @@ export function ScatterPlotClient({ teams, metrics, styles, currentSeason }: Sca
             }`}
           >
             {option.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Conference Filter */}
+      <div className="flex flex-wrap gap-2 mb-6">
+        <button
+          onClick={() => setSelectedConference(null)}
+          className={`px-3 py-1.5 border rounded-sm text-xs transition-all ${
+            selectedConference === null
+              ? 'bg-[var(--bg-surface)] border-[var(--color-run)] text-[var(--text-primary)]'
+              : 'border-[var(--border)] text-[var(--text-muted)] hover:border-[var(--text-secondary)]'
+          }`}
+        >
+          All Conferences
+        </button>
+        {conferences.map(conf => (
+          <button
+            key={conf}
+            onClick={() => setSelectedConference(conf)}
+            className={`px-3 py-1.5 border rounded-sm text-xs transition-all ${
+              selectedConference === conf
+                ? 'bg-[var(--bg-surface)] border-[var(--color-run)] text-[var(--text-primary)]'
+                : 'border-[var(--border)] text-[var(--text-muted)] hover:border-[var(--text-secondary)]'
+            }`}
+          >
+            {conf}
           </button>
         ))}
       </div>
