@@ -353,30 +353,18 @@ export function ScatterPlot({ data, xLabel, yLabel, xInvert = false, yInvert = f
                 />
               )}
               {useLogo ? (
-                <>
-                  {/* Background circle for logo */}
-                  <circle
-                    cx={cx}
-                    cy={cy}
-                    r={radius}
-                    fill="white"
-                    stroke={isActive ? point.color || 'var(--color-run)' : 'rgba(255,255,255,0.5)'}
-                    strokeWidth={isActive ? 3 : 1.5}
-                    filter={isActive ? 'url(#glow)' : undefined}
-                    className="transition-all duration-150"
-                  />
-                  {/* Team logo image */}
-                  <image
-                    href={point.logo!}
-                    x={cx - radius + 2}
-                    y={cy - radius + 2}
-                    width={(radius - 2) * 2}
-                    height={(radius - 2) * 2}
-                    preserveAspectRatio="xMidYMid meet"
-                    className="transition-all duration-150"
-                    style={{ pointerEvents: 'none' }}
-                  />
-                </>
+                /* Team logo image - no background */
+                <image
+                  href={point.logo!}
+                  x={cx - radius}
+                  y={cy - radius}
+                  width={radius * 2}
+                  height={radius * 2}
+                  preserveAspectRatio="xMidYMid meet"
+                  filter={isActive ? 'url(#glow)' : undefined}
+                  className="transition-all duration-150"
+                  style={{ pointerEvents: 'none' }}
+                />
               ) : (
                 <circle
                   cx={cx}
