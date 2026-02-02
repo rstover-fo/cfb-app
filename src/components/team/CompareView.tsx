@@ -89,17 +89,23 @@ export function CompareView({ team, metrics, style, allTeams, currentSeason }: C
 
   useEffect(() => {
     if (!compareTeamId) {
-      setCompareMetrics(null)
-      setCompareStyle(null)
       return
     }
 
+    let cancelled = false
+
     const fetchCompareData = async () => {
       setLoading(true)
+      setCompareMetrics(null)
+      setCompareStyle(null)
+
       const supabase = createClient()
       const compareTeamName = allTeams.find(t => t.id === compareTeamId)?.school
 
-      if (!compareTeamName) return
+      if (!compareTeamName) {
+        setLoading(false)
+        return
+      }
 
       const [metricsRes, styleRes] = await Promise.all([
         supabase
@@ -116,12 +122,18 @@ export function CompareView({ team, metrics, style, allTeams, currentSeason }: C
           .single()
       ])
 
-      setCompareMetrics(metricsRes.data as TeamSeasonEpa | null)
-      setCompareStyle(styleRes.data as TeamStyleProfile | null)
-      setLoading(false)
+      if (!cancelled) {
+        setCompareMetrics(metricsRes.data as TeamSeasonEpa | null)
+        setCompareStyle(styleRes.data as TeamStyleProfile | null)
+        setLoading(false)
+      }
     }
 
     fetchCompareData()
+
+    return () => {
+      cancelled = true
+    }
   }, [compareTeamId, allTeams, currentSeason])
 
   const formatPct = (v: number) => `${(v * 100).toFixed(1)}%`
