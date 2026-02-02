@@ -2,12 +2,27 @@ import { createClient } from '@/lib/supabase/server'
 import { Team, TeamSeasonEpa, TeamStyleProfile } from '@/lib/types/database'
 import { ScatterPlotClient } from '@/components/analytics/ScatterPlotClient'
 
+// FBS conferences only (excludes FCS, D2, etc. which often have placeholder logos)
+const FBS_CONFERENCES = [
+  'ACC',
+  'American Athletic',
+  'Big 12',
+  'Big Ten',
+  'Conference USA',
+  'FBS Independents',
+  'Mid-American',
+  'Mountain West',
+  'Pac-12',
+  'SEC',
+  'Sun Belt'
+]
+
 export default async function AnalyticsPage() {
   const supabase = await createClient()
   const currentSeason = 2025
 
   const [teamsResult, metricsResult, stylesResult] = await Promise.all([
-    supabase.from('teams_with_logos').select('*'),
+    supabase.from('teams_with_logos').select('*').in('conference', FBS_CONFERENCES),
     supabase.from('team_epa_season').select('*').eq('season', currentSeason),
     supabase.from('team_style_profile').select('*').eq('season', currentSeason)
   ])
