@@ -1,13 +1,14 @@
 'use client'
 
 import { useState, useMemo } from 'react'
-import { Team, TeamSeasonEpa, TeamStyleProfile } from '@/lib/types/database'
+import { Team, TeamSeasonEpa, TeamStyleProfile, DefensiveHavoc } from '@/lib/types/database'
 import { ScatterPlot } from './ScatterPlot'
 
 interface ScatterPlotClientProps {
   teams: Team[]
   metrics: TeamSeasonEpa[]
   styles: TeamStyleProfile[]
+  havoc: DefensiveHavoc[]
   currentSeason: number
 }
 
@@ -17,6 +18,7 @@ type MetricKey =
   | 'run_vs_pass'
   | 'def_run_vs_pass'
   | 'consistency_vs_explosiveness'
+  | 'havoc_vs_bend'
 
 interface QuadrantLabels {
   topLeft: string
@@ -100,6 +102,19 @@ const PLOT_OPTIONS: PlotOption[] = [
       bottomRight: 'Methodical'
     }
   },
+  {
+    id: 'havoc_vs_bend',
+    label: 'Havoc vs Bend-Dont-Break',
+    xLabel: 'Havoc Rate',
+    yLabel: 'EPA Allowed per Play',
+    yInvert: true,
+    quadrantLabels: {
+      topLeft: 'Passive but Stingy',
+      topRight: 'Disruptive & Stingy',
+      bottomLeft: 'Vulnerable',
+      bottomRight: 'Disruptive but Leaky'
+    }
+  },
 ]
 
 interface DataPoint {
@@ -112,7 +127,7 @@ interface DataPoint {
   conference: string | null
 }
 
-export function ScatterPlotClient({ teams, metrics, styles, currentSeason }: ScatterPlotClientProps) {
+export function ScatterPlotClient({ teams, metrics, styles, havoc, currentSeason }: ScatterPlotClientProps) {
   const [activePlot, setActivePlot] = useState<MetricKey>('epa_vs_success')
   const [selectedConference, setSelectedConference] = useState<string | null>(null)
   const [showLogos, setShowLogos] = useState(true)
@@ -134,6 +149,10 @@ export function ScatterPlotClient({ teams, metrics, styles, currentSeason }: Sca
   const stylesMap = useMemo(() => {
     return new Map(styles.map(s => [s.team, s]))
   }, [styles])
+
+  const havocMap = useMemo(() => {
+    return new Map(havoc.map(h => [h.team, h]))
+  }, [havoc])
 
   // Transform data based on active plot
   const plotData: DataPoint[] = useMemo(() => {
@@ -170,6 +189,12 @@ export function ScatterPlotClient({ teams, metrics, styles, currentSeason }: Sca
             x = teamMetrics.success_rate
             y = teamMetrics.explosiveness
             break
+          case 'havoc_vs_bend':
+            const teamHavoc = havocMap.get(team.school)
+            if (!teamHavoc) return null
+            x = teamHavoc.havoc_rate
+            y = teamHavoc.opp_epa_per_play
+            break
           default:
             return null
         }
@@ -185,7 +210,7 @@ export function ScatterPlotClient({ teams, metrics, styles, currentSeason }: Sca
         }
       })
       .filter((p): p is DataPoint => p !== null)
-  }, [teams, metricsMap, stylesMap, activePlot, selectedConference])
+  }, [teams, metricsMap, stylesMap, havocMap, activePlot, selectedConference])
 
   // Find highlighted team based on search
   const highlightedTeamId = useMemo(() => {

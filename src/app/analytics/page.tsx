@@ -1,5 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
-import { Team, TeamSeasonEpa, TeamStyleProfile } from '@/lib/types/database'
+import type { Team, TeamSeasonEpa, TeamStyleProfile, DefensiveHavoc } from '@/lib/types/database'
 import { ScatterPlotClient } from '@/components/analytics/ScatterPlotClient'
 
 // FBS conferences only (excludes FCS, D2, etc. which often have placeholder logos)
@@ -21,15 +21,17 @@ export default async function AnalyticsPage() {
   const supabase = await createClient()
   const currentSeason = 2025
 
-  const [teamsResult, metricsResult, stylesResult] = await Promise.all([
+  const [teamsResult, metricsResult, stylesResult, havocResult] = await Promise.all([
     supabase.from('teams_with_logos').select('*').in('conference', FBS_CONFERENCES),
     supabase.from('team_epa_season').select('*').eq('season', currentSeason),
-    supabase.from('team_style_profile').select('*').eq('season', currentSeason)
+    supabase.from('team_style_profile').select('*').eq('season', currentSeason),
+    supabase.from('defensive_havoc').select('*').eq('season', currentSeason)
   ])
 
   const teams = (teamsResult.data as Team[]) || []
   const metrics = (metricsResult.data as TeamSeasonEpa[]) || []
   const styles = (stylesResult.data as TeamStyleProfile[]) || []
+  const havoc = (havocResult.data as DefensiveHavoc[]) || []
 
   return (
     <div className="p-8">
@@ -46,6 +48,7 @@ export default async function AnalyticsPage() {
         teams={teams}
         metrics={metrics}
         styles={styles}
+        havoc={havoc}
         currentSeason={currentSeason}
       />
     </div>
