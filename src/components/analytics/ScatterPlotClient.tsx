@@ -4,6 +4,7 @@ import { useState, useMemo } from 'react'
 import { Team, TeamSeasonEpa, TeamStyleProfile, DefensiveHavoc, TeamTempoMetrics } from '@/lib/types/database'
 import { ScatterPlot } from './ScatterPlot'
 import { RankedTable } from './RankedTable'
+import { RadarChart } from './RadarChart'
 
 interface ScatterPlotClientProps {
   teams: Team[]
@@ -148,6 +149,7 @@ export function ScatterPlotClient({ teams, metrics, styles, havoc, tempo, curren
   const [selectedConference, setSelectedConference] = useState<string | null>(null)
   const [showLogos, setShowLogos] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')
+  const [selectedTeamForRadar, setSelectedTeamForRadar] = useState<string | null>(null)
 
   const activeOption = PLOT_OPTIONS.find(p => p.id === activePlot)!
 
@@ -274,6 +276,31 @@ export function ScatterPlotClient({ teams, metrics, styles, havoc, tempo, curren
       .sort((a, b) => b.compositeScore - a.compositeScore)
       .map((t, i) => ({ ...t, rank: i + 1 }))
   }, [teams, metricsMap])
+
+  // Compute radar chart metrics for selected team
+  const radarMetrics = useMemo(() => {
+    if (!selectedTeamForRadar) return null
+    const team = teams.find(t => t.school === selectedTeamForRadar)
+    const m = metricsMap.get(selectedTeamForRadar)
+    const s = stylesMap.get(selectedTeamForRadar)
+    const h = havocMap.get(selectedTeamForRadar)
+
+    if (!team || !m) return null
+
+    const maxRank = 134
+    return {
+      teamName: team.school,
+      teamColor: team.color || '#6B635A',
+      metrics: [
+        { label: 'Off EPA', value: ((maxRank - m.off_epa_rank) / maxRank) * 100 },
+        { label: 'Def EPA', value: ((maxRank - m.def_epa_rank) / maxRank) * 100 },
+        { label: 'Success', value: m.success_rate * 100 },
+        { label: 'Explosive', value: Math.min(m.explosiveness * 200, 100) },
+        { label: 'Havoc', value: h ? h.havoc_rate * 500 : 50 },
+        { label: 'Tempo', value: s ? Math.min(s.plays_per_game, 100) : 50 }
+      ]
+    }
+  }, [selectedTeamForRadar, teams, metricsMap, stylesMap, havocMap])
 
   return (
     <div>
@@ -413,11 +440,23 @@ export function ScatterPlotClient({ teams, metrics, styles, havoc, tempo, curren
       )}
 
       {viewMode === 'rankings' && (
-        <div className="card p-6">
-          <RankedTable
-            data={rankedTeams}
-            title={`${currentSeason} Composite Rankings`}
-          />
+        <div className="flex gap-8">
+          <div className="flex-1 card p-6">
+            <RankedTable
+              data={rankedTeams}
+              title={`${currentSeason} Composite Rankings`}
+              onTeamClick={setSelectedTeamForRadar}
+            />
+          </div>
+          {radarMetrics && (
+            <div className="w-80 card p-6">
+              <RadarChart
+                metrics={radarMetrics.metrics}
+                teamName={radarMetrics.teamName}
+                teamColor={radarMetrics.teamColor}
+              />
+            </div>
+          )}
         </div>
       )}
     </div>
