@@ -118,12 +118,14 @@ export default async function TeamPage({ params }: TeamPageProps) {
     .eq('season', currentSeason)
     .order('week')
 
+  // Fetch all teams (for schedule logos and Compare tab)
+  const { data: allTeamsData } = await supabase.from('teams').select('*')
+  const allTeams = (allTeamsData as Team[]) || []
+  const teamLogos = new Map(allTeams.map(t => [t.school, t.logo]))
+
   // Transform to ScheduleGame format
   let schedule: ScheduleGame[] | null = null
   if (!scheduleResult.error && scheduleResult.data) {
-    const { data: allTeams } = await supabase.from('teams').select('school, logo')
-    const teamLogos = new Map(allTeams?.map(t => [t.school, t.logo]) || [])
-
     schedule = (scheduleResult.data as Game[]).map(game => {
       const isHome = game.home_team === team.school
       const opponent = isHome ? game.away_team : game.home_team
@@ -167,6 +169,7 @@ export default async function TeamPage({ params }: TeamPageProps) {
       roster={roster}
       playerStats={playerStats}
       schedule={schedule}
+      allTeams={allTeams}
     />
   )
 }

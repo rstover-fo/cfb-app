@@ -9,6 +9,7 @@ import { TrajectoryChart } from '@/components/team/TrajectoryChart'
 import { SituationalView } from '@/components/team/SituationalView'
 import { RosterView } from './RosterView'
 import { ScheduleView } from './ScheduleView'
+import { CompareView } from './CompareView'
 
 type TabId = 'overview' | 'situational' | 'schedule' | 'roster' | 'compare'
 
@@ -23,7 +24,7 @@ const TABS: Tab[] = [
   { id: 'situational', label: 'Situational', enabled: true },
   { id: 'schedule', label: 'Schedule', enabled: true },
   { id: 'roster', label: 'Roster', enabled: true },
-  { id: 'compare', label: 'Compare', enabled: false },
+  { id: 'compare', label: 'Compare', enabled: true },
 ]
 
 interface TeamPageClientProps {
@@ -42,6 +43,7 @@ interface TeamPageClientProps {
   roster: RosterPlayer[] | null
   playerStats: PlayerSeasonStat[] | null
   schedule: ScheduleGame[] | null
+  allTeams: Team[]
 }
 
 export function TeamPageClient({
@@ -59,7 +61,8 @@ export function TeamPageClient({
   conferenceSplits,
   roster,
   playerStats,
-  schedule
+  schedule,
+  allTeams
 }: TeamPageClientProps) {
   const [activeTab, setActiveTab] = useState<TabId>('overview')
 
@@ -189,9 +192,13 @@ export function TeamPageClient({
         )}
 
         {activeTab === 'compare' && (
-          <div className="text-center py-12">
-            <p className="text-[var(--text-muted)]">Coming soon.</p>
-          </div>
+          <CompareView
+            team={team}
+            metrics={metrics}
+            style={style}
+            allTeams={allTeams}
+            currentSeason={currentSeason}
+          />
         )}
       </div>
     </div>
