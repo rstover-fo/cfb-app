@@ -3,6 +3,7 @@
 import { useState, useMemo } from 'react'
 import { Team, TeamSeasonEpa, TeamStyleProfile, DefensiveHavoc, TeamTempoMetrics } from '@/lib/types/database'
 import { ScatterPlot } from './ScatterPlot'
+import { RankedTable } from './RankedTable'
 
 interface ScatterPlotClientProps {
   teams: Team[]
@@ -142,6 +143,7 @@ interface DataPoint {
 }
 
 export function ScatterPlotClient({ teams, metrics, styles, havoc, tempo, currentSeason }: ScatterPlotClientProps) {
+  const [viewMode, setViewMode] = useState<'scatter' | 'rankings'>('scatter')
   const [activePlot, setActivePlot] = useState<MetricKey>('epa_vs_success')
   const [selectedConference, setSelectedConference] = useState<string | null>(null)
   const [showLogos, setShowLogos] = useState(true)
@@ -244,8 +246,63 @@ export function ScatterPlotClient({ teams, metrics, styles, havoc, tempo, curren
     return match?.id ?? null
   }, [searchQuery, plotData])
 
+  // Compute composite rankings
+  const rankedTeams = useMemo(() => {
+    return teams
+      .map(team => {
+        const m = metricsMap.get(team.school)
+        if (!m) return null
+
+        // Simple composite: normalize EPA ranks (1-134 → 0-100)
+        const maxRank = 134
+        const offPct = ((maxRank - m.off_epa_rank) / maxRank) * 100
+        const defPct = ((maxRank - m.def_epa_rank) / maxRank) * 100
+        const composite = (offPct + defPct) / 2
+
+        return {
+          rank: 0, // Will be assigned after sorting
+          team: team.school,
+          logo: team.logo,
+          color: team.color || '#6B635A',
+          compositeScore: composite,
+          offenseScore: offPct,
+          defenseScore: defPct,
+          conference: team.conference
+        }
+      })
+      .filter((t): t is NonNullable<typeof t> => t !== null)
+      .sort((a, b) => b.compositeScore - a.compositeScore)
+      .map((t, i) => ({ ...t, rank: i + 1 }))
+  }, [teams, metricsMap])
+
   return (
     <div>
+      {/* View Mode Toggle */}
+      <div className="flex gap-2 mb-6">
+        <button
+          onClick={() => setViewMode('scatter')}
+          className={`px-4 py-2 border-[1.5px] rounded-sm text-sm transition-all ${
+            viewMode === 'scatter'
+              ? 'bg-[var(--bg-surface)] border-[var(--color-run)] text-[var(--text-primary)]'
+              : 'border-[var(--border)] text-[var(--text-secondary)] hover:border-[var(--text-muted)]'
+          }`}
+        >
+          Scatter Plots
+        </button>
+        <button
+          onClick={() => setViewMode('rankings')}
+          className={`px-4 py-2 border-[1.5px] rounded-sm text-sm transition-all ${
+            viewMode === 'rankings'
+              ? 'bg-[var(--bg-surface)] border-[var(--color-run)] text-[var(--text-primary)]'
+              : 'border-[var(--border)] text-[var(--text-secondary)] hover:border-[var(--text-muted)]'
+          }`}
+        >
+          Rankings
+        </button>
+      </div>
+
+      {viewMode === 'scatter' && (
+        <>
       {/* Plot Type Selector */}
       <div className="flex gap-2 mb-6">
         {PLOT_OPTIONS.map(option => (
@@ -352,6 +409,17 @@ export function ScatterPlotClient({ teams, metrics, styles, havoc, tempo, curren
       <div className="mt-4 text-xs text-[var(--text-muted)]">
         Click any team to view their full analytics dashboard. Teams are colored by their primary color.
       </div>
+        </>
+      )}
+
+      {viewMode === 'rankings' && (
+        <div className="card p-6">
+          <RankedTable
+            data={rankedTeams}
+            title={`${currentSeason} Composite Rankings`}
+          />
+        </div>
+      )}
     </div>
   )
 }
