@@ -8,7 +8,7 @@ interface TeamPageProps {
 }
 
 async function getTeamBySlug(supabase: ReturnType<typeof createClient> extends Promise<infer T> ? T : never, slug: string): Promise<Team | null> {
-  const { data: teams } = await supabase.from('teams').select('*')
+  const { data: teams } = await supabase.from('teams_with_logos').select('*')
 
   return teams?.find((team: Team) => {
     const teamSlug = team.school.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')
@@ -119,7 +119,7 @@ export default async function TeamPage({ params }: TeamPageProps) {
     .order('week')
 
   // Fetch all teams (for schedule logos and Compare tab)
-  const { data: allTeamsData } = await supabase.from('teams').select('*')
+  const { data: allTeamsData } = await supabase.from('teams_with_logos').select('*')
   const allTeams = (allTeamsData as Team[]) || []
   const teamLogos = new Map(allTeams.map(t => [t.school, t.logo]))
 

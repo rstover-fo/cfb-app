@@ -7,7 +7,7 @@ export default async function AnalyticsPage() {
   const currentSeason = 2024
 
   const [teamsResult, metricsResult, stylesResult] = await Promise.all([
-    supabase.from('teams').select('*'),
+    supabase.from('teams_with_logos').select('*'),
     supabase.from('team_epa_season').select('*').eq('season', currentSeason),
     supabase.from('team_style_profile').select('*').eq('season', currentSeason)
   ])

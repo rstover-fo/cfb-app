@@ -7,7 +7,7 @@ export default async function Home() {
 
   // Fetch FBS/FCS teams
   const { data: teams, error: teamsError } = await supabase
-    .from('teams')
+    .from('teams_with_logos')
     .select('*')
     .in('classification', ['fbs', 'fcs'])
     .order('school')
