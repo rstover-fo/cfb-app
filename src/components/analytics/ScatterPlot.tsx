@@ -315,7 +315,7 @@ export function ScatterPlot({ data, xLabel, yLabel, xInvert = false, yInvert = f
           {/* Clip paths for each team logo */}
           {showLogos && data.map(point => (
             <clipPath key={`clip-${point.id}`} id={`clip-${point.id}`}>
-              <circle cx={xScale(point.x)} cy={yScale(point.y)} r={hoveredPoint?.id === point.id ? 14 : 10} />
+              <circle cx={xScale(point.x)} cy={yScale(point.y)} r={hoveredPoint?.id === point.id ? 16 : 12} />
             </clipPath>
           ))}
         </defs>
@@ -327,12 +327,8 @@ export function ScatterPlot({ data, xLabel, yLabel, xInvert = false, yInvert = f
           const isActive = isHovered || isHighlighted
           const cx = xScale(point.x)
           const cy = yScale(point.y)
-          // Scale radius based on composite score (0.7x to 1.3x of base)
-          const baseRadius = 10
-          const sizeScale = point.compositeScore !== undefined
-            ? 0.7 + (point.compositeScore / 100) * 0.6
-            : 1
-          const radius = isActive ? 16 : baseRadius * sizeScale
+          // Uniform sizing - position conveys the data, not size
+          const radius = isActive ? 16 : 12
           const useLogo = showLogos && point.logo
           // Dim non-highlighted points when search is active
           const isDimmed = highlightedTeamId !== null && !isHighlighted && !isHovered

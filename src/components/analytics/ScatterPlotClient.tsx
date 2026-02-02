@@ -177,6 +177,35 @@ export function ScatterPlotClient({ teams, metrics, styles, havoc, tempo, curren
     return new Map(tempo.map(t => [t.team, t]))
   }, [tempo])
 
+  // Calculate FBS-only ranks (recalculated within filtered team set)
+  const fbsRanks = useMemo(() => {
+    // Build list of teams with their EPA values
+    const teamsWithEpa = teams
+      .map(team => {
+        const m = metricsMap.get(team.school)
+        const h = havocMap.get(team.school)
+        if (!m) return null
+        return {
+          team: team.school,
+          offEpa: m.epa_per_play,
+          defEpa: h?.opp_epa_per_play ?? 999 // Use defensive havoc for true defensive EPA
+        }
+      })
+      .filter((t): t is NonNullable<typeof t> => t !== null)
+
+    // Sort by offensive EPA (higher = better = lower rank)
+    const byOffense = [...teamsWithEpa].sort((a, b) => b.offEpa - a.offEpa)
+    const offRankMap = new Map(byOffense.map((t, i) => [t.team, i + 1]))
+
+    // Sort by defensive EPA (lower = better = lower rank)
+    const byDefense = [...teamsWithEpa].sort((a, b) => a.defEpa - b.defEpa)
+    const defRankMap = new Map(byDefense.map((t, i) => [t.team, i + 1]))
+
+    const maxRank = teamsWithEpa.length
+
+    return { offRankMap, defRankMap, maxRank }
+  }, [teams, metricsMap, havocMap])
+
   // Transform data based on active plot
   const plotData = useMemo(() => {
     return teams
@@ -195,8 +224,9 @@ export function ScatterPlotClient({ teams, metrics, styles, havoc, tempo, curren
             y = teamMetrics.success_rate
             break
           case 'off_vs_def':
-            x = teamMetrics.off_epa_rank
-            y = teamMetrics.def_epa_rank
+            // Use FBS-only recalculated ranks
+            x = fbsRanks.offRankMap.get(team.school) ?? fbsRanks.maxRank
+            y = fbsRanks.defRankMap.get(team.school) ?? fbsRanks.maxRank
             break
           case 'run_vs_pass':
             if (!teamStyle) return null
@@ -228,12 +258,6 @@ export function ScatterPlotClient({ teams, metrics, styles, havoc, tempo, curren
             return null
         }
 
-        // Calculate composite score for point sizing
-        const maxRank = 134
-        const offPct = ((maxRank - teamMetrics.off_epa_rank) / maxRank) * 100
-        const defPct = ((maxRank - teamMetrics.def_epa_rank) / maxRank) * 100
-        const compositeScore = (offPct + defPct) / 2
-
         return {
           id: team.id,
           name: team.school,
@@ -241,12 +265,11 @@ export function ScatterPlotClient({ teams, metrics, styles, havoc, tempo, curren
           y,
           color: team.color || '#6B635A',
           logo: team.logo,
-          conference: team.conference,
-          compositeScore
+          conference: team.conference
         }
       })
       .filter((p): p is NonNullable<typeof p> => p !== null)
-  }, [teams, metricsMap, stylesMap, havocMap, tempoMap, activePlot, selectedConference])
+  }, [teams, metricsMap, stylesMap, havocMap, tempoMap, activePlot, selectedConference, fbsRanks])
 
   // Find highlighted team based on search
   const highlightedTeamId = useMemo(() => {
@@ -256,17 +279,21 @@ export function ScatterPlotClient({ teams, metrics, styles, havoc, tempo, curren
     return match?.id ?? null
   }, [searchQuery, plotData])
 
-  // Compute composite rankings
+  // Compute composite rankings using FBS-only ranks
   const rankedTeams = useMemo(() => {
+    const { offRankMap, defRankMap, maxRank } = fbsRanks
+
     return teams
       .map(team => {
         const m = metricsMap.get(team.school)
         if (!m) return null
 
-        // Simple composite: normalize EPA ranks (1-134 → 0-100)
-        const maxRank = 134
-        const offPct = ((maxRank - m.off_epa_rank) / maxRank) * 100
-        const defPct = ((maxRank - m.def_epa_rank) / maxRank) * 100
+        const offRank = offRankMap.get(team.school) ?? maxRank
+        const defRank = defRankMap.get(team.school) ?? maxRank
+
+        // Convert FBS-only ranks to percentiles (rank 1 → 100%, rank N → 0%)
+        const offPct = ((maxRank - offRank + 1) / maxRank) * 100
+        const defPct = ((maxRank - defRank + 1) / maxRank) * 100
         const composite = (offPct + defPct) / 2
 
         return {
@@ -277,15 +304,17 @@ export function ScatterPlotClient({ teams, metrics, styles, havoc, tempo, curren
           compositeScore: composite,
           offenseScore: offPct,
           defenseScore: defPct,
+          offRank,
+          defRank,
           conference: team.conference
         }
       })
       .filter((t): t is NonNullable<typeof t> => t !== null)
       .sort((a, b) => b.compositeScore - a.compositeScore)
       .map((t, i) => ({ ...t, rank: i + 1 }))
-  }, [teams, metricsMap])
+  }, [teams, metricsMap, fbsRanks])
 
-  // Compute radar chart metrics for selected team
+  // Compute radar chart metrics for selected team using FBS-only ranks
   const radarMetrics = useMemo(() => {
     if (!selectedTeamForRadar) return null
     const team = teams.find(t => t.school === selectedTeamForRadar)
@@ -295,20 +324,23 @@ export function ScatterPlotClient({ teams, metrics, styles, havoc, tempo, curren
 
     if (!team || !m) return null
 
-    const maxRank = 134
+    const { offRankMap, defRankMap, maxRank } = fbsRanks
+    const offRank = offRankMap.get(selectedTeamForRadar) ?? maxRank
+    const defRank = defRankMap.get(selectedTeamForRadar) ?? maxRank
+
     return {
       teamName: team.school,
       teamColor: team.color || '#6B635A',
       metrics: [
-        { label: 'Off EPA', value: ((maxRank - m.off_epa_rank) / maxRank) * 100 },
-        { label: 'Def EPA', value: ((maxRank - m.def_epa_rank) / maxRank) * 100 },
+        { label: 'Off EPA', value: ((maxRank - offRank + 1) / maxRank) * 100 },
+        { label: 'Def EPA', value: ((maxRank - defRank + 1) / maxRank) * 100 },
         { label: 'Success', value: m.success_rate * 100 },
         { label: 'Explosive', value: Math.min(m.explosiveness * 200, 100) },
         { label: 'Havoc', value: h ? h.havoc_rate * 500 : 50 },
         { label: 'Tempo', value: s ? Math.min(s.plays_per_game, 100) : 50 }
       ]
     }
-  }, [selectedTeamForRadar, teams, metricsMap, stylesMap, havocMap])
+  }, [selectedTeamForRadar, teams, metricsMap, stylesMap, havocMap, fbsRanks])
 
   return (
     <div>
