@@ -1,6 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { notFound } from 'next/navigation'
-import { Team, TeamSeasonEpa, TeamStyleProfile, TeamSeasonTrajectory, DrivePattern, DownDistanceSplit, TrajectoryAverages, RedZoneSplit, FieldPositionSplit, HomeAwaySplit, ConferenceSplit, RosterPlayer, PlayerSeasonStat } from '@/lib/types/database'
+import { Team, TeamSeasonEpa, TeamStyleProfile, TeamSeasonTrajectory, DrivePattern, DownDistanceSplit, TrajectoryAverages, RedZoneSplit, FieldPositionSplit, HomeAwaySplit, ConferenceSplit, RosterPlayer, PlayerSeasonStat, Game, ScheduleGame } from '@/lib/types/database'
 import { TeamPageClient } from '@/components/team/TeamPageClient'
 
 interface TeamPageProps {
@@ -110,6 +110,41 @@ export default async function TeamPage({ params }: TeamPageProps) {
   })
   const playerStats = playerStatsResult.error ? null : (playerStatsResult.data as PlayerSeasonStat[] | null)
 
+  // Fetch schedule
+  const scheduleResult = await supabase
+    .from('games')
+    .select('*')
+    .or(`home_team.eq.${team.school},away_team.eq.${team.school}`)
+    .eq('season', currentSeason)
+    .order('week')
+
+  // Transform to ScheduleGame format
+  let schedule: ScheduleGame[] | null = null
+  if (!scheduleResult.error && scheduleResult.data) {
+    const { data: allTeams } = await supabase.from('teams').select('school, logo')
+    const teamLogos = new Map(allTeams?.map(t => [t.school, t.logo]) || [])
+
+    schedule = (scheduleResult.data as Game[]).map(game => {
+      const isHome = game.home_team === team.school
+      const opponent = isHome ? game.away_team : game.home_team
+      const teamScore = isHome ? game.home_points : game.away_points
+      const opponentScore = isHome ? game.away_points : game.home_points
+      let result: 'W' | 'L' | null = null
+      if (game.completed && teamScore !== null && opponentScore !== null) {
+        result = teamScore > opponentScore ? 'W' : 'L'
+      }
+      return {
+        ...game,
+        opponent,
+        opponent_logo: teamLogos.get(opponent) || null,
+        is_home: isHome,
+        team_score: teamScore,
+        opponent_score: opponentScore,
+        result
+      }
+    })
+  }
+
   const metrics = metricsResult.data as TeamSeasonEpa | null
   const style = styleResult.data as TeamStyleProfile | null
   const trajectory = trajectoryResult.data as TeamSeasonTrajectory[] | null
@@ -131,6 +166,7 @@ export default async function TeamPage({ params }: TeamPageProps) {
       conferenceSplits={conferenceSplits}
       roster={roster}
       playerStats={playerStats}
+      schedule={schedule}
     />
   )
 }

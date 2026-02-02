@@ -1,13 +1,14 @@
 'use client'
 
 import { useState } from 'react'
-import { Team, TeamSeasonEpa, TeamStyleProfile, TeamSeasonTrajectory, DrivePattern, DownDistanceSplit, TrajectoryAverages, RedZoneSplit, FieldPositionSplit, HomeAwaySplit, ConferenceSplit, RosterPlayer, PlayerSeasonStat } from '@/lib/types/database'
+import { Team, TeamSeasonEpa, TeamStyleProfile, TeamSeasonTrajectory, DrivePattern, DownDistanceSplit, TrajectoryAverages, RedZoneSplit, FieldPositionSplit, HomeAwaySplit, ConferenceSplit, RosterPlayer, PlayerSeasonStat, ScheduleGame } from '@/lib/types/database'
 import { MetricsCards } from '@/components/team/MetricsCards'
 import { StyleProfile } from '@/components/team/StyleProfile'
 import { DrivePatterns } from '@/components/visualizations/DrivePatterns'
 import { TrajectoryChart } from '@/components/team/TrajectoryChart'
 import { SituationalView } from '@/components/team/SituationalView'
 import { RosterView } from './RosterView'
+import { ScheduleView } from './ScheduleView'
 
 type TabId = 'overview' | 'situational' | 'schedule' | 'roster' | 'compare'
 
@@ -20,7 +21,7 @@ interface Tab {
 const TABS: Tab[] = [
   { id: 'overview', label: 'Overview', enabled: true },
   { id: 'situational', label: 'Situational', enabled: true },
-  { id: 'schedule', label: 'Schedule', enabled: false },
+  { id: 'schedule', label: 'Schedule', enabled: true },
   { id: 'roster', label: 'Roster', enabled: true },
   { id: 'compare', label: 'Compare', enabled: false },
 ]
@@ -40,6 +41,7 @@ interface TeamPageClientProps {
   conferenceSplits: ConferenceSplit[] | null
   roster: RosterPlayer[] | null
   playerStats: PlayerSeasonStat[] | null
+  schedule: ScheduleGame[] | null
 }
 
 export function TeamPageClient({
@@ -56,7 +58,8 @@ export function TeamPageClient({
   homeAwaySplits,
   conferenceSplits,
   roster,
-  playerStats
+  playerStats,
+  schedule
 }: TeamPageClientProps) {
   const [activeTab, setActiveTab] = useState<TabId>('overview')
 
@@ -181,7 +184,11 @@ export function TeamPageClient({
           <RosterView roster={roster} stats={playerStats} />
         )}
 
-        {(activeTab === 'schedule' || activeTab === 'compare') && (
+        {activeTab === 'schedule' && (
+          <ScheduleView schedule={schedule} teamColor={team.color} />
+        )}
+
+        {activeTab === 'compare' && (
           <div className="text-center py-12">
             <p className="text-[var(--text-muted)]">Coming soon.</p>
           </div>
