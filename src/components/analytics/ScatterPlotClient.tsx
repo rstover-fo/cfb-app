@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useMemo } from 'react'
-import { Team, TeamSeasonEpa, TeamStyleProfile, DefensiveHavoc } from '@/lib/types/database'
+import { Team, TeamSeasonEpa, TeamStyleProfile, DefensiveHavoc, TeamTempoMetrics } from '@/lib/types/database'
 import { ScatterPlot } from './ScatterPlot'
 
 interface ScatterPlotClientProps {
@@ -9,6 +9,7 @@ interface ScatterPlotClientProps {
   metrics: TeamSeasonEpa[]
   styles: TeamStyleProfile[]
   havoc: DefensiveHavoc[]
+  tempo: TeamTempoMetrics[]
   currentSeason: number
 }
 
@@ -19,6 +20,7 @@ type MetricKey =
   | 'def_run_vs_pass'
   | 'consistency_vs_explosiveness'
   | 'havoc_vs_bend'
+  | 'tempo_vs_efficiency'
 
 interface QuadrantLabels {
   topLeft: string
@@ -115,6 +117,18 @@ const PLOT_OPTIONS: PlotOption[] = [
       bottomRight: 'Disruptive but Leaky'
     }
   },
+  {
+    id: 'tempo_vs_efficiency',
+    label: 'Tempo vs Efficiency',
+    xLabel: 'Plays per Game',
+    yLabel: 'EPA per Play',
+    quadrantLabels: {
+      topLeft: 'Slow & Efficient',
+      topRight: 'Fast & Effective',
+      bottomLeft: 'Slow & Inefficient',
+      bottomRight: 'Fast & Sloppy'
+    }
+  },
 ]
 
 interface DataPoint {
@@ -127,7 +141,7 @@ interface DataPoint {
   conference: string | null
 }
 
-export function ScatterPlotClient({ teams, metrics, styles, havoc, currentSeason }: ScatterPlotClientProps) {
+export function ScatterPlotClient({ teams, metrics, styles, havoc, tempo, currentSeason }: ScatterPlotClientProps) {
   const [activePlot, setActivePlot] = useState<MetricKey>('epa_vs_success')
   const [selectedConference, setSelectedConference] = useState<string | null>(null)
   const [showLogos, setShowLogos] = useState(true)
@@ -153,6 +167,10 @@ export function ScatterPlotClient({ teams, metrics, styles, havoc, currentSeason
   const havocMap = useMemo(() => {
     return new Map(havoc.map(h => [h.team, h]))
   }, [havoc])
+
+  const tempoMap = useMemo(() => {
+    return new Map(tempo.map(t => [t.team, t]))
+  }, [tempo])
 
   // Transform data based on active plot
   const plotData: DataPoint[] = useMemo(() => {
@@ -195,6 +213,12 @@ export function ScatterPlotClient({ teams, metrics, styles, havoc, currentSeason
             x = teamHavoc.havoc_rate
             y = teamHavoc.opp_epa_per_play
             break
+          case 'tempo_vs_efficiency':
+            const teamTempo = tempoMap.get(team.school)
+            if (!teamTempo) return null
+            x = teamTempo.plays_per_game
+            y = teamTempo.epa_per_play
+            break
           default:
             return null
         }
@@ -210,7 +234,7 @@ export function ScatterPlotClient({ teams, metrics, styles, havoc, currentSeason
         }
       })
       .filter((p): p is DataPoint => p !== null)
-  }, [teams, metricsMap, stylesMap, havocMap, activePlot, selectedConference])
+  }, [teams, metricsMap, stylesMap, havocMap, tempoMap, activePlot, selectedConference])
 
   // Find highlighted team based on search
   const highlightedTeamId = useMemo(() => {
