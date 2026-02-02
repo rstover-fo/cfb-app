@@ -79,6 +79,16 @@ export function ScatterPlot({ data, xLabel, yLabel, xInvert = false, yInvert = f
     return Array.from({ length: count }, (_, i) => yDomain[0] + i * step)
   }, [yDomain])
 
+  // Calculate means for reference lines
+  const { xMean, yMean } = useMemo(() => {
+    const xSum = data.reduce((sum, d) => sum + d.x, 0)
+    const ySum = data.reduce((sum, d) => sum + d.y, 0)
+    return {
+      xMean: xSum / data.length,
+      yMean: ySum / data.length
+    }
+  }, [data])
+
   return (
     <div className="relative">
       <svg
@@ -114,6 +124,68 @@ export function ScatterPlot({ data, xLabel, yLabel, xInvert = false, yInvert = f
             />
           ))}
         </g>
+
+        {/* Mean reference lines */}
+        <line
+          x1={xScale(xMean)}
+          y1={MARGIN.top}
+          x2={xScale(xMean)}
+          y2={HEIGHT - MARGIN.bottom}
+          stroke="var(--color-run)"
+          strokeWidth={1.5}
+          strokeDasharray="8,4"
+          opacity={0.5}
+        />
+        <line
+          x1={MARGIN.left}
+          y1={yScale(yMean)}
+          x2={WIDTH - MARGIN.right}
+          y2={yScale(yMean)}
+          stroke="var(--color-run)"
+          strokeWidth={1.5}
+          strokeDasharray="8,4"
+          opacity={0.5}
+        />
+
+        {/* Quadrant labels */}
+        <text
+          x={MARGIN.left + 10}
+          y={MARGIN.top + 20}
+          fill="var(--text-muted)"
+          fontSize={11}
+          opacity={0.6}
+        >
+          {yInvert ? 'Strong Defense' : 'High Y'} / {xInvert ? 'Strong Offense' : 'Low X'}
+        </text>
+        <text
+          x={WIDTH - MARGIN.right - 10}
+          y={MARGIN.top + 20}
+          fill="var(--text-muted)"
+          fontSize={11}
+          textAnchor="end"
+          opacity={0.6}
+        >
+          {yInvert ? 'Strong Defense' : 'High Y'} / {xInvert ? 'Weak Offense' : 'High X'}
+        </text>
+        <text
+          x={MARGIN.left + 10}
+          y={HEIGHT - MARGIN.bottom - 10}
+          fill="var(--text-muted)"
+          fontSize={11}
+          opacity={0.6}
+        >
+          {yInvert ? 'Weak Defense' : 'Low Y'} / {xInvert ? 'Strong Offense' : 'Low X'}
+        </text>
+        <text
+          x={WIDTH - MARGIN.right - 10}
+          y={HEIGHT - MARGIN.bottom - 10}
+          fill="var(--text-muted)"
+          fontSize={11}
+          textAnchor="end"
+          opacity={0.6}
+        >
+          {yInvert ? 'Weak Defense' : 'Low Y'} / {xInvert ? 'Weak Offense' : 'High X'}
+        </text>
 
         {/* Axes */}
         <line
