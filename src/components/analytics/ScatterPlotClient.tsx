@@ -11,7 +11,12 @@ interface ScatterPlotClientProps {
   currentSeason: number
 }
 
-type MetricKey = 'epa_vs_success' | 'off_vs_def' | 'run_vs_pass'
+type MetricKey =
+  | 'epa_vs_success'
+  | 'off_vs_def'
+  | 'run_vs_pass'
+  | 'def_run_vs_pass'
+  | 'consistency_vs_explosiveness'
 
 interface QuadrantLabels {
   topLeft: string
@@ -67,6 +72,32 @@ const PLOT_OPTIONS: PlotOption[] = [
       topRight: 'Balanced & Effective',
       bottomLeft: 'Struggling',
       bottomRight: 'Run Heavy'
+    }
+  },
+  {
+    id: 'def_run_vs_pass',
+    label: 'Defensive Identity',
+    xLabel: 'EPA Allowed vs Run',
+    yLabel: 'EPA Allowed vs Pass',
+    xInvert: true,
+    yInvert: true,
+    quadrantLabels: {
+      topLeft: 'Pass Rush Focused',
+      topRight: 'Lockdown',
+      bottomLeft: 'Vulnerable',
+      bottomRight: 'Run Stuffers'
+    }
+  },
+  {
+    id: 'consistency_vs_explosiveness',
+    label: 'Consistency vs Explosiveness',
+    xLabel: 'Success Rate',
+    yLabel: 'Explosiveness',
+    quadrantLabels: {
+      topLeft: 'Boom or Bust',
+      topRight: 'Elite',
+      bottomLeft: 'Struggling',
+      bottomRight: 'Methodical'
     }
   },
 ]
@@ -129,6 +160,15 @@ export function ScatterPlotClient({ teams, metrics, styles, currentSeason }: Sca
             if (!teamStyle) return null
             x = teamStyle.epa_rushing
             y = teamStyle.epa_passing
+            break
+          case 'def_run_vs_pass':
+            if (!teamStyle) return null
+            x = teamStyle.def_epa_vs_run
+            y = teamStyle.def_epa_vs_pass
+            break
+          case 'consistency_vs_explosiveness':
+            x = teamMetrics.success_rate
+            y = teamMetrics.explosiveness
             break
           default:
             return null

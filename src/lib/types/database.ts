@@ -224,3 +224,32 @@ export interface ScheduleGame extends Game {
   opponent_score: number | null
   result: 'W' | 'L' | null
 }
+
+export interface DefensiveHavoc {
+  season: number
+  team: string
+  defensive_plays: number
+  havoc_plays: number
+  havoc_rate: number
+  opp_epa_per_play: number
+  opp_success_rate: number
+  sacks: number
+  interceptions: number
+  fumbles: number
+  turnovers_forced: number
+  stuffs: number
+  stuff_rate: number
+  tfls: number
+}
+
+export interface TeamTempoMetrics {
+  season: number
+  team: string
+  games: number
+  total_plays: number
+  plays_per_game: number
+  tempo_tier: 'up_tempo' | 'balanced' | 'slow'
+  epa_per_play: number
+  success_rate: number
+  explosiveness: number
+}
