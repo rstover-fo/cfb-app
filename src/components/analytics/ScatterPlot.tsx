@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 
 interface DataPoint {
@@ -13,21 +13,33 @@ interface DataPoint {
   conference: string | null
 }
 
+interface QuadrantLabels {
+  topLeft: string
+  topRight: string
+  bottomLeft: string
+  bottomRight: string
+}
+
 interface ScatterPlotProps {
   data: DataPoint[]
   xLabel: string
   yLabel: string
   xInvert?: boolean  // Lower is better (for ranks)
   yInvert?: boolean
+  quadrantLabels?: QuadrantLabels
+  showLogos?: boolean
+  highlightedTeamId?: number | null
 }
 
 const MARGIN = { top: 40, right: 40, bottom: 60, left: 70 }
 const WIDTH = 800
 const HEIGHT = 500
 
-export function ScatterPlot({ data, xLabel, yLabel, xInvert = false, yInvert = false }: ScatterPlotProps) {
+export function ScatterPlot({ data, xLabel, yLabel, xInvert = false, yInvert = false, quadrantLabels, showLogos = true, highlightedTeamId }: ScatterPlotProps) {
   const router = useRouter()
+  const containerRef = useRef<HTMLDivElement>(null)
   const [hoveredPoint, setHoveredPoint] = useState<DataPoint | null>(null)
+  const [tooltipPos, setTooltipPos] = useState({ x: 0, y: 0 })
 
   const { xScale, yScale, xDomain, yDomain } = useMemo(() => {
     const xValues = data.map(d => d.x)
@@ -89,8 +101,19 @@ export function ScatterPlot({ data, xLabel, yLabel, xInvert = false, yInvert = f
     }
   }, [data])
 
+  const handleMouseMove = (e: React.MouseEvent, point: DataPoint) => {
+    if (containerRef.current) {
+      const rect = containerRef.current.getBoundingClientRect()
+      setTooltipPos({
+        x: e.clientX - rect.left,
+        y: e.clientY - rect.top
+      })
+    }
+    setHoveredPoint(point)
+  }
+
   return (
-    <div className="relative">
+    <div className="relative" ref={containerRef}>
       <svg
         viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
         className="w-full max-w-4xl mx-auto"
@@ -148,44 +171,52 @@ export function ScatterPlot({ data, xLabel, yLabel, xInvert = false, yInvert = f
         />
 
         {/* Quadrant labels */}
-        <text
-          x={MARGIN.left + 10}
-          y={MARGIN.top + 20}
-          fill="var(--text-muted)"
-          fontSize={11}
-          opacity={0.6}
-        >
-          {yInvert ? 'Strong Defense' : 'High Y'} / {xInvert ? 'Strong Offense' : 'Low X'}
-        </text>
-        <text
-          x={WIDTH - MARGIN.right - 10}
-          y={MARGIN.top + 20}
-          fill="var(--text-muted)"
-          fontSize={11}
-          textAnchor="end"
-          opacity={0.6}
-        >
-          {yInvert ? 'Strong Defense' : 'High Y'} / {xInvert ? 'Weak Offense' : 'High X'}
-        </text>
-        <text
-          x={MARGIN.left + 10}
-          y={HEIGHT - MARGIN.bottom - 10}
-          fill="var(--text-muted)"
-          fontSize={11}
-          opacity={0.6}
-        >
-          {yInvert ? 'Weak Defense' : 'Low Y'} / {xInvert ? 'Strong Offense' : 'Low X'}
-        </text>
-        <text
-          x={WIDTH - MARGIN.right - 10}
-          y={HEIGHT - MARGIN.bottom - 10}
-          fill="var(--text-muted)"
-          fontSize={11}
-          textAnchor="end"
-          opacity={0.6}
-        >
-          {yInvert ? 'Weak Defense' : 'Low Y'} / {xInvert ? 'Weak Offense' : 'High X'}
-        </text>
+        {quadrantLabels && (
+          <>
+            <text
+              x={MARGIN.left + 12}
+              y={MARGIN.top + 18}
+              fill="var(--text-muted)"
+              fontSize={10}
+              fontWeight={500}
+              opacity={0.7}
+            >
+              {quadrantLabels.topLeft}
+            </text>
+            <text
+              x={WIDTH - MARGIN.right - 12}
+              y={MARGIN.top + 18}
+              fill="var(--text-muted)"
+              fontSize={10}
+              fontWeight={500}
+              textAnchor="end"
+              opacity={0.7}
+            >
+              {quadrantLabels.topRight}
+            </text>
+            <text
+              x={MARGIN.left + 12}
+              y={HEIGHT - MARGIN.bottom - 12}
+              fill="var(--text-muted)"
+              fontSize={10}
+              fontWeight={500}
+              opacity={0.7}
+            >
+              {quadrantLabels.bottomLeft}
+            </text>
+            <text
+              x={WIDTH - MARGIN.right - 12}
+              y={HEIGHT - MARGIN.bottom - 12}
+              fill="var(--text-muted)"
+              fontSize={10}
+              fontWeight={500}
+              textAnchor="end"
+              opacity={0.7}
+            >
+              {quadrantLabels.bottomRight}
+            </text>
+          </>
+        )}
 
         {/* Axes */}
         <line
@@ -275,36 +306,102 @@ export function ScatterPlot({ data, xLabel, yLabel, xInvert = false, yInvert = f
           {yLabel}
         </text>
 
+        {/* Filters and clip paths */}
+        <defs>
+          <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+            <feDropShadow dx="0" dy="0" stdDeviation="3" floodColor="var(--text-primary)" floodOpacity="0.4" />
+          </filter>
+          {/* Clip paths for each team logo */}
+          {showLogos && data.map(point => (
+            <clipPath key={`clip-${point.id}`} id={`clip-${point.id}`}>
+              <circle cx={xScale(point.x)} cy={yScale(point.y)} r={hoveredPoint?.id === point.id ? 14 : 10} />
+            </clipPath>
+          ))}
+        </defs>
+
         {/* Data points */}
-        {data.map(point => (
-          <g
-            key={point.id}
-            style={{ cursor: 'pointer' }}
-            onClick={() => handleClick(point)}
-            onMouseEnter={() => setHoveredPoint(point)}
-            onMouseLeave={() => setHoveredPoint(null)}
-          >
-            <circle
-              cx={xScale(point.x)}
-              cy={yScale(point.y)}
-              r={hoveredPoint?.id === point.id ? 10 : 7}
-              fill={point.color || 'var(--color-run)'}
-              fillOpacity={hoveredPoint?.id === point.id ? 1 : 0.7}
-              stroke={hoveredPoint?.id === point.id ? 'var(--text-primary)' : 'none'}
-              strokeWidth={2}
-              className="transition-all duration-150"
-            />
-          </g>
-        ))}
+        {data.map(point => {
+          const isHovered = hoveredPoint?.id === point.id
+          const isHighlighted = highlightedTeamId === point.id
+          const isActive = isHovered || isHighlighted
+          const cx = xScale(point.x)
+          const cy = yScale(point.y)
+          const radius = isActive ? 16 : 10
+          const useLogo = showLogos && point.logo
+          // Dim non-highlighted points when search is active
+          const isDimmed = highlightedTeamId !== null && !isHighlighted && !isHovered
+
+          return (
+            <g
+              key={point.id}
+              style={{ cursor: 'pointer', opacity: isDimmed ? 0.3 : 1 }}
+              onClick={() => handleClick(point)}
+              onMouseMove={(e) => handleMouseMove(e, point)}
+              onMouseLeave={() => setHoveredPoint(null)}
+            >
+              {/* Highlight ring for searched team */}
+              {isHighlighted && (
+                <circle
+                  cx={cx}
+                  cy={cy}
+                  r={radius + 4}
+                  fill="none"
+                  stroke="var(--color-run)"
+                  strokeWidth={2}
+                  strokeDasharray="4,2"
+                  className="animate-pulse"
+                />
+              )}
+              {useLogo ? (
+                <>
+                  {/* Background circle for logo */}
+                  <circle
+                    cx={cx}
+                    cy={cy}
+                    r={radius}
+                    fill="white"
+                    stroke={isActive ? point.color || 'var(--color-run)' : 'rgba(255,255,255,0.5)'}
+                    strokeWidth={isActive ? 3 : 1.5}
+                    filter={isActive ? 'url(#glow)' : undefined}
+                    className="transition-all duration-150"
+                  />
+                  {/* Team logo image */}
+                  <image
+                    href={point.logo!}
+                    x={cx - radius + 2}
+                    y={cy - radius + 2}
+                    width={(radius - 2) * 2}
+                    height={(radius - 2) * 2}
+                    preserveAspectRatio="xMidYMid meet"
+                    className="transition-all duration-150"
+                    style={{ pointerEvents: 'none' }}
+                  />
+                </>
+              ) : (
+                <circle
+                  cx={cx}
+                  cy={cy}
+                  r={isActive ? 12 : 7}
+                  fill={point.color || 'var(--color-run)'}
+                  fillOpacity={isActive ? 1 : 0.75}
+                  stroke={isActive ? 'white' : 'rgba(255,255,255,0.3)'}
+                  strokeWidth={isActive ? 2.5 : 1}
+                  filter={isActive ? 'url(#glow)' : undefined}
+                  className="transition-all duration-150"
+                />
+              )}
+            </g>
+          )
+        })}
       </svg>
 
       {/* Tooltip */}
       {hoveredPoint && (
         <div
-          className="absolute bg-[var(--bg-surface)] border border-[var(--border)] rounded-sm shadow-lg p-3 pointer-events-none z-10"
+          className="absolute bg-[var(--bg-surface)] border border-[var(--border)] rounded-sm shadow-lg p-3 pointer-events-none z-10 transition-opacity duration-100"
           style={{
-            left: `${xScale(hoveredPoint.x) / WIDTH * 100}%`,
-            top: `${yScale(hoveredPoint.y) / HEIGHT * 100 - 15}%`,
+            left: tooltipPos.x,
+            top: tooltipPos.y - 12,
             transform: 'translate(-50%, -100%)'
           }}
         >
@@ -322,8 +419,8 @@ export function ScatterPlot({ data, xLabel, yLabel, xInvert = false, yInvert = f
             <br />
             {yLabel}: {hoveredPoint.y.toFixed(3)}
           </div>
-          <div className="text-xs text-[var(--text-muted)] mt-1">
-            Click to view team
+          <div className="text-xs text-[var(--text-muted)] mt-1 opacity-60">
+            Click to view team →
           </div>
         </div>
       )}

@@ -13,10 +13,62 @@ interface ScatterPlotClientProps {
 
 type MetricKey = 'epa_vs_success' | 'off_vs_def' | 'run_vs_pass'
 
-const PLOT_OPTIONS: { id: MetricKey; label: string; xLabel: string; yLabel: string; xInvert?: boolean; yInvert?: boolean }[] = [
-  { id: 'epa_vs_success', label: 'EPA vs Success Rate', xLabel: 'EPA per Play', yLabel: 'Success Rate' },
-  { id: 'off_vs_def', label: 'Offense vs Defense', xLabel: 'Offensive EPA Rank', yLabel: 'Defensive EPA Rank', xInvert: true, yInvert: true },
-  { id: 'run_vs_pass', label: 'Run vs Pass EPA', xLabel: 'Rushing EPA', yLabel: 'Passing EPA' },
+interface QuadrantLabels {
+  topLeft: string
+  topRight: string
+  bottomLeft: string
+  bottomRight: string
+}
+
+interface PlotOption {
+  id: MetricKey
+  label: string
+  xLabel: string
+  yLabel: string
+  xInvert?: boolean
+  yInvert?: boolean
+  quadrantLabels: QuadrantLabels
+}
+
+const PLOT_OPTIONS: PlotOption[] = [
+  {
+    id: 'epa_vs_success',
+    label: 'EPA vs Success Rate',
+    xLabel: 'EPA per Play',
+    yLabel: 'Success Rate',
+    quadrantLabels: {
+      topLeft: 'Efficient but Explosive',
+      topRight: 'Elite',
+      bottomLeft: 'Struggling',
+      bottomRight: 'Boom or Bust'
+    }
+  },
+  {
+    id: 'off_vs_def',
+    label: 'Offense vs Defense',
+    xLabel: 'Offensive EPA Rank',
+    yLabel: 'Defensive EPA Rank',
+    xInvert: true,
+    yInvert: true,
+    quadrantLabels: {
+      topLeft: 'Defensive Team',
+      topRight: 'Contenders',
+      bottomLeft: 'Rebuilding',
+      bottomRight: 'Offensive Team'
+    }
+  },
+  {
+    id: 'run_vs_pass',
+    label: 'Run vs Pass EPA',
+    xLabel: 'Rushing EPA',
+    yLabel: 'Passing EPA',
+    quadrantLabels: {
+      topLeft: 'Pass Heavy',
+      topRight: 'Balanced & Effective',
+      bottomLeft: 'Struggling',
+      bottomRight: 'Run Heavy'
+    }
+  },
 ]
 
 interface DataPoint {
@@ -32,6 +84,8 @@ interface DataPoint {
 export function ScatterPlotClient({ teams, metrics, styles, currentSeason }: ScatterPlotClientProps) {
   const [activePlot, setActivePlot] = useState<MetricKey>('epa_vs_success')
   const [selectedConference, setSelectedConference] = useState<string | null>(null)
+  const [showLogos, setShowLogos] = useState(true)
+  const [searchQuery, setSearchQuery] = useState('')
 
   const activeOption = PLOT_OPTIONS.find(p => p.id === activePlot)!
 
@@ -93,6 +147,14 @@ export function ScatterPlotClient({ teams, metrics, styles, currentSeason }: Sca
       .filter((p): p is DataPoint => p !== null)
   }, [teams, metricsMap, stylesMap, activePlot, selectedConference])
 
+  // Find highlighted team based on search
+  const highlightedTeamId = useMemo(() => {
+    if (!searchQuery.trim()) return null
+    const query = searchQuery.toLowerCase()
+    const match = plotData.find(p => p.name.toLowerCase().includes(query))
+    return match?.id ?? null
+  }, [searchQuery, plotData])
+
   return (
     <div>
       {/* Plot Type Selector */}
@@ -139,11 +201,42 @@ export function ScatterPlotClient({ teams, metrics, styles, currentSeason }: Sca
         ))}
       </div>
 
-      {/* Stats Summary */}
-      <div className="flex gap-4 mb-4 text-sm text-[var(--text-muted)]">
-        <span>{plotData.length} teams plotted</span>
-        <span>·</span>
-        <span>{currentSeason} Season</span>
+      {/* Stats Summary, Search & Logo Toggle */}
+      <div className="flex items-center justify-between mb-4 gap-4">
+        <div className="flex gap-4 text-sm text-[var(--text-muted)]">
+          <span>{plotData.length} teams plotted</span>
+          <span>·</span>
+          <span>{currentSeason} Season</span>
+        </div>
+        <div className="flex items-center gap-3">
+          <div className="relative">
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Find team..."
+              className="w-40 px-3 py-1.5 border border-[var(--border)] rounded-sm text-xs bg-[var(--bg-base)] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--color-run)]"
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery('')}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-[var(--text-muted)] hover:text-[var(--text-primary)] text-xs"
+              >
+                ×
+              </button>
+            )}
+          </div>
+          <button
+            onClick={() => setShowLogos(!showLogos)}
+            className={`px-3 py-1.5 border rounded-sm text-xs transition-all ${
+              showLogos
+                ? 'bg-[var(--bg-surface)] border-[var(--color-run)] text-[var(--text-primary)]'
+                : 'border-[var(--border)] text-[var(--text-muted)] hover:border-[var(--text-secondary)]'
+            }`}
+          >
+            {showLogos ? 'Logos' : 'Colors'}
+          </button>
+        </div>
       </div>
 
       {/* Scatter Plot */}
@@ -155,6 +248,9 @@ export function ScatterPlotClient({ teams, metrics, styles, currentSeason }: Sca
             yLabel={activeOption.yLabel}
             xInvert={activeOption.xInvert}
             yInvert={activeOption.yInvert}
+            quadrantLabels={activeOption.quadrantLabels}
+            showLogos={showLogos}
+            highlightedTeamId={highlightedTeamId}
           />
         ) : (
           <div className="text-center py-20 text-[var(--text-muted)]">
