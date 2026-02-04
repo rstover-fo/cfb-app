@@ -1,74 +1,45 @@
-import { createClient } from '@/lib/supabase/server'
-import { TeamList } from '@/components/TeamList'
-import { Team } from '@/lib/types/database'
+import { Suspense } from 'react'
+import { TopMoversWidget } from '@/components/dashboard/TopMoversWidget'
+import { RecentGamesWidget } from '@/components/dashboard/RecentGamesWidget'
+import { StandingsWidget } from '@/components/dashboard/StandingsWidget'
+import { StatLeadersWidget } from '@/components/dashboard/StatLeadersWidget'
+import { WidgetSkeleton } from '@/components/dashboard/WidgetSkeleton'
 
-export default async function Home() {
-  const supabase = await createClient()
-
-  // Fetch FBS/FCS teams
-  const { data: teams, error: teamsError } = await supabase
-    .from('teams_with_logos')
-    .select('*')
-    .in('classification', ['fbs', 'fcs'])
-    .order('school')
-
-  // Fetch 2024 metrics for all teams
-  const { data: metrics, error: metricsError } = await supabase
-    .from('team_epa_season')
-    .select('team, epa_per_play, off_epa_rank')
-    .eq('season', 2024)
-
-  // Fetch win/loss records
-  const { data: records, error: recordsError } = await supabase
-    .from('team_season_trajectory')
-    .select('team, wins, games')
-    .eq('season', 2024)
-
-  if (teamsError) console.error('Error fetching teams:', teamsError)
-  if (metricsError) console.error('Error fetching metrics:', metricsError)
-  if (recordsError) console.error('Error fetching records:', recordsError)
-
-  // Build metrics lookup map
-  const metricsMap = new Map<string, { epa: number; rank: number; wins: number; losses: number }>()
-
-  metrics?.forEach(m => {
-    metricsMap.set(m.team, {
-      epa: m.epa_per_play,
-      rank: m.off_epa_rank,
-      wins: 0,
-      losses: 0
-    })
-  })
-
-  records?.forEach(r => {
-    const existing = metricsMap.get(r.team)
-    if (existing) {
-      existing.wins = r.wins ?? 0
-      existing.losses = (r.games ?? 0) - (r.wins ?? 0)
-    } else {
-      metricsMap.set(r.team, {
-        epa: 0,
-        rank: 0,
-        wins: r.wins ?? 0,
-        losses: (r.games ?? 0) - (r.wins ?? 0)
-      })
-    }
-  })
-
+export default function Home() {
   return (
     <div className="p-8">
       {/* Page Header */}
       <header className="mb-8">
         <h1 className="font-headline text-3xl text-[var(--text-primary)] underline-sketch inline-block">
-          Teams
+          Dashboard
         </h1>
+        <p className="mt-2 text-sm text-[var(--text-muted)]">
+          College football analytics at a glance
+        </p>
       </header>
 
-      {/* Team Grid */}
-      <TeamList
-        teams={(teams as Team[]) || []}
-        metricsMap={Object.fromEntries(metricsMap)}
-      />
+      {/* Widget Grid - 2x2 responsive layout */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+        {/* Top Movers */}
+        <Suspense fallback={<WidgetSkeleton title="Top Movers" rows={6} />}>
+          <TopMoversWidget />
+        </Suspense>
+
+        {/* Recent Games */}
+        <Suspense fallback={<WidgetSkeleton title="Recent Games" rows={5} />}>
+          <RecentGamesWidget />
+        </Suspense>
+
+        {/* Standings */}
+        <Suspense fallback={<WidgetSkeleton title="Composite Rankings" rows={10} />}>
+          <StandingsWidget />
+        </Suspense>
+
+        {/* Stat Leaders */}
+        <Suspense fallback={<WidgetSkeleton title="Stat Leaders" rows={5} />}>
+          <StatLeadersWidget />
+        </Suspense>
+      </div>
     </div>
   )
 }
