@@ -162,9 +162,9 @@ export const getRecentGames = cache(async (season: number, limit: number = 5): P
 
   const games = (gamesData as Game[]) || []
 
-  // Filter to games where home team is FBS
+  // Filter to FBS-only games (both teams must be FBS)
   const fbsGames = games
-    .filter(g => teamLookup.has(g.home_team))
+    .filter(g => teamLookup.has(g.home_team) && teamLookup.has(g.away_team))
     .slice(0, limit)
     .map(g => ({
       id: g.id,
