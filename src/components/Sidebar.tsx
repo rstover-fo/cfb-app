@@ -15,12 +15,14 @@ import {
   CaretRight,
   MagnifyingGlass,
   ChartScatter,
+  CalendarBlank,
 } from '@phosphor-icons/react'
 import { ThemeToggle } from './ThemeToggle'
 
 const navItems = [
   { href: '/', label: 'Home', icon: House },
   { href: '/teams', label: 'Teams', icon: Football },
+  { href: '/games', label: 'Games', icon: CalendarBlank },
   { href: '/analytics', label: 'Analytics', icon: ChartScatter },
   { href: '/rankings', label: 'Rankings', icon: ListNumbers, disabled: true },
   { href: '/matchups', label: 'Matchups', icon: Sword, disabled: true },
