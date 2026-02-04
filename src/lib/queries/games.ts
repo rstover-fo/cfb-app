@@ -20,8 +20,6 @@ export interface GameWithTeams {
   away_team: string
   home_points: number
   away_points: number
-  home_conference: string | null
-  away_conference: string | null
   conference_game: boolean
   completed: boolean
   homeLogo: string | null
@@ -31,6 +29,7 @@ export interface GameWithTeams {
 }
 
 // Explicit columns - NOT select('*')
+// Note: games table does not have home_conference/away_conference columns
 const GAME_COLUMNS = `
   id,
   season,
@@ -40,8 +39,6 @@ const GAME_COLUMNS = `
   away_team,
   home_points,
   away_points,
-  home_conference,
-  away_conference,
   conference_game,
   completed
 ` as const
@@ -60,15 +57,12 @@ export const getGames = cache(async (filter: GamesFilter): Promise<GameWithTeams
     .not('away_points', 'is', null)
     .order('start_date', { ascending: false })
 
-  // ALL filters at database level
+  // Database-level filters
   if (filter.week) {
     query = query.eq('week', filter.week)
   }
 
-  if (filter.conference) {
-    query = query.or(`home_conference.eq.${filter.conference},away_conference.eq.${filter.conference}`)
-  }
-
+  // Team filter at database level
   if (filter.team) {
     query = query.or(`home_team.eq.${filter.team},away_team.eq.${filter.team}`)
   }
@@ -81,8 +75,15 @@ export const getGames = cache(async (filter: GamesFilter): Promise<GameWithTeams
   }
 
   // Filter to FBS-only and enrich with team data
+  // Conference filter is applied here since games table lacks conference columns
   return (data ?? [])
     .filter(g => teamLookup.has(g.home_team) && teamLookup.has(g.away_team))
+    .filter(g => {
+      if (!filter.conference) return true
+      const homeConf = teamLookup.get(g.home_team)?.conference
+      const awayConf = teamLookup.get(g.away_team)?.conference
+      return homeConf === filter.conference || awayConf === filter.conference
+    })
     .map(g => ({
       ...g,
       home_points: g.home_points ?? 0,

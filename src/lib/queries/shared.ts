@@ -25,6 +25,7 @@ export const CURRENT_SEASON = 2025
 export interface TeamLookupData {
   logo: string | null
   color: string | null
+  conference: string | null
 }
 
 // Shared helper to get FBS team lookup (cached per request)
@@ -32,11 +33,11 @@ export const getTeamLookup = cache(async (): Promise<Map<string, TeamLookupData>
   const supabase = await createClient()
   const { data: teamsData } = await supabase
     .from('teams_with_logos')
-    .select('school, logo, color')
+    .select('school, logo, color, conference')
     .in('conference', FBS_CONFERENCES as unknown as string[])
 
   const teamLookup = new Map<string, TeamLookupData>()
-  teamsData?.forEach(t => teamLookup.set(t.school, { logo: t.logo, color: t.color }))
+  teamsData?.forEach(t => teamLookup.set(t.school, { logo: t.logo, color: t.color, conference: t.conference }))
   return teamLookup
 })
 
