@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useTransition } from 'react'
+import { useState, useTransition, useRef } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
 import { fetchGames } from '@/app/games/actions'
@@ -29,6 +29,7 @@ export function GamesList({
   const [conference, setConference] = useState<string>('')
   const [team, setTeam] = useState<string>('')
   const [isPending, startTransition] = useTransition()
+  const requestIdRef = useRef(0)
 
   const handleFilterChange = (newFilter: Partial<GamesFilter>) => {
     const newWeek = newFilter.week ?? week
@@ -40,6 +41,9 @@ export function GamesList({
     if (newFilter.conference !== undefined) setConference(newFilter.conference)
     if (newFilter.team !== undefined) setTeam(newFilter.team)
 
+    // Track request to prevent stale responses from overwriting newer ones
+    const currentRequestId = ++requestIdRef.current
+
     startTransition(async () => {
       const filter: GamesFilter = {
         season,
@@ -48,7 +52,10 @@ export function GamesList({
         team: newTeam || undefined,
       }
       const newGames = await fetchGames(filter)
-      setGames(newGames)
+      // Only update if this is still the latest request
+      if (currentRequestId === requestIdRef.current) {
+        setGames(newGames)
+      }
     })
   }
 

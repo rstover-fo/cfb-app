@@ -57,6 +57,7 @@ export const getGames = cache(async (filter: GamesFilter): Promise<GameWithTeams
     .eq('season', filter.season)
     .eq('completed', true)
     .not('home_points', 'is', null)
+    .not('away_points', 'is', null)
     .order('start_date', { ascending: false })
 
   // ALL filters at database level
