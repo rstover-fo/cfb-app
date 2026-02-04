@@ -1,21 +1,7 @@
 import { cache } from 'react'
 import { createClient } from '@/lib/supabase/server'
 import type { TeamSeasonTrajectory, TeamSeasonEpa, DefensiveHavoc, TeamSpecialTeamsSos, Game } from '@/lib/types/database'
-
-// FBS conferences for filtering
-const FBS_CONFERENCES = [
-  'ACC',
-  'American Athletic',
-  'Big 12',
-  'Big Ten',
-  'Conference USA',
-  'FBS Independents',
-  'Mid-American',
-  'Mountain West',
-  'Pac-12',
-  'SEC',
-  'Sun Belt'
-]
+import { getTeamLookup } from './shared'
 
 // Ranking weight constants
 const RANKING_WEIGHTS = {
@@ -72,19 +58,6 @@ export interface StatLeadersData {
   successRate: StatLeader[]
   explosiveness: StatLeader[]
 }
-
-// Shared helper to get FBS team lookup (cached per request)
-const getTeamLookup = cache(async () => {
-  const supabase = await createClient()
-  const { data: teamsData } = await supabase
-    .from('teams_with_logos')
-    .select('school, logo, color')
-    .in('conference', FBS_CONFERENCES)
-
-  const teamLookup = new Map<string, { logo: string | null, color: string | null }>()
-  teamsData?.forEach(t => teamLookup.set(t.school, { logo: t.logo, color: t.color }))
-  return teamLookup
-})
 
 // Get top movers (EPA delta vs prior season)
 export const getTopMovers = cache(async (season: number): Promise<{ risers: Mover[], fallers: Mover[] }> => {

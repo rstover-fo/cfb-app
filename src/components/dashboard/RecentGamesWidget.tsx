@@ -125,13 +125,13 @@ export async function RecentGamesWidget() {
       {/* Header */}
       <div className="flex items-center justify-between mb-4 pb-3 border-b border-[var(--border)]">
         <h2 className="text-sm font-medium text-[var(--text-muted)]">Recent Games</h2>
-        <span
-          className="flex items-center gap-1 text-xs text-[var(--text-muted)] cursor-not-allowed opacity-50"
-          title="Coming soon"
+        <Link
+          href="/games"
+          className="flex items-center gap-1 text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
         >
           View All
           <ArrowRight size={12} weight="thin" />
-        </span>
+        </Link>
       </div>
 
       {hasData ? (
