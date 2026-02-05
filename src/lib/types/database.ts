@@ -292,3 +292,22 @@ export interface GameBoxScore {
   home: BoxScoreTeam
   away: BoxScoreTeam
 }
+
+// Player Leaders Types
+export interface PlayerStat {
+  id: string
+  name: string
+  stats: Record<string, string>  // e.g., { "C/ATT": "18/27", "YDS": "285" }
+}
+
+export interface TeamLeaders {
+  passing: PlayerStat[]
+  rushing: PlayerStat[]
+  receiving: PlayerStat[]
+  defense: PlayerStat[]
+}
+
+export interface PlayerLeaders {
+  away: TeamLeaders
+  home: TeamLeaders
+}
