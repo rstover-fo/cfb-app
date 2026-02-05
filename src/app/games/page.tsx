@@ -1,14 +1,15 @@
 import { getGames, getDefaultWeek, getAvailableWeeks, getAvailableSeasons } from '@/lib/queries/games'
-import { getFBSTeams, FBS_CONFERENCES, getLatestSeason } from '@/lib/queries/shared'
+import { CURRENT_SEASON } from '@/lib/queries/constants'
+import { getFBSTeams, FBS_CONFERENCES } from '@/lib/queries/shared'
 import { GamesList } from '@/components/GamesList'
 
 export default async function GamesPage() {
   // Fetch initial data on the server
-  const [latestSeason, availableSeasons, teams] = await Promise.all([
-    getLatestSeason(),
+  const [availableSeasons, teams] = await Promise.all([
     getAvailableSeasons(),
     getFBSTeams(),
   ])
+  const latestSeason = availableSeasons[0] ?? CURRENT_SEASON
 
   // Fetch season-specific data
   const [defaultWeek, availableWeeks] = await Promise.all([

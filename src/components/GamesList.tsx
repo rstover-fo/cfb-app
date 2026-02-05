@@ -5,6 +5,7 @@ import Link from 'next/link'
 import Image from 'next/image'
 import { fetchGames, fetchAvailableWeeks } from '@/app/games/actions'
 import type { GamesFilter, GameWithTeams, SeasonPhase } from '@/lib/queries/games'
+import { REGULAR_SEASON_MAX_WEEK, POSTSEASON_MIN_WEEK } from '@/lib/queries/constants'
 import { teamNameToSlug } from '@/lib/utils'
 
 interface GamesListProps {
@@ -103,14 +104,22 @@ export function GamesList({
 
   // Get week label (regular season, conf champs, or bowls)
   const getWeekLabel = (w: number): string => {
-    if (w <= 14) return `Week ${w}`
-    if (w === 15) return 'Champs'
+    if (w <= REGULAR_SEASON_MAX_WEEK) return `Week ${w}`
+    if (w === POSTSEASON_MIN_WEEK) return 'Champs'
     return 'Bowls'
   }
 
+  // Shared week button styling
+  const getWeekButtonClass = (isSelected: boolean) =>
+    `px-3 py-1.5 border-[1.5px] rounded-sm text-sm whitespace-nowrap transition-all ${
+      isSelected
+        ? 'bg-[var(--bg-surface)] border-[var(--color-run)] text-[var(--text-primary)]'
+        : 'border-[var(--border)] text-[var(--text-secondary)] hover:border-[var(--text-muted)]'
+    }`
+
   // Group weeks by phase for better organization
-  const regularWeeks = availableWeeks.filter(w => w <= 14)
-  const postWeeks = availableWeeks.filter(w => w >= 15)
+  const regularWeeks = availableWeeks.filter(w => w <= REGULAR_SEASON_MAX_WEEK)
+  const postWeeks = availableWeeks.filter(w => w >= POSTSEASON_MIN_WEEK)
 
   // Get weeks to display based on phase selection
   const getDisplayedWeeks = () => {
@@ -151,11 +160,7 @@ export function GamesList({
             role="tab"
             aria-selected={!week}
             onClick={() => handleFilterChange({ week: 0 })}
-            className={`px-3 py-1.5 border-[1.5px] rounded-sm text-sm whitespace-nowrap transition-all ${
-              !week
-                ? 'bg-[var(--bg-surface)] border-[var(--color-run)] text-[var(--text-primary)]'
-                : 'border-[var(--border)] text-[var(--text-secondary)] hover:border-[var(--text-muted)]'
-            }`}
+            className={getWeekButtonClass(!week)}
           >
             All
           </button>
@@ -173,11 +178,7 @@ export function GamesList({
                   role="tab"
                   aria-selected={week === w}
                   onClick={() => handleFilterChange({ week: w })}
-                  className={`px-3 py-1.5 border-[1.5px] rounded-sm text-sm whitespace-nowrap transition-all ${
-                    week === w
-                      ? 'bg-[var(--bg-surface)] border-[var(--color-run)] text-[var(--text-primary)]'
-                      : 'border-[var(--border)] text-[var(--text-secondary)] hover:border-[var(--text-muted)]'
-                  }`}
+                  className={getWeekButtonClass(week === w)}
                 >
                   {w}
                 </button>
@@ -193,11 +194,7 @@ export function GamesList({
                       role="tab"
                       aria-selected={week === w}
                       onClick={() => handleFilterChange({ week: w })}
-                      className={`px-3 py-1.5 border-[1.5px] rounded-sm text-sm whitespace-nowrap transition-all ${
-                        week === w
-                          ? 'bg-[var(--bg-surface)] border-[var(--color-run)] text-[var(--text-primary)]'
-                          : 'border-[var(--border)] text-[var(--text-secondary)] hover:border-[var(--text-muted)]'
-                      }`}
+                      className={getWeekButtonClass(week === w)}
                     >
                       {getWeekLabel(w)}
                     </button>
@@ -213,11 +210,7 @@ export function GamesList({
                 role="tab"
                 aria-selected={week === w}
                 onClick={() => handleFilterChange({ week: w })}
-                className={`px-3 py-1.5 border-[1.5px] rounded-sm text-sm whitespace-nowrap transition-all ${
-                  week === w
-                    ? 'bg-[var(--bg-surface)] border-[var(--color-run)] text-[var(--text-primary)]'
-                    : 'border-[var(--border)] text-[var(--text-secondary)] hover:border-[var(--text-muted)]'
-                }`}
+                className={getWeekButtonClass(week === w)}
               >
                 {getWeekLabel(w)}
               </button>

@@ -1,6 +1,7 @@
 import { cache } from 'react'
 import { createClient } from '@/lib/supabase/server'
-import { getTeamLookup, CURRENT_SEASON } from './shared'
+import { getTeamLookup } from './shared'
+import { CURRENT_SEASON, REGULAR_SEASON_MAX_WEEK, POSTSEASON_MIN_WEEK } from './constants'
 
 // Season phase type
 export type SeasonPhase = 'all' | 'regular' | 'postseason'
@@ -62,11 +63,11 @@ export const getGames = cache(async (filter: GamesFilter): Promise<GameWithTeams
     .order('start_date', { ascending: false })
 
   // Database-level filters
-  // Phase filter: regular = weeks 1-14, postseason = weeks 15+, all = no constraint
+  // Phase filter: regular = weeks 1-REGULAR_SEASON_MAX_WEEK, postseason = weeks POSTSEASON_MIN_WEEK+, all = no constraint
   if (filter.phase === 'regular') {
-    query = query.lte('week', 14)
+    query = query.lte('week', REGULAR_SEASON_MAX_WEEK)
   } else if (filter.phase === 'postseason') {
-    query = query.gte('week', 15)
+    query = query.gte('week', POSTSEASON_MIN_WEEK)
   }
 
   // Specific week filter (when week is a positive number)
@@ -123,12 +124,12 @@ export const getCurrentWeek = cache(async (season: number): Promise<number> => {
 })
 
 // Get smart default week for regular season view
-// Returns latest completed week within regular season (weeks 1-14)
-// If season has moved to postseason (week 15+), defaults to week 14
+// Returns latest completed week within regular season (weeks 1-REGULAR_SEASON_MAX_WEEK)
+// If season has moved to postseason (week POSTSEASON_MIN_WEEK+), defaults to REGULAR_SEASON_MAX_WEEK
 export const getDefaultWeek = cache(async (season: number): Promise<number> => {
   const maxWeek = await getCurrentWeek(season)
   // If we're in postseason, default to last regular season week
-  if (maxWeek >= 15) return 14
+  if (maxWeek >= POSTSEASON_MIN_WEEK) return REGULAR_SEASON_MAX_WEEK
   return maxWeek
 })
 
@@ -141,6 +142,7 @@ export const getAvailableWeeks = cache(async (season: number): Promise<number[]>
     .eq('season', season)
     .eq('completed', true)
     .order('week', { ascending: true })
+    .limit(1000) // Bound response size until we have proper DISTINCT RPC
 
   if (!data) return []
 
@@ -157,6 +159,7 @@ export const getAvailableSeasons = cache(async (): Promise<number[]> => {
     .select('season')
     .eq('completed', true)
     .order('season', { ascending: false })
+    .limit(1000) // Bound response size until we have proper DISTINCT RPC
 
   if (!data) return []
 
@@ -164,5 +167,3 @@ export const getAvailableSeasons = cache(async (): Promise<number[]> => {
   return [...new Set(data.map(d => d.season))].sort((a, b) => b - a)
 })
 
-// Re-export for convenience
-export { CURRENT_SEASON }

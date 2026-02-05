@@ -1,6 +1,9 @@
 import { cache } from 'react'
 import { createClient } from '@/lib/supabase/server'
 
+// Re-export constants for server components
+export { CURRENT_SEASON, REGULAR_SEASON_MAX_WEEK, POSTSEASON_MIN_WEEK } from './constants'
+
 // FBS conferences for filtering
 export const FBS_CONFERENCES = [
   'ACC',
@@ -17,23 +20,6 @@ export const FBS_CONFERENCES = [
 ] as const
 
 export type FBSConference = typeof FBS_CONFERENCES[number]
-
-// Current season constant (fallback if query fails)
-export const CURRENT_SEASON = 2025
-
-// Get the most recent season with completed games
-export const getLatestSeason = cache(async (): Promise<number> => {
-  const supabase = await createClient()
-  const { data } = await supabase
-    .from('games')
-    .select('season')
-    .eq('completed', true)
-    .order('season', { ascending: false })
-    .limit(1)
-    .single()
-
-  return data?.season ?? CURRENT_SEASON
-})
 
 // Team lookup data shape
 export interface TeamLookupData {
