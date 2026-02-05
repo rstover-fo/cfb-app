@@ -52,17 +52,17 @@ function AnimatedValue({ value, decimals = 3 }: { value: number | null; decimals
 }
 
 export function StyleProfile({ style }: StyleProfileProps) {
-  const runPercent = Math.round(style.run_rate * 100)
+  const runPercent = Math.round((style.run_rate ?? 0) * 100)
   const passPercent = 100 - runPercent  // Ensure bar always fills to 100%
 
   return (
     <div className="card p-6">
       {/* Badges Row */}
       <div className="flex flex-wrap items-center gap-3 mb-6">
-        <IdentityBadge identity={style.offensive_identity} />
-        <TempoBadge tempo={style.tempo_category} />
+        <IdentityBadge identity={style.offensive_identity ?? 'balanced'} />
+        <TempoBadge tempo={style.tempo_category ?? 'balanced'} />
         <span className="text-sm text-[var(--text-muted)]">
-          {style.plays_per_game.toFixed(1)} plays/game
+          {(style.plays_per_game ?? 0).toFixed(1)} plays/game
         </span>
       </div>
 

@@ -54,7 +54,7 @@ export function TeamList({ teams, metricsMap }: TeamListProps) {
     if (searchQuery) {
       const query = searchQuery.toLowerCase()
       result = result.filter(t =>
-        t.school.toLowerCase().includes(query) ||
+        (t.school ?? '').toLowerCase().includes(query) ||
         t.conference?.toLowerCase().includes(query)
       )
     }
@@ -131,7 +131,7 @@ export function TeamList({ teams, metricsMap }: TeamListProps) {
       {/* Team Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
         {filteredTeams.map((team) => (
-          <TeamCard key={team.id} team={team} metrics={metricsMap[team.school]} />
+          <TeamCard key={team.id} team={team} metrics={team.school ? metricsMap[team.school] : undefined} />
         ))}
       </div>
 

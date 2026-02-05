@@ -28,7 +28,7 @@ function GameRow({ game, teamColor }: { game: ScheduleGame; teamColor: string | 
 
       {/* Date */}
       <div className="w-16 text-sm text-[var(--text-secondary)]">
-        {formatDate(game.start_date)}
+        {formatDate(game.start_date ?? '')}
       </div>
 
       {/* Opponent */}
@@ -36,7 +36,7 @@ function GameRow({ game, teamColor }: { game: ScheduleGame; teamColor: string | 
         {game.opponent_logo ? (
           <img
             src={game.opponent_logo}
-            alt={game.opponent}
+            alt={game.opponent ?? ''}
             className="w-8 h-8 object-contain"
           />
         ) : (
@@ -44,7 +44,7 @@ function GameRow({ game, teamColor }: { game: ScheduleGame; teamColor: string | 
             className="w-8 h-8 rounded-full flex items-center justify-center text-xs text-white font-medium"
             style={{ backgroundColor: teamColor || 'var(--text-muted)' }}
           >
-            {game.opponent.slice(0, 2)}
+            {(game.opponent ?? '').slice(0, 2)}
           </div>
         )}
         <div>

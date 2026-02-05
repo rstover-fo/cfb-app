@@ -79,7 +79,7 @@ export function TeamPageClient({
         ) : (
           <div className="w-20 h-20 rounded-full bg-[var(--bg-surface-alt)] flex items-center justify-center">
             <span className="font-headline text-2xl text-[var(--text-muted)]">
-              {team.school.split(' ').map(w => w[0]).join('').slice(0, 2)}
+              {(team.school ?? '').split(' ').map(w => w[0]).join('').slice(0, 2)}
             </span>
           </div>
         )}
@@ -130,7 +130,7 @@ export function TeamPageClient({
             <section className="mb-10">
               <h2 className="font-headline text-2xl text-[var(--text-primary)] mb-4">Drive Patterns</h2>
               {drives && drives.length > 0 ? (
-                <DrivePatterns drives={drives} teamName={team.school} />
+                <DrivePatterns drives={drives} teamName={team.school ?? ''} />
               ) : (
                 <p className="text-[var(--text-muted)]">No drive data available</p>
               )}

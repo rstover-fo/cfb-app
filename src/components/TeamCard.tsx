@@ -25,7 +25,7 @@ function TeamInitials({ school }: { school: string }) {
 }
 
 export function TeamCard({ team, metrics }: TeamCardProps) {
-  const slug = team.school.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')
+  const slug = (team.school ?? '').toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')
 
   return (
     <Link
@@ -41,7 +41,7 @@ export function TeamCard({ team, metrics }: TeamCardProps) {
             className="w-[120px] h-[120px] object-contain"
           />
         ) : (
-          <TeamInitials school={team.school} />
+          <TeamInitials school={team.school ?? ''} />
         )}
       </div>
 

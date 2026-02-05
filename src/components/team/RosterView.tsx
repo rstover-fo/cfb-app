@@ -30,7 +30,7 @@ function formatHeight(inches: number | null): string {
 }
 
 function PlayerRow({ player, stats }: { player: RosterPlayer; stats: PlayerSeasonStat | null }) {
-  const group = getPositionGroup(player.position)
+  const group = getPositionGroup(player.position ?? 'ATH')
 
   return (
     <tr className="border-b border-[var(--border)] hover:bg-[var(--bg-surface-alt)] transition-colors">
@@ -77,7 +77,7 @@ function PlayerRow({ player, stats }: { player: RosterPlayer; stats: PlayerSeaso
             {stats?.tackles ?? '--'}
           </td>
           <td className="py-3 px-2 text-center text-[var(--text-primary)]">
-            {stats?.sacks ?? stats?.int ?? '--'}
+            {stats?.sacks ?? stats?.interceptions ?? '--'}
           </td>
         </>
       )}
@@ -110,20 +110,20 @@ export function RosterView({ roster, stats }: RosterViewProps) {
 
     return roster
       .filter(p => {
-        if (filter !== 'all' && getPositionGroup(p.position) !== filter) return false
+        if (filter !== 'all' && getPositionGroup(p.position ?? 'ATH') !== filter) return false
         if (search) {
-          const name = `${p.first_name} ${p.last_name}`.toLowerCase()
+          const name = `${p.first_name ?? ''} ${p.last_name ?? ''}`.toLowerCase()
           if (!name.includes(search.toLowerCase())) return false
         }
         return true
       })
       .sort((a, b) => {
         // Sort by position group, then position, then name
-        const groupA = getPositionGroup(a.position)
-        const groupB = getPositionGroup(b.position)
+        const groupA = getPositionGroup(a.position ?? 'ATH')
+        const groupB = getPositionGroup(b.position ?? 'ATH')
         if (groupA !== groupB) return groupA.localeCompare(groupB)
-        if (a.position !== b.position) return a.position.localeCompare(b.position)
-        return a.last_name.localeCompare(b.last_name)
+        if (a.position !== b.position) return (a.position ?? '').localeCompare(b.position ?? '')
+        return (a.last_name ?? '').localeCompare(b.last_name ?? '')
       })
   }, [roster, filter, search])
 
@@ -135,7 +135,7 @@ export function RosterView({ roster, stats }: RosterViewProps) {
     )
   }
 
-  const currentGroup = filter === 'all' ? getPositionGroup(filteredRoster[0]?.position || 'QB') : filter
+  const currentGroup = filter === 'all' ? getPositionGroup(filteredRoster[0]?.position ?? 'QB') : filter
 
   return (
     <div>
@@ -208,7 +208,7 @@ export function RosterView({ roster, stats }: RosterViewProps) {
                 <PlayerRow
                   key={player.id}
                   player={player}
-                  stats={statsMap.get(player.id) || null}
+                  stats={(player.id ? statsMap.get(player.id) : undefined) || null}
                 />
               ))}
             </tbody>

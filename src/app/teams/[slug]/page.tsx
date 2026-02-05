@@ -11,7 +11,7 @@ async function getTeamBySlug(supabase: ReturnType<typeof createClient> extends P
   const { data: teams } = await supabase.from('teams_with_logos').select('*')
 
   return teams?.find((team: Team) => {
-    const teamSlug = team.school.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')
+    const teamSlug = (team.school ?? '').toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')
     return teamSlug === slug
   }) || null
 }
@@ -121,14 +121,14 @@ export default async function TeamPage({ params }: TeamPageProps) {
   // Fetch all teams (for schedule logos and Compare tab)
   const { data: allTeamsData } = await supabase.from('teams_with_logos').select('*')
   const allTeams = (allTeamsData as Team[]) || []
-  const teamLogos = new Map(allTeams.map(t => [t.school, t.logo]))
+  const teamLogos = new Map(allTeams.filter(t => t.school).map(t => [t.school!, t.logo]))
 
   // Transform to ScheduleGame format
   let schedule: ScheduleGame[] | null = null
   if (!scheduleResult.error && scheduleResult.data) {
     schedule = (scheduleResult.data as Game[]).map(game => {
       const isHome = game.home_team === team.school
-      const opponent = isHome ? game.away_team : game.home_team
+      const opponent = isHome ? (game.away_team ?? '') : (game.home_team ?? '')
       const teamScore = isHome ? game.home_points : game.away_points
       const opponentScore = isHome ? game.away_points : game.home_points
       let result: 'W' | 'L' | null = null
@@ -138,7 +138,7 @@ export default async function TeamPage({ params }: TeamPageProps) {
       return {
         ...game,
         opponent,
-        opponent_logo: teamLogos.get(opponent) || null,
+        opponent_logo: (opponent ? teamLogos.get(opponent) : null) ?? null,
         is_home: isHome,
         team_score: teamScore,
         opponent_score: opponentScore,

@@ -78,7 +78,6 @@ export function KeySituationsCards({ data }: KeySituationsCardsProps) {
           label="3rd & Short"
           description="1-3 yards"
           value={thirdShort ? `${(thirdShort.conversion_rate ? thirdShort.conversion_rate * 100 : thirdShort.success_rate * 100).toFixed(0)}%` : 'N/A'}
-          rank={thirdShort?.national_rank}
         />
         <SituationCard
           label="3rd & Long"

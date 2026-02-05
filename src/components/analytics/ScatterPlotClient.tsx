@@ -203,14 +203,16 @@ export function ScatterPlotClient({ teams, metrics, styles, havoc, tempo, record
   const fbsRanks = useMemo(() => {
     // Build list of teams with their EPA values
     const teamsWithEpa = teams
+      .filter(team => team.school != null)
       .map(team => {
-        const m = metricsMap.get(team.school)
-        const h = havocMap.get(team.school)
-        const st = specialTeamsMap.get(team.school)
+        const school = team.school!
+        const m = metricsMap.get(school)
+        const h = havocMap.get(school)
+        const st = specialTeamsMap.get(school)
         if (!m) return null
         return {
-          team: team.school,
-          offEpa: m.epa_per_play,
+          team: school,
+          offEpa: m.epa_per_play ?? 0,
           defEpa: h?.opp_epa_per_play ?? 999, // Use defensive havoc for true defensive EPA
           stEfficiency: st?.fpi_st_efficiency ?? 50, // Default to median if missing
           sosRank: st?.sos_rank ?? 0 // 0 means no data
@@ -219,7 +221,7 @@ export function ScatterPlotClient({ teams, metrics, styles, havoc, tempo, record
       .filter((t): t is NonNullable<typeof t> => t !== null)
 
     // Sort by offensive EPA (higher = better = lower rank)
-    const byOffense = [...teamsWithEpa].sort((a, b) => b.offEpa - a.offEpa)
+    const byOffense = [...teamsWithEpa].sort((a, b) => (b.offEpa ?? 0) - (a.offEpa ?? 0))
     const offRankMap = new Map(byOffense.map((t, i) => [t.team, i + 1]))
 
     // Sort by defensive EPA (lower = better = lower rank)
@@ -241,10 +243,12 @@ export function ScatterPlotClient({ teams, metrics, styles, havoc, tempo, record
   // Transform data based on active plot
   const plotData = useMemo(() => {
     return teams
+      .filter(team => team.school != null)
       .filter(team => !selectedConference || team.conference === selectedConference)
       .map(team => {
-        const teamMetrics = metricsMap.get(team.school)
-        const teamStyle = stylesMap.get(team.school)
+        const school = team.school!
+        const teamMetrics = metricsMap.get(school)
+        const teamStyle = stylesMap.get(school)
 
         if (!teamMetrics) return null
 
@@ -252,47 +256,47 @@ export function ScatterPlotClient({ teams, metrics, styles, havoc, tempo, record
 
         switch (activePlot) {
           case 'epa_vs_success':
-            x = teamMetrics.epa_per_play
-            y = teamMetrics.success_rate
+            x = teamMetrics.epa_per_play ?? 0
+            y = teamMetrics.success_rate ?? 0
             break
           case 'off_vs_def':
             // Use FBS-only recalculated ranks
-            x = fbsRanks.offRankMap.get(team.school) ?? fbsRanks.maxRank
-            y = fbsRanks.defRankMap.get(team.school) ?? fbsRanks.maxRank
+            x = fbsRanks.offRankMap.get(school) ?? fbsRanks.maxRank
+            y = fbsRanks.defRankMap.get(school) ?? fbsRanks.maxRank
             break
           case 'run_vs_pass':
             if (!teamStyle) return null
-            x = teamStyle.epa_rushing
-            y = teamStyle.epa_passing
+            x = teamStyle.epa_rushing ?? 0
+            y = teamStyle.epa_passing ?? 0
             break
           case 'def_run_vs_pass':
             if (!teamStyle) return null
-            x = teamStyle.def_epa_vs_run
-            y = teamStyle.def_epa_vs_pass
+            x = teamStyle.def_epa_vs_run ?? 0
+            y = teamStyle.def_epa_vs_pass ?? 0
             break
           case 'consistency_vs_explosiveness':
-            x = teamMetrics.success_rate
-            y = teamMetrics.explosiveness
+            x = teamMetrics.success_rate ?? 0
+            y = teamMetrics.explosiveness ?? 0
             break
           case 'havoc_vs_bend':
-            const teamHavoc = havocMap.get(team.school)
+            const teamHavoc = havocMap.get(school)
             if (!teamHavoc) return null
-            x = teamHavoc.havoc_rate
-            y = teamHavoc.opp_epa_per_play
+            x = teamHavoc.havoc_rate ?? 0
+            y = teamHavoc.opp_epa_per_play ?? 0
             break
           case 'tempo_vs_efficiency':
-            const teamTempo = tempoMap.get(team.school)
+            const teamTempo = tempoMap.get(school)
             if (!teamTempo) return null
-            x = teamTempo.plays_per_game
-            y = teamTempo.epa_per_play
+            x = teamTempo.plays_per_game ?? 0
+            y = teamTempo.epa_per_play ?? 0
             break
           default:
             return null
         }
 
         return {
-          id: team.id,
-          name: team.school,
+          id: team.id ?? 0,
+          name: school,
           x,
           y,
           color: team.color || '#6B635A',
@@ -307,7 +311,7 @@ export function ScatterPlotClient({ teams, metrics, styles, havoc, tempo, record
   const highlightedTeamId = useMemo(() => {
     if (!searchQuery.trim()) return null
     const query = searchQuery.toLowerCase()
-    const match = plotData.find(p => p.name.toLowerCase().includes(query))
+    const match = plotData.find(p => (p.name ?? '').toLowerCase().includes(query))
     return match?.id ?? null
   }, [searchQuery, plotData])
 
@@ -316,14 +320,16 @@ export function ScatterPlotClient({ teams, metrics, styles, havoc, tempo, record
     const { offRankMap, defRankMap, stRankMap, sosRankMap, maxRank } = fbsRanks
 
     return teams
+      .filter(team => team.school != null)
       .map(team => {
-        const m = metricsMap.get(team.school)
+        const school = team.school!
+        const m = metricsMap.get(school)
         if (!m) return null
 
-        const offRank = offRankMap.get(team.school) ?? maxRank
-        const defRank = defRankMap.get(team.school) ?? maxRank
-        const stRank = stRankMap.get(team.school) ?? maxRank
-        const sosRank = sosRankMap.get(team.school) ?? 0
+        const offRank = offRankMap.get(school) ?? maxRank
+        const defRank = defRankMap.get(school) ?? maxRank
+        const stRank = stRankMap.get(school) ?? maxRank
+        const sosRank = sosRankMap.get(school) ?? 0
 
         // Convert FBS-only ranks to percentiles (rank 1 → 100%, rank N → 0%)
         const offPct = ((maxRank - offRank + 1) / maxRank) * 100
@@ -338,7 +344,7 @@ export function ScatterPlotClient({ teams, metrics, styles, havoc, tempo, record
         )
 
         // Get win-loss record
-        const record = recordsMap.get(team.school)
+        const record = recordsMap.get(school)
         const wins = record?.total__wins ?? null
         const losses = record?.total__losses ?? null
         const confWins = record?.conference_games__wins ?? null
@@ -346,7 +352,7 @@ export function ScatterPlotClient({ teams, metrics, styles, havoc, tempo, record
 
         return {
           rank: 0, // Will be assigned after sorting
-          team: team.school,
+          team: school,
           logo: team.logo,
           color: team.color || '#6B635A',
           compositeScore: composite,
@@ -385,16 +391,16 @@ export function ScatterPlotClient({ teams, metrics, styles, havoc, tempo, record
     const stRank = stRankMap.get(selectedTeamForRadar) ?? maxRank
 
     return {
-      teamName: team.school,
+      teamName: team.school ?? '',
       teamColor: team.color || '#6B635A',
       metrics: [
         { label: 'Off EPA', value: ((maxRank - offRank + 1) / maxRank) * 100 },
         { label: 'Def EPA', value: ((maxRank - defRank + 1) / maxRank) * 100 },
         { label: 'Spec Teams', value: ((maxRank - stRank + 1) / maxRank) * 100 },
-        { label: 'Success', value: m.success_rate * 100 },
-        { label: 'Explosive', value: Math.min(m.explosiveness * 200, 100) },
-        { label: 'Havoc', value: h ? h.havoc_rate * 500 : 50 },
-        { label: 'Tempo', value: s ? Math.min(s.plays_per_game, 100) : 50 }
+        { label: 'Success', value: (m.success_rate ?? 0) * 100 },
+        { label: 'Explosive', value: Math.min((m.explosiveness ?? 0) * 200, 100) },
+        { label: 'Havoc', value: h ? (h.havoc_rate ?? 0) * 500 : 50 },
+        { label: 'Tempo', value: s ? Math.min(s.plays_per_game ?? 0, 100) : 50 }
       ]
     }
   }, [selectedTeamForRadar, teams, metricsMap, stylesMap, havocMap, fbsRanks])
@@ -407,12 +413,12 @@ export function ScatterPlotClient({ teams, metrics, styles, havoc, tempo, record
         const s = stylesMap.get(team.school)
         if (!m || !s) return null
         return {
-          team: team.school,
+          team: team.school!,
           metrics: {
-            rushEpa: s.epa_rushing,
-            passEpa: s.epa_passing,
-            successRate: m.success_rate,
-            explosiveness: m.explosiveness
+            rushEpa: s.epa_rushing ?? 0,
+            passEpa: s.epa_passing ?? 0,
+            successRate: m.success_rate ?? 0,
+            explosiveness: m.explosiveness ?? 0
           }
         }
       })
@@ -426,14 +432,14 @@ export function ScatterPlotClient({ teams, metrics, styles, havoc, tempo, record
         const h = havocMap.get(team.school)
         if (!h) return null
         return {
-          team: team.school,
+          team: team.school!,
           metrics: {
-            epaAllowed: h.opp_epa_per_play,
-            havocRate: h.havoc_rate,
-            stuffRate: h.stuff_rate,
-            sacks: h.sacks,
-            interceptions: h.interceptions,
-            tfls: h.tfls
+            epaAllowed: h.opp_epa_per_play ?? 0,
+            havocRate: h.havoc_rate ?? 0,
+            stuffRate: h.stuff_rate ?? 0,
+            sacks: h.sacks ?? 0,
+            interceptions: h.interceptions ?? 0,
+            tfls: h.tfls ?? 0
           }
         }
       })

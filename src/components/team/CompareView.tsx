@@ -145,8 +145,8 @@ export function CompareView({ team, metrics, style, allTeams, currentSeason }: C
       {/* Team Selector */}
       <div className="flex items-center gap-4 mb-8">
         <div className="flex items-center gap-3">
-          {team.logo && <img src={team.logo} alt={team.school} className="w-10 h-10 object-contain" />}
-          <span className="font-headline text-xl text-[var(--text-primary)]">{team.school}</span>
+          {team.logo && <img src={team.logo} alt={team.school ?? ''} className="w-10 h-10 object-contain" />}
+          <span className="font-headline text-xl text-[var(--text-primary)]">{team.school ?? ''}</span>
         </div>
 
         <span className="text-[var(--text-muted)]">vs</span>
@@ -159,15 +159,15 @@ export function CompareView({ team, metrics, style, allTeams, currentSeason }: C
           <option value="">Select a team...</option>
           {allTeams
             .filter(t => t.id !== team.id)
-            .sort((a, b) => a.school.localeCompare(b.school))
+            .sort((a, b) => (a.school ?? '').localeCompare(b.school ?? ''))
             .map(t => (
-              <option key={t.id} value={t.id}>{t.school}</option>
+              <option key={t.id} value={t.id ?? ''}>{t.school}</option>
             ))
           }
         </select>
 
         {compareTeam?.logo && (
-          <img src={compareTeam.logo} alt={compareTeam.school} className="w-10 h-10 object-contain" />
+          <img src={compareTeam.logo ?? undefined} alt={compareTeam.school ?? ''} className="w-10 h-10 object-contain" />
         )}
       </div>
 

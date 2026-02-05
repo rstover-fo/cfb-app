@@ -79,18 +79,18 @@ export const getTopMovers = cache(async (season: number): Promise<{ risers: Move
 
   const trajectory = (trajectoryData as TeamSeasonTrajectory[]) || []
 
-  // Filter to FBS teams only
-  const fbsTrajectory = trajectory.filter(t => teamLookup.has(t.team))
+  // Filter to FBS teams only (skip nulls)
+  const fbsTrajectory = trajectory.filter(t => t.team && teamLookup.has(t.team))
 
   // Top 3 risers (highest positive delta)
   const risers = fbsTrajectory
     .filter(t => (t.epa_delta ?? 0) > 0)
     .slice(0, 3)
     .map(t => ({
-      team: t.team,
-      logo: teamLookup.get(t.team)?.logo ?? null,
-      color: teamLookup.get(t.team)?.color ?? null,
-      currentEpa: t.epa_per_play,
+      team: t.team!,
+      logo: teamLookup.get(t.team!)?.logo ?? null,
+      color: teamLookup.get(t.team!)?.color ?? null,
+      currentEpa: t.epa_per_play ?? 0,
       epaDelta: t.epa_delta ?? 0,
       direction: 'up' as const
     }))
@@ -101,10 +101,10 @@ export const getTopMovers = cache(async (season: number): Promise<{ risers: Move
     .slice(-3)
     .reverse()
     .map(t => ({
-      team: t.team,
-      logo: teamLookup.get(t.team)?.logo ?? null,
-      color: teamLookup.get(t.team)?.color ?? null,
-      currentEpa: t.epa_per_play,
+      team: t.team!,
+      logo: teamLookup.get(t.team!)?.logo ?? null,
+      color: teamLookup.get(t.team!)?.color ?? null,
+      currentEpa: t.epa_per_play ?? 0,
       epaDelta: t.epa_delta ?? 0,
       direction: 'down' as const
     }))
@@ -135,22 +135,22 @@ export const getRecentGames = cache(async (season: number, limit: number = 5): P
 
   const games = (gamesData as Game[]) || []
 
-  // Filter to FBS-only games (both teams must be FBS)
+  // Filter to FBS-only games (both teams must be FBS, skip nulls)
   const fbsGames = games
-    .filter(g => teamLookup.has(g.home_team) && teamLookup.has(g.away_team))
+    .filter(g => g.home_team && g.away_team && teamLookup.has(g.home_team) && teamLookup.has(g.away_team))
     .slice(0, limit)
     .map(g => ({
-      id: g.id,
-      homeTeam: g.home_team,
-      homeLogo: teamLookup.get(g.home_team)?.logo ?? null,
-      homeColor: teamLookup.get(g.home_team)?.color ?? null,
+      id: g.id ?? 0,
+      homeTeam: g.home_team!,
+      homeLogo: teamLookup.get(g.home_team!)?.logo ?? null,
+      homeColor: teamLookup.get(g.home_team!)?.color ?? null,
       homePoints: g.home_points ?? 0,
-      awayTeam: g.away_team,
-      awayLogo: teamLookup.get(g.away_team)?.logo ?? null,
-      awayColor: teamLookup.get(g.away_team)?.color ?? null,
+      awayTeam: g.away_team!,
+      awayLogo: teamLookup.get(g.away_team!)?.logo ?? null,
+      awayColor: teamLookup.get(g.away_team!)?.color ?? null,
       awayPoints: g.away_points ?? 0,
-      date: g.start_date,
-      conferenceGame: g.conference_game,
+      date: g.start_date ?? '',
+      conferenceGame: g.conference_game ?? false,
       winner: ((g.home_points ?? 0) > (g.away_points ?? 0) ? 'home' : 'away') as 'home' | 'away'
     }))
 
@@ -175,10 +175,10 @@ export const getStandings = cache(async (season: number, limit: number = 10): Pr
 
   // Build lookup maps
   const metricsLookup = new Map<string, { offRank: number, defRank: number }>()
-  metrics.forEach(m => metricsLookup.set(m.team, { offRank: m.off_epa_rank, defRank: m.def_epa_rank }))
+  metrics.forEach(m => { if (m.team) metricsLookup.set(m.team, { offRank: m.off_epa_rank ?? 999, defRank: m.def_epa_rank ?? 999 }) })
 
   const specialTeamsLookup = new Map<string, number>()
-  specialTeams.forEach(s => specialTeamsLookup.set(s.team, s.sp_st_rating))
+  specialTeams.forEach(s => { if (s.team) specialTeamsLookup.set(s.team, s.sp_st_rating ?? 0) })
 
   const recordsLookup = new Map<string, { wins: number, losses: number }>()
   records.forEach(r => recordsLookup.set(r.team, { wins: r.total__wins, losses: r.total__losses }))
@@ -241,9 +241,9 @@ export const getStatLeaders = cache(async (season: number): Promise<StatLeadersD
   const metrics = (metricsResult.data as TeamSeasonEpa[]) || []
   const havoc = (havocResult.data as DefensiveHavoc[]) || []
 
-  // Filter to FBS teams
-  const fbsMetrics = metrics.filter(m => teamLookup.has(m.team))
-  const fbsHavoc = havoc.filter(h => teamLookup.has(h.team))
+  // Filter to FBS teams (skip nulls)
+  const fbsMetrics = metrics.filter(m => m.team && teamLookup.has(m.team))
+  const fbsHavoc = havoc.filter(h => h.team && teamLookup.has(h.team))
 
   const mapToLeader = (data: { team: string, value: number }[]): StatLeader[] =>
     data.slice(0, 5).map(d => ({
@@ -255,23 +255,23 @@ export const getStatLeaders = cache(async (season: number): Promise<StatLeadersD
 
   // EPA leaders (highest EPA per play)
   const epaLeaders = fbsMetrics
-    .sort((a, b) => b.epa_per_play - a.epa_per_play)
-    .map(m => ({ team: m.team, value: m.epa_per_play }))
+    .sort((a, b) => (b.epa_per_play ?? 0) - (a.epa_per_play ?? 0))
+    .map(m => ({ team: m.team!, value: m.epa_per_play ?? 0 }))
 
   // Havoc leaders (highest havoc rate)
   const havocLeaders = fbsHavoc
-    .sort((a, b) => b.havoc_rate - a.havoc_rate)
-    .map(h => ({ team: h.team, value: h.havoc_rate }))
+    .sort((a, b) => (b.havoc_rate ?? 0) - (a.havoc_rate ?? 0))
+    .map(h => ({ team: h.team!, value: h.havoc_rate ?? 0 }))
 
   // Success rate leaders
   const successRateLeaders = fbsMetrics
-    .sort((a, b) => b.success_rate - a.success_rate)
-    .map(m => ({ team: m.team, value: m.success_rate }))
+    .sort((a, b) => (b.success_rate ?? 0) - (a.success_rate ?? 0))
+    .map(m => ({ team: m.team!, value: m.success_rate ?? 0 }))
 
   // Explosiveness leaders
   const explosivenessLeaders = fbsMetrics
-    .sort((a, b) => b.explosiveness - a.explosiveness)
-    .map(m => ({ team: m.team, value: m.explosiveness }))
+    .sort((a, b) => (b.explosiveness ?? 0) - (a.explosiveness ?? 0))
+    .map(m => ({ team: m.team!, value: m.explosiveness ?? 0 }))
 
   return {
     epa: mapToLeader(epaLeaders),
