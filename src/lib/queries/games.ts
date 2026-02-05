@@ -153,6 +153,8 @@ export const getAvailableWeeks = cache(async (season: number): Promise<number[]>
 })
 
 // Get all available seasons with completed games (descending order)
+// Note: Higher limit needed because we dedupe client-side. With ~3000 games/season,
+// 50k rows covers ~16 seasons. Single column select keeps payload small.
 export const getAvailableSeasons = cache(async (): Promise<number[]> => {
   const supabase = await createClient()
   const { data } = await supabase
@@ -160,7 +162,7 @@ export const getAvailableSeasons = cache(async (): Promise<number[]> => {
     .select('season')
     .eq('completed', true)
     .order('season', { ascending: false })
-    .limit(1000) // Bound response size until we have proper DISTINCT RPC
+    .limit(50000)
 
   if (!data) return []
 

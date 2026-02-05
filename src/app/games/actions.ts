@@ -1,6 +1,6 @@
 'use server'
 
-import { getGames, getAvailableWeeks } from '@/lib/queries/games'
+import { getGames, getAvailableWeeks, getDefaultWeek } from '@/lib/queries/games'
 
 // Re-export types for client components to import from this module
 // This avoids client components importing from server-only modules
@@ -12,4 +12,8 @@ export async function fetchGames(filter: import('@/lib/queries/games').GamesFilt
 
 export async function fetchAvailableWeeks(season: number): Promise<number[]> {
   return getAvailableWeeks(season)
+}
+
+export async function fetchDefaultWeek(season: number): Promise<number> {
+  return getDefaultWeek(season)
 }

@@ -4,7 +4,7 @@ import { useState, useTransition, useRef } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
 import { useRouter } from 'next/navigation'
-import { fetchGames, fetchAvailableWeeks } from '@/app/games/actions'
+import { fetchGames, fetchAvailableWeeks, fetchDefaultWeek } from '@/app/games/actions'
 import type { GamesFilter, GameWithTeams, SeasonPhase } from '@/app/games/actions'
 import { REGULAR_SEASON_MAX_WEEK, POSTSEASON_MIN_WEEK } from '@/lib/queries/constants'
 import { teamNameToSlug, selectClassName, selectStyle } from '@/lib/utils'
@@ -92,10 +92,11 @@ export function GamesList({
     })
   }
 
-  // Handle season change - reset to regular phase and smart default week
+  // Handle season change - reset to regular phase and fetch smart default week
   const handleSeasonChange = async (newSeason: number) => {
-    // Reset to regular phase, week 0 (all) - let the query handle smart defaults
-    handleFilterChange({ season: newSeason, phase: 'regular', week: 0 })
+    // Fetch the smart default week for the new season
+    const defaultWeek = await fetchDefaultWeek(newSeason)
+    handleFilterChange({ season: newSeason, phase: 'regular', week: defaultWeek })
   }
 
   // Handle phase change - reset week selection
