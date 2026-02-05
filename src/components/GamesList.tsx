@@ -3,41 +3,56 @@
 import { useState, useTransition, useRef } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
-import { fetchGames } from '@/app/games/actions'
-import type { GamesFilter, GameWithTeams } from '@/lib/queries/games'
-import { teamNameToSlug } from '@/lib/utils'
+import { useRouter } from 'next/navigation'
+import { fetchGames, fetchAvailableWeeks, fetchDefaultWeek } from '@/app/games/actions'
+import type { GamesFilter, GameWithTeams, SeasonPhase } from '@/app/games/actions'
+import { REGULAR_SEASON_MAX_WEEK, POSTSEASON_MIN_WEEK } from '@/lib/queries/constants'
+import { teamNameToSlug, selectClassName, selectStyle } from '@/lib/utils'
 
 interface GamesListProps {
   initialGames: GameWithTeams[]
   initialWeek: number
-  season: number
+  initialSeason: number
+  initialPhase: SeasonPhase
   availableWeeks: number[]
   conferences: string[]
   teams: string[]
+  availableSeasons: number[]  // List of seasons with data (descending order)
 }
 
 export function GamesList({
   initialGames,
   initialWeek,
-  season,
-  availableWeeks,
+  initialSeason,
+  initialPhase,
+  availableWeeks: initialAvailableWeeks,
   conferences,
-  teams
+  teams,
+  availableSeasons
 }: GamesListProps) {
   const [games, setGames] = useState(initialGames)
+  const [season, setSeason] = useState(initialSeason)
+  const [phase, setPhase] = useState<SeasonPhase>(initialPhase)
   const [week, setWeek] = useState(initialWeek)
+  const [availableWeeks, setAvailableWeeks] = useState(initialAvailableWeeks)
   const [conference, setConference] = useState<string>('')
   const [team, setTeam] = useState<string>('')
   const [isPending, startTransition] = useTransition()
+  const [error, setError] = useState<string | null>(null)
   const requestIdRef = useRef(0)
+  const router = useRouter()
 
-  const handleFilterChange = (newFilter: Partial<GamesFilter>) => {
-    const newWeek = newFilter.week ?? week
+  const handleFilterChange = (newFilter: Partial<GamesFilter> & { season?: number; phase?: SeasonPhase }) => {
+    const newSeason = newFilter.season ?? season
+    const newPhase = newFilter.phase ?? phase
+    const newWeek = newFilter.week !== undefined ? newFilter.week : week
     const newConference = newFilter.conference !== undefined ? newFilter.conference : conference
     const newTeam = newFilter.team !== undefined ? newFilter.team : team
 
     // Update local state
-    if (newFilter.week !== undefined) setWeek(newFilter.week)
+    if (newFilter.season !== undefined) setSeason(newFilter.season)
+    if (newFilter.phase !== undefined) setPhase(newFilter.phase)
+    if (newFilter.week !== undefined) setWeek(newFilter.week ?? 0)
     if (newFilter.conference !== undefined) setConference(newFilter.conference)
     if (newFilter.team !== undefined) setTeam(newFilter.team)
 
@@ -45,18 +60,48 @@ export function GamesList({
     const currentRequestId = ++requestIdRef.current
 
     startTransition(async () => {
-      const filter: GamesFilter = {
-        season,
-        week: newWeek || undefined,
-        conference: newConference || undefined,
-        team: newTeam || undefined,
-      }
-      const newGames = await fetchGames(filter)
-      // Only update if this is still the latest request
-      if (currentRequestId === requestIdRef.current) {
-        setGames(newGames)
+      setError(null)
+      try {
+        // If season changed, fetch new available weeks
+        if (newFilter.season !== undefined && newFilter.season !== season) {
+          const weeks = await fetchAvailableWeeks(newFilter.season)
+          // Only update if this is still the latest request
+          if (currentRequestId === requestIdRef.current) {
+            setAvailableWeeks(weeks)
+          }
+        }
+
+        const filter: GamesFilter = {
+          season: newSeason,
+          phase: newPhase,
+          week: newWeek || undefined,
+          conference: newConference || undefined,
+          team: newTeam || undefined,
+        }
+        const newGames = await fetchGames(filter)
+        // Only update if this is still the latest request
+        if (currentRequestId === requestIdRef.current) {
+          setGames(newGames)
+        }
+      } catch (err) {
+        console.error('Failed to fetch games:', err)
+        if (currentRequestId === requestIdRef.current) {
+          setError('Failed to load games. Please try again.')
+        }
       }
     })
+  }
+
+  // Handle season change - reset to regular phase and fetch smart default week
+  const handleSeasonChange = async (newSeason: number) => {
+    // Fetch the smart default week for the new season
+    const defaultWeek = await fetchDefaultWeek(newSeason)
+    handleFilterChange({ season: newSeason, phase: 'regular', week: defaultWeek })
+  }
+
+  // Handle phase change - reset week selection
+  const handlePhaseChange = (newPhase: SeasonPhase) => {
+    handleFilterChange({ phase: newPhase, week: 0 })
   }
 
   const formatDate = (dateStr: string) => {
@@ -71,31 +116,63 @@ export function GamesList({
 
   // Get week label (regular season, conf champs, or bowls)
   const getWeekLabel = (w: number): string => {
-    if (w <= 14) return `Week ${w}`
-    if (w === 15) return 'Champs'
+    if (w <= REGULAR_SEASON_MAX_WEEK) return `Week ${w}`
+    if (w === POSTSEASON_MIN_WEEK) return 'Champs'
     return 'Bowls'
   }
 
+  // Shared week button styling
+  const getWeekButtonClass = (isSelected: boolean) =>
+    `px-3 py-1.5 border-[1.5px] rounded-sm text-sm whitespace-nowrap transition-all ${
+      isSelected
+        ? 'bg-[var(--bg-surface)] border-[var(--color-run)] text-[var(--text-primary)]'
+        : 'border-[var(--border)] text-[var(--text-secondary)] hover:border-[var(--text-muted)]'
+    }`
+
   // Group weeks by phase for better organization
-  const regularWeeks = availableWeeks.filter(w => w <= 14)
-  const postWeeks = availableWeeks.filter(w => w >= 15)
+  const regularWeeks = availableWeeks.filter(w => w <= REGULAR_SEASON_MAX_WEEK)
+  const postWeeks = availableWeeks.filter(w => w >= POSTSEASON_MIN_WEEK)
+
+  // Get weeks to display based on phase selection
+  const getDisplayedWeeks = () => {
+    if (phase === 'regular') return regularWeeks
+    if (phase === 'postseason') return postWeeks
+    return availableWeeks // 'all' shows everything
+  }
+
+  const displayedWeeks = getDisplayedWeeks()
 
   return (
     <div>
       {/* Filters */}
       <div className="flex flex-col gap-4 mb-6">
-        {/* Week Tabs - organized by season phase */}
+        {/* Phase Toggle - Segmented Control */}
+        <div className="flex items-center gap-1 p-1 bg-[var(--bg-surface-alt)] rounded-md w-fit" role="tablist" aria-label="Season phase">
+          {(['all', 'regular', 'postseason'] as const).map((p) => (
+            <button
+              key={p}
+              role="tab"
+              aria-selected={phase === p}
+              onClick={() => handlePhaseChange(p)}
+              className={`px-4 py-1.5 text-sm font-medium rounded transition-all ${
+                phase === p
+                  ? 'bg-[var(--bg-surface)] text-[var(--text-primary)] shadow-sm'
+                  : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+              }`}
+            >
+              {p === 'all' ? 'All' : p === 'regular' ? 'Regular' : 'Post-Season'}
+            </button>
+          ))}
+        </div>
+
+        {/* Week Tabs - dynamic based on phase */}
         <nav className="flex flex-wrap gap-2" role="tablist" aria-label="Filter by week">
           {/* All Weeks button */}
           <button
             role="tab"
             aria-selected={!week}
             onClick={() => handleFilterChange({ week: 0 })}
-            className={`px-3 py-1.5 border-[1.5px] rounded-sm text-sm whitespace-nowrap transition-all ${
-              !week
-                ? 'bg-[var(--bg-surface)] border-[var(--color-run)] text-[var(--text-primary)]'
-                : 'border-[var(--border)] text-[var(--text-secondary)] hover:border-[var(--text-muted)]'
-            }`}
+            className={getWeekButtonClass(!week)}
           >
             All
           </button>
@@ -103,60 +180,76 @@ export function GamesList({
           {/* Separator */}
           <div className="w-px bg-[var(--border)] mx-1" />
 
-          {/* Regular season weeks */}
-          {regularWeeks.map(w => (
-            <button
-              key={w}
-              role="tab"
-              aria-selected={week === w}
-              onClick={() => handleFilterChange({ week: w })}
-              className={`px-3 py-1.5 border-[1.5px] rounded-sm text-sm whitespace-nowrap transition-all ${
-                week === w
-                  ? 'bg-[var(--bg-surface)] border-[var(--color-run)] text-[var(--text-primary)]'
-                  : 'border-[var(--border)] text-[var(--text-secondary)] hover:border-[var(--text-muted)]'
-              }`}
-            >
-              {w}
-            </button>
-          ))}
-
-          {/* Post-season separator if there are post weeks */}
-          {postWeeks.length > 0 && (
+          {/* When phase is 'all', show regular weeks, separator, then post weeks */}
+          {phase === 'all' ? (
             <>
-              <div className="w-px bg-[var(--border)] mx-1" />
-              {postWeeks.map(w => (
+              {/* Regular season weeks */}
+              {regularWeeks.map(w => (
                 <button
                   key={w}
                   role="tab"
                   aria-selected={week === w}
                   onClick={() => handleFilterChange({ week: w })}
-                  className={`px-3 py-1.5 border-[1.5px] rounded-sm text-sm whitespace-nowrap transition-all ${
-                    week === w
-                      ? 'bg-[var(--bg-surface)] border-[var(--color-run)] text-[var(--text-primary)]'
-                      : 'border-[var(--border)] text-[var(--text-secondary)] hover:border-[var(--text-muted)]'
-                  }`}
+                  className={getWeekButtonClass(week === w)}
                 >
-                  {getWeekLabel(w)}
+                  {w}
                 </button>
               ))}
+
+              {/* Post-season separator if there are post weeks */}
+              {postWeeks.length > 0 && (
+                <>
+                  <div className="w-px bg-[var(--border)] mx-1" />
+                  {postWeeks.map(w => (
+                    <button
+                      key={w}
+                      role="tab"
+                      aria-selected={week === w}
+                      onClick={() => handleFilterChange({ week: w })}
+                      className={getWeekButtonClass(week === w)}
+                    >
+                      {getWeekLabel(w)}
+                    </button>
+                  ))}
+                </>
+              )}
             </>
+          ) : (
+            /* Regular or Postseason phase - show filtered weeks */
+            displayedWeeks.map(w => (
+              <button
+                key={w}
+                role="tab"
+                aria-selected={week === w}
+                onClick={() => handleFilterChange({ week: w })}
+                className={getWeekButtonClass(week === w)}
+              >
+                {getWeekLabel(w)}
+              </button>
+            ))
           )}
         </nav>
 
         {/* Dropdowns Row */}
         <div className="flex gap-4 flex-wrap">
+          {/* Year Filter */}
+          <select
+            value={season}
+            onChange={(e) => handleSeasonChange(Number(e.target.value))}
+            className={`${selectClassName} min-w-[100px]`}
+            style={selectStyle}
+          >
+            {availableSeasons.map(s => (
+              <option key={s} value={s}>{s}</option>
+            ))}
+          </select>
+
           {/* Conference Filter */}
           <select
             value={conference}
             onChange={(e) => handleFilterChange({ conference: e.target.value })}
-            className="px-3 py-2 text-sm border-[1.5px] border-[var(--border)] rounded-sm
-              bg-[var(--bg-surface)] text-[var(--text-primary)]
-              cursor-pointer hover:border-[var(--text-muted)] transition-colors
-              appearance-none bg-no-repeat bg-right pr-8 min-w-[180px]"
-            style={{
-              backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%236B635A' d='M3 4.5L6 8l3-3.5H3z'/%3E%3C/svg%3E")`,
-              backgroundPosition: 'right 0.75rem center'
-            }}
+            className={`${selectClassName} min-w-[180px]`}
+            style={selectStyle}
           >
             <option value="">All Conferences</option>
             {conferences.map(conf => (
@@ -168,14 +261,8 @@ export function GamesList({
           <select
             value={team}
             onChange={(e) => handleFilterChange({ team: e.target.value })}
-            className="px-3 py-2 text-sm border-[1.5px] border-[var(--border)] rounded-sm
-              bg-[var(--bg-surface)] text-[var(--text-primary)]
-              cursor-pointer hover:border-[var(--text-muted)] transition-colors
-              appearance-none bg-no-repeat bg-right pr-8 min-w-[180px]"
-            style={{
-              backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%236B635A' d='M3 4.5L6 8l3-3.5H3z'/%3E%3C/svg%3E")`,
-              backgroundPosition: 'right 0.75rem center'
-            }}
+            className={`${selectClassName} min-w-[180px]`}
+            style={selectStyle}
           >
             <option value="">All Teams</option>
             {teams.map(t => (
@@ -200,6 +287,13 @@ export function GamesList({
         {isPending ? 'Loading...' : `${games.length} games`}
       </p>
 
+      {/* Error state */}
+      {error && (
+        <div className="text-red-600 text-sm mb-4 p-3 bg-red-50 border border-red-200 rounded">
+          {error}
+        </div>
+      )}
+
       {/* Loading state */}
       {isPending && (
         <div className="text-center py-8 text-[var(--text-muted)]">
@@ -219,7 +313,13 @@ export function GamesList({
             return (
               <div
                 key={game.id}
-                className="flex items-center gap-3 py-3 px-4 -mx-4 rounded hover:bg-[var(--bg-surface-alt)] transition-colors"
+                onClick={(e) => {
+                  // Only navigate if the click wasn't on a link
+                  if (!(e.target as HTMLElement).closest('a')) {
+                    router.push(`/games/${game.id}`)
+                  }
+                }}
+                className="flex items-center gap-3 py-3 px-4 -mx-4 rounded hover:bg-[var(--bg-surface-alt)] transition-colors cursor-pointer"
               >
                 {/* Away team */}
                 <Link

@@ -4,6 +4,7 @@ import { useState, useMemo } from 'react'
 import { Team } from '@/lib/types/database'
 import { TeamCard } from './TeamCard'
 import { TeamSearch } from './TeamSearch'
+import { selectClassName, selectStyle } from '@/lib/utils'
 
 type Division = 'fbs' | 'fcs' | 'all'
 
@@ -79,14 +80,8 @@ export function TeamList({ teams, metricsMap }: TeamListProps) {
         <select
           value={division}
           onChange={(e) => handleDivisionChange(e.target.value as Division)}
-          className="px-3 py-2 text-sm border-[1.5px] border-[var(--border)] rounded-sm
-            bg-[var(--bg-surface)] text-[var(--text-primary)]
-            cursor-pointer hover:border-[var(--text-muted)] transition-colors
-            appearance-none bg-no-repeat bg-right pr-8"
-          style={{
-            backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%236B635A' d='M3 4.5L6 8l3-3.5H3z'/%3E%3C/svg%3E")`,
-            backgroundPosition: 'right 0.75rem center'
-          }}
+          className={selectClassName}
+          style={selectStyle}
         >
           <option value="fbs">FBS</option>
           <option value="fcs">FCS</option>

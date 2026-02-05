@@ -1,6 +1,9 @@
 import { cache } from 'react'
 import { createClient } from '@/lib/supabase/server'
 
+// Re-export constants for server components
+export { CURRENT_SEASON, REGULAR_SEASON_MAX_WEEK, POSTSEASON_MIN_WEEK } from './constants'
+
 // FBS conferences for filtering
 export const FBS_CONFERENCES = [
   'ACC',
@@ -17,9 +20,6 @@ export const FBS_CONFERENCES = [
 ] as const
 
 export type FBSConference = typeof FBS_CONFERENCES[number]
-
-// Current season constant
-export const CURRENT_SEASON = 2025
 
 // Team lookup data shape
 export interface TeamLookupData {

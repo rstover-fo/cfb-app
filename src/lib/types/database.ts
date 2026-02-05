@@ -275,3 +275,20 @@ export interface TeamSpecialTeamsSos {
   fpi_st_efficiency: number // FPI special teams efficiency (0-100 scale)
   sos_rank: number          // FPI strength of schedule rank (1 = hardest)
 }
+
+// Box Score Types
+export interface GameTeamStat {
+  category: string  // e.g., 'completionAttempts', 'rushingYards'
+  stat: string      // e.g., '18/32', '245'
+}
+
+export interface BoxScoreTeam {
+  team: string
+  homeAway: 'home' | 'away'
+  stats: Record<string, string>  // category -> stat value
+}
+
+export interface GameBoxScore {
+  home: BoxScoreTeam
+  away: BoxScoreTeam
+}

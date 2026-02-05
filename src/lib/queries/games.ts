@@ -1,13 +1,19 @@
 import { cache } from 'react'
 import { createClient } from '@/lib/supabase/server'
-import { getTeamLookup, CURRENT_SEASON } from './shared'
+import { getTeamLookup } from './shared'
+import { REGULAR_SEASON_MAX_WEEK, POSTSEASON_MIN_WEEK } from './constants'
+import type { GameBoxScore, BoxScoreTeam } from '@/lib/types/database'
+
+// Season phase type
+export type SeasonPhase = 'all' | 'regular' | 'postseason'
 
 // Filter options for games query
 export interface GamesFilter {
   season: number
-  week?: number
-  conference?: string  // At least one team from this conference
-  team?: string        // Exact team name match
+  phase?: SeasonPhase   // Season phase filter (all, regular, postseason)
+  week?: number | null  // null or 0 = "All" within phase
+  conference?: string   // At least one team from this conference
+  team?: string         // Exact team name match
 }
 
 // Game data enriched with team logos/colors
@@ -58,7 +64,15 @@ export const getGames = cache(async (filter: GamesFilter): Promise<GameWithTeams
     .order('start_date', { ascending: false })
 
   // Database-level filters
-  if (filter.week) {
+  // Phase filter: regular = weeks 1-REGULAR_SEASON_MAX_WEEK, postseason = weeks POSTSEASON_MIN_WEEK+, all = no constraint
+  if (filter.phase === 'regular') {
+    query = query.lte('week', REGULAR_SEASON_MAX_WEEK)
+  } else if (filter.phase === 'postseason') {
+    query = query.gte('week', POSTSEASON_MIN_WEEK)
+  }
+
+  // Specific week filter (when week is a positive number)
+  if (filter.week && filter.week > 0) {
     query = query.eq('week', filter.week)
   }
 
@@ -110,6 +124,16 @@ export const getCurrentWeek = cache(async (season: number): Promise<number> => {
   return data?.week ?? 1
 })
 
+// Get smart default week for regular season view
+// Returns latest completed week within regular season (weeks 1-REGULAR_SEASON_MAX_WEEK)
+// If season has moved to postseason (week POSTSEASON_MIN_WEEK+), defaults to REGULAR_SEASON_MAX_WEEK
+export const getDefaultWeek = cache(async (season: number): Promise<number> => {
+  const maxWeek = await getCurrentWeek(season)
+  // If we're in postseason, default to last regular season week
+  if (maxWeek >= POSTSEASON_MIN_WEEK) return REGULAR_SEASON_MAX_WEEK
+  return maxWeek
+})
+
 // Get all available weeks for a season
 export const getAvailableWeeks = cache(async (season: number): Promise<number[]> => {
   const supabase = await createClient()
@@ -119,6 +143,7 @@ export const getAvailableWeeks = cache(async (season: number): Promise<number[]>
     .eq('season', season)
     .eq('completed', true)
     .order('week', { ascending: true })
+    .limit(1000) // Bound response size until we have proper DISTINCT RPC
 
   if (!data) return []
 
@@ -127,5 +152,115 @@ export const getAvailableWeeks = cache(async (season: number): Promise<number[]>
   return weeks
 })
 
-// Re-export for convenience
-export { CURRENT_SEASON }
+// Get all available seasons with completed games (descending order)
+// Note: Higher limit needed because we dedupe client-side. With ~3000 games/season,
+// 50k rows covers ~16 seasons. Single column select keeps payload small.
+export const getAvailableSeasons = cache(async (): Promise<number[]> => {
+  const supabase = await createClient()
+  const { data } = await supabase
+    .from('games')
+    .select('season')
+    .eq('completed', true)
+    .order('season', { ascending: false })
+    .limit(50000)
+
+  if (!data) return []
+
+  // Get unique seasons
+  return [...new Set(data.map(d => d.season))].sort((a, b) => b - a)
+})
+
+// Get a single game by ID with team enrichment
+export const getGameById = cache(async (gameId: number): Promise<GameWithTeams | null> => {
+  const supabase = await createClient()
+  const teamLookup = await getTeamLookup()
+
+  const { data, error } = await supabase
+    .from('games')
+    .select(GAME_COLUMNS)
+    .eq('id', gameId)
+    .single()
+
+  if (error || !data) {
+    return null
+  }
+
+  // Enrich with team data
+  return {
+    ...data,
+    home_points: data.home_points ?? 0,
+    away_points: data.away_points ?? 0,
+    homeLogo: teamLookup.get(data.home_team)?.logo ?? null,
+    homeColor: teamLookup.get(data.home_team)?.color ?? null,
+    awayLogo: teamLookup.get(data.away_team)?.logo ?? null,
+    awayColor: teamLookup.get(data.away_team)?.color ?? null,
+  }
+})
+
+// Get box score stats for a game from core schema
+export const getGameBoxScore = cache(async (gameId: number): Promise<GameBoxScore | null> => {
+  const supabase = await createClient()
+
+  // Query the nested core tables using Supabase's syntax
+  // The tables are: core.game_team_stats -> core.game_team_stats__teams -> core.game_team_stats__teams__stats
+  const { data, error } = await supabase
+    .schema('core')
+    .from('game_team_stats')
+    .select(`
+      game_id,
+      game_team_stats__teams (
+        team,
+        home_away,
+        game_team_stats__teams__stats (
+          category,
+          stat
+        )
+      )
+    `)
+    .eq('game_id', gameId)
+    .single()
+
+  if (error || !data) {
+    return null
+  }
+
+  // Transform nested data into BoxScore format
+  const teams = data.game_team_stats__teams as Array<{
+    team: string
+    home_away: 'home' | 'away'
+    game_team_stats__teams__stats: Array<{ category: string; stat: string }>
+  }>
+
+  if (!teams || teams.length === 0) {
+    return null
+  }
+
+  let home: BoxScoreTeam | null = null
+  let away: BoxScoreTeam | null = null
+
+  for (const teamData of teams) {
+    const stats: Record<string, string> = {}
+    for (const stat of teamData.game_team_stats__teams__stats || []) {
+      stats[stat.category] = stat.stat
+    }
+
+    const boxScoreTeam: BoxScoreTeam = {
+      team: teamData.team,
+      homeAway: teamData.home_away,
+      stats,
+    }
+
+    if (teamData.home_away === 'home') {
+      home = boxScoreTeam
+    } else {
+      away = boxScoreTeam
+    }
+  }
+
+  if (!home || !away) {
+    return null
+  }
+
+  return { home, away }
+})
+
