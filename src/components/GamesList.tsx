@@ -319,12 +319,12 @@ export function GamesList({
                     router.push(`/games/${game.id}`)
                   }
                 }}
-                className="flex items-center gap-3 py-3 px-4 -mx-4 rounded hover:bg-[var(--bg-surface-alt)] transition-colors cursor-pointer"
+                className="grid grid-cols-[1fr_auto_1fr_auto] items-center gap-3 py-3 px-4 -mx-4 rounded hover:bg-[var(--bg-surface-alt)] transition-colors cursor-pointer"
               >
                 {/* Away team */}
                 <Link
                   href={`/teams/${teamNameToSlug(game.away_team)}`}
-                  className="flex items-center gap-2 flex-1 min-w-0 hover:opacity-80 transition-opacity"
+                  className="flex items-center gap-2 min-w-0 hover:opacity-80 transition-opacity"
                 >
                   {game.awayLogo ? (
                     <Image
@@ -352,7 +352,7 @@ export function GamesList({
                 </Link>
 
                 {/* Score */}
-                <div className="flex items-center gap-1.5 text-sm tabular-nums font-medium">
+                <div className="flex items-center justify-center gap-1.5 text-sm tabular-nums font-medium min-w-[70px]">
                   <span
                     className={
                       winner === 'away'
@@ -377,7 +377,7 @@ export function GamesList({
                 {/* Home team */}
                 <Link
                   href={`/teams/${teamNameToSlug(game.home_team)}`}
-                  className="flex items-center gap-2 flex-1 min-w-0 justify-end hover:opacity-80 transition-opacity"
+                  className="flex items-center gap-2 min-w-0 justify-end hover:opacity-80 transition-opacity"
                 >
                   <span
                     className={`text-sm truncate ${
@@ -405,7 +405,7 @@ export function GamesList({
                 </Link>
 
                 {/* Date and badges */}
-                <div className="flex items-center gap-2 ml-4">
+                <div className="flex items-center gap-2 justify-end min-w-[100px]">
                   {game.conference_game && (
                     <span className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--bg-surface-alt)] text-[var(--text-muted)] uppercase tracking-wider">
                       Conf

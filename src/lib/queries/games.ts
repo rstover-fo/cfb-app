@@ -134,40 +134,22 @@ export const getDefaultWeek = cache(async (season: number): Promise<number> => {
   return maxWeek
 })
 
-// Get all available weeks for a season
+// Get all available weeks for a season using RPC for efficiency
 export const getAvailableWeeks = cache(async (season: number): Promise<number[]> => {
   const supabase = await createClient()
-  const { data } = await supabase
-    .from('games')
-    .select('week')
-    .eq('season', season)
-    .eq('completed', true)
-    .order('week', { ascending: true })
-    .limit(1000) // Bound response size until we have proper DISTINCT RPC
+  const { data, error } = await supabase.rpc('get_available_weeks', { p_season: season })
 
-  if (!data) return []
-
-  // Get unique weeks
-  const weeks = [...new Set(data.map(d => d.week))].sort((a, b) => a - b)
-  return weeks
+  if (error || !data) return []
+  return data as number[]
 })
 
-// Get all available seasons with completed games (descending order)
-// Note: Higher limit needed because we dedupe client-side. With ~3000 games/season,
-// 50k rows covers ~16 seasons. Single column select keeps payload small.
+// Get all available seasons with completed games using RPC for efficiency
 export const getAvailableSeasons = cache(async (): Promise<number[]> => {
   const supabase = await createClient()
-  const { data } = await supabase
-    .from('games')
-    .select('season')
-    .eq('completed', true)
-    .order('season', { ascending: false })
-    .limit(50000)
+  const { data, error } = await supabase.rpc('get_available_seasons')
 
-  if (!data) return []
-
-  // Get unique seasons
-  return [...new Set(data.map(d => d.season))].sort((a, b) => b - a)
+  if (error || !data) return []
+  return data as number[]
 })
 
 // Get a single game by ID with team enrichment
