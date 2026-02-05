@@ -162,13 +162,13 @@ const MOCK_LEADERS: PlayerLeaders = {
 
 ## Acceptance Criteria
 
-- [ ] Player Leaders section appears below Box Score
-- [ ] Shows 4 categories: Passing, Rushing, Receiving, Defense
-- [ ] Displays top player per category for each team
-- [ ] "Show more" expands to reveal additional players
-- [ ] Full stat line shown for each player
-- [ ] Responsive: two columns on desktop, stacked on mobile
-- [ ] Build passes with no new errors
+- [x] Player Leaders section appears below Box Score
+- [x] Shows 4 categories: Passing, Rushing, Receiving, Defense
+- [x] Displays top player per category for each team
+- [x] "Show more" expands to reveal additional players
+- [x] Full stat line shown for each player
+- [x] Responsive: two columns on desktop, stacked on mobile
+- [x] Build passes with no new errors
 
 ---
 

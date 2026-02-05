@@ -2,7 +2,7 @@ import { cache } from 'react'
 import { createClient } from '@/lib/supabase/server'
 import { getTeamLookup } from './shared'
 import { REGULAR_SEASON_MAX_WEEK, POSTSEASON_MIN_WEEK } from './constants'
-import type { GameBoxScore, BoxScoreTeam } from '@/lib/types/database'
+import type { GameBoxScore, BoxScoreTeam, PlayerLeaders } from '@/lib/types/database'
 
 // Season phase type
 export type SeasonPhase = 'all' | 'regular' | 'postseason'
@@ -252,5 +252,63 @@ export const getGameBoxScore = cache(async (gameId: number): Promise<GameBoxScor
   }
 
   return { home, away }
+})
+
+// Mock data for player leaders until game_player_stats tables are populated
+const MOCK_LEADERS: PlayerLeaders = {
+  away: {
+    passing: [
+      { id: '1', name: 'B. Carter', stats: { 'C/ATT': '18/27', 'YDS': '285', 'TD': '2', 'INT': '1' } },
+      { id: '2', name: 'R. Jones', stats: { 'C/ATT': '2/3', 'YDS': '15', 'TD': '0', 'INT': '0' } },
+    ],
+    rushing: [
+      { id: '3', name: 'M. Johnson', stats: { 'CAR': '22', 'YDS': '145', 'TD': '1' } },
+      { id: '4', name: 'K. Thomas', stats: { 'CAR': '8', 'YDS': '42', 'TD': '0' } },
+      { id: '5', name: 'B. Carter', stats: { 'CAR': '5', 'YDS': '23', 'TD': '1' } },
+    ],
+    receiving: [
+      { id: '6', name: 'D. Wilson', stats: { 'REC': '6', 'YDS': '87', 'TD': '1' } },
+      { id: '7', name: 'T. Adams', stats: { 'REC': '5', 'YDS': '78', 'TD': '1' } },
+      { id: '8', name: 'J. Harris', stats: { 'REC': '4', 'YDS': '65', 'TD': '0' } },
+    ],
+    defense: [
+      { id: '9', name: 'R. Davis', stats: { 'TCKL': '8', 'TFL': '2', 'SACK': '1' } },
+      { id: '10', name: 'C. Green', stats: { 'TCKL': '6', 'TFL': '1', 'SACK': '0' } },
+      { id: '11', name: 'M. White', stats: { 'TCKL': '5', 'INT': '1', 'PD': '2' } },
+    ],
+  },
+  home: {
+    passing: [
+      { id: '12', name: 'J. Smith', stats: { 'C/ATT': '12/22', 'YDS': '156', 'TD': '1', 'INT': '0' } },
+      { id: '13', name: 'D. Lee', stats: { 'C/ATT': '1/1', 'YDS': '8', 'TD': '0', 'INT': '0' } },
+    ],
+    rushing: [
+      { id: '14', name: 'T. Williams', stats: { 'CAR': '18', 'YDS': '98', 'TD': '0' } },
+      { id: '15', name: 'A. Brown', stats: { 'CAR': '12', 'YDS': '67', 'TD': '1' } },
+      { id: '16', name: 'J. Smith', stats: { 'CAR': '6', 'YDS': '31', 'TD': '0' } },
+    ],
+    receiving: [
+      { id: '17', name: 'K. Brown', stats: { 'REC': '4', 'YDS': '62', 'TD': '0' } },
+      { id: '18', name: 'S. Miller', stats: { 'REC': '3', 'YDS': '48', 'TD': '1' } },
+      { id: '19', name: 'R. Jackson', stats: { 'REC': '3', 'YDS': '32', 'TD': '0' } },
+    ],
+    defense: [
+      { id: '20', name: 'L. Martinez', stats: { 'TCKL': '10', 'INT': '1', 'PD': '1' } },
+      { id: '21', name: 'J. Robinson', stats: { 'TCKL': '7', 'TFL': '2', 'SACK': '1' } },
+      { id: '22', name: 'D. Thompson', stats: { 'TCKL': '6', 'TFL': '1', 'SACK': '0' } },
+    ],
+  },
+}
+
+// Get player leaders for a game
+// Currently returns mock data; will query game_player_stats when populated
+export const getGamePlayerLeaders = cache(async (_gameId: number): Promise<PlayerLeaders> => {
+  // TODO: When game_player_stats tables are populated, query the dlt hierarchy:
+  // core.game_player_stats (game_id)
+  //   → __teams (_dlt_parent_id, team, home_away)
+  //     → __categories (_dlt_parent_id, name)
+  //       → __types (_dlt_parent_id, name)
+  //         → __athletes (_dlt_parent_id, id, name, stat)
+  return MOCK_LEADERS
 })
 
