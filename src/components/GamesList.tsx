@@ -3,10 +3,11 @@
 import { useState, useTransition, useRef } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
+import { useRouter } from 'next/navigation'
 import { fetchGames, fetchAvailableWeeks } from '@/app/games/actions'
-import type { GamesFilter, GameWithTeams, SeasonPhase } from '@/lib/queries/games'
+import type { GamesFilter, GameWithTeams, SeasonPhase } from '@/app/games/actions'
 import { REGULAR_SEASON_MAX_WEEK, POSTSEASON_MIN_WEEK } from '@/lib/queries/constants'
-import { teamNameToSlug } from '@/lib/utils'
+import { teamNameToSlug, selectClassName, selectStyle } from '@/lib/utils'
 
 interface GamesListProps {
   initialGames: GameWithTeams[]
@@ -37,7 +38,9 @@ export function GamesList({
   const [conference, setConference] = useState<string>('')
   const [team, setTeam] = useState<string>('')
   const [isPending, startTransition] = useTransition()
+  const [error, setError] = useState<string | null>(null)
   const requestIdRef = useRef(0)
+  const router = useRouter()
 
   const handleFilterChange = (newFilter: Partial<GamesFilter> & { season?: number; phase?: SeasonPhase }) => {
     const newSeason = newFilter.season ?? season
@@ -57,26 +60,34 @@ export function GamesList({
     const currentRequestId = ++requestIdRef.current
 
     startTransition(async () => {
-      // If season changed, fetch new available weeks
-      if (newFilter.season !== undefined && newFilter.season !== season) {
-        const weeks = await fetchAvailableWeeks(newFilter.season)
+      setError(null)
+      try {
+        // If season changed, fetch new available weeks
+        if (newFilter.season !== undefined && newFilter.season !== season) {
+          const weeks = await fetchAvailableWeeks(newFilter.season)
+          // Only update if this is still the latest request
+          if (currentRequestId === requestIdRef.current) {
+            setAvailableWeeks(weeks)
+          }
+        }
+
+        const filter: GamesFilter = {
+          season: newSeason,
+          phase: newPhase,
+          week: newWeek || undefined,
+          conference: newConference || undefined,
+          team: newTeam || undefined,
+        }
+        const newGames = await fetchGames(filter)
         // Only update if this is still the latest request
         if (currentRequestId === requestIdRef.current) {
-          setAvailableWeeks(weeks)
+          setGames(newGames)
         }
-      }
-
-      const filter: GamesFilter = {
-        season: newSeason,
-        phase: newPhase,
-        week: newWeek || undefined,
-        conference: newConference || undefined,
-        team: newTeam || undefined,
-      }
-      const newGames = await fetchGames(filter)
-      // Only update if this is still the latest request
-      if (currentRequestId === requestIdRef.current) {
-        setGames(newGames)
+      } catch (err) {
+        console.error('Failed to fetch games:', err)
+        if (currentRequestId === requestIdRef.current) {
+          setError('Failed to load games. Please try again.')
+        }
       }
     })
   }
@@ -224,14 +235,8 @@ export function GamesList({
           <select
             value={season}
             onChange={(e) => handleSeasonChange(Number(e.target.value))}
-            className="px-3 py-2 text-sm border-[1.5px] border-[var(--border)] rounded-sm
-              bg-[var(--bg-surface)] text-[var(--text-primary)]
-              cursor-pointer hover:border-[var(--text-muted)] transition-colors
-              appearance-none bg-no-repeat bg-right pr-8 min-w-[100px]"
-            style={{
-              backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%236B635A' d='M3 4.5L6 8l3-3.5H3z'/%3E%3C/svg%3E")`,
-              backgroundPosition: 'right 0.75rem center'
-            }}
+            className={`${selectClassName} min-w-[100px]`}
+            style={selectStyle}
           >
             {availableSeasons.map(s => (
               <option key={s} value={s}>{s}</option>
@@ -242,14 +247,8 @@ export function GamesList({
           <select
             value={conference}
             onChange={(e) => handleFilterChange({ conference: e.target.value })}
-            className="px-3 py-2 text-sm border-[1.5px] border-[var(--border)] rounded-sm
-              bg-[var(--bg-surface)] text-[var(--text-primary)]
-              cursor-pointer hover:border-[var(--text-muted)] transition-colors
-              appearance-none bg-no-repeat bg-right pr-8 min-w-[180px]"
-            style={{
-              backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%236B635A' d='M3 4.5L6 8l3-3.5H3z'/%3E%3C/svg%3E")`,
-              backgroundPosition: 'right 0.75rem center'
-            }}
+            className={`${selectClassName} min-w-[180px]`}
+            style={selectStyle}
           >
             <option value="">All Conferences</option>
             {conferences.map(conf => (
@@ -261,14 +260,8 @@ export function GamesList({
           <select
             value={team}
             onChange={(e) => handleFilterChange({ team: e.target.value })}
-            className="px-3 py-2 text-sm border-[1.5px] border-[var(--border)] rounded-sm
-              bg-[var(--bg-surface)] text-[var(--text-primary)]
-              cursor-pointer hover:border-[var(--text-muted)] transition-colors
-              appearance-none bg-no-repeat bg-right pr-8 min-w-[180px]"
-            style={{
-              backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%236B635A' d='M3 4.5L6 8l3-3.5H3z'/%3E%3C/svg%3E")`,
-              backgroundPosition: 'right 0.75rem center'
-            }}
+            className={`${selectClassName} min-w-[180px]`}
+            style={selectStyle}
           >
             <option value="">All Teams</option>
             {teams.map(t => (
@@ -293,6 +286,13 @@ export function GamesList({
         {isPending ? 'Loading...' : `${games.length} games`}
       </p>
 
+      {/* Error state */}
+      {error && (
+        <div className="text-red-600 text-sm mb-4 p-3 bg-red-50 border border-red-200 rounded">
+          {error}
+        </div>
+      )}
+
       {/* Loading state */}
       {isPending && (
         <div className="text-center py-8 text-[var(--text-muted)]">
@@ -312,7 +312,13 @@ export function GamesList({
             return (
               <div
                 key={game.id}
-                className="flex items-center gap-3 py-3 px-4 -mx-4 rounded hover:bg-[var(--bg-surface-alt)] transition-colors"
+                onClick={(e) => {
+                  // Only navigate if the click wasn't on a link
+                  if (!(e.target as HTMLElement).closest('a')) {
+                    router.push(`/games/${game.id}`)
+                  }
+                }}
+                className="flex items-center gap-3 py-3 px-4 -mx-4 rounded hover:bg-[var(--bg-surface-alt)] transition-colors cursor-pointer"
               >
                 {/* Away team */}
                 <Link

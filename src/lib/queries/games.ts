@@ -1,7 +1,8 @@
 import { cache } from 'react'
 import { createClient } from '@/lib/supabase/server'
 import { getTeamLookup } from './shared'
-import { CURRENT_SEASON, REGULAR_SEASON_MAX_WEEK, POSTSEASON_MIN_WEEK } from './constants'
+import { REGULAR_SEASON_MAX_WEEK, POSTSEASON_MIN_WEEK } from './constants'
+import type { GameBoxScore, BoxScoreTeam } from '@/lib/types/database'
 
 // Season phase type
 export type SeasonPhase = 'all' | 'regular' | 'postseason'
@@ -165,5 +166,99 @@ export const getAvailableSeasons = cache(async (): Promise<number[]> => {
 
   // Get unique seasons
   return [...new Set(data.map(d => d.season))].sort((a, b) => b - a)
+})
+
+// Get a single game by ID with team enrichment
+export const getGameById = cache(async (gameId: number): Promise<GameWithTeams | null> => {
+  const supabase = await createClient()
+  const teamLookup = await getTeamLookup()
+
+  const { data, error } = await supabase
+    .from('games')
+    .select(GAME_COLUMNS)
+    .eq('id', gameId)
+    .single()
+
+  if (error || !data) {
+    return null
+  }
+
+  // Enrich with team data
+  return {
+    ...data,
+    home_points: data.home_points ?? 0,
+    away_points: data.away_points ?? 0,
+    homeLogo: teamLookup.get(data.home_team)?.logo ?? null,
+    homeColor: teamLookup.get(data.home_team)?.color ?? null,
+    awayLogo: teamLookup.get(data.away_team)?.logo ?? null,
+    awayColor: teamLookup.get(data.away_team)?.color ?? null,
+  }
+})
+
+// Get box score stats for a game from core schema
+export const getGameBoxScore = cache(async (gameId: number): Promise<GameBoxScore | null> => {
+  const supabase = await createClient()
+
+  // Query the nested core tables using Supabase's syntax
+  // The tables are: core.game_team_stats -> core.game_team_stats__teams -> core.game_team_stats__teams__stats
+  const { data, error } = await supabase
+    .schema('core')
+    .from('game_team_stats')
+    .select(`
+      game_id,
+      game_team_stats__teams (
+        team,
+        home_away,
+        game_team_stats__teams__stats (
+          category,
+          stat
+        )
+      )
+    `)
+    .eq('game_id', gameId)
+    .single()
+
+  if (error || !data) {
+    return null
+  }
+
+  // Transform nested data into BoxScore format
+  const teams = data.game_team_stats__teams as Array<{
+    team: string
+    home_away: 'home' | 'away'
+    game_team_stats__teams__stats: Array<{ category: string; stat: string }>
+  }>
+
+  if (!teams || teams.length === 0) {
+    return null
+  }
+
+  let home: BoxScoreTeam | null = null
+  let away: BoxScoreTeam | null = null
+
+  for (const teamData of teams) {
+    const stats: Record<string, string> = {}
+    for (const stat of teamData.game_team_stats__teams__stats || []) {
+      stats[stat.category] = stat.stat
+    }
+
+    const boxScoreTeam: BoxScoreTeam = {
+      team: teamData.team,
+      homeAway: teamData.home_away,
+      stats,
+    }
+
+    if (teamData.home_away === 'home') {
+      home = boxScoreTeam
+    } else {
+      away = boxScoreTeam
+    }
+  }
+
+  if (!home || !away) {
+    return null
+  }
+
+  return { home, away }
 })
 

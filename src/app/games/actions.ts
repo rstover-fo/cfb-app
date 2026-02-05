@@ -1,8 +1,12 @@
 'use server'
 
-import { getGames, getAvailableWeeks, type GamesFilter, type GameWithTeams } from '@/lib/queries/games'
+import { getGames, getAvailableWeeks } from '@/lib/queries/games'
 
-export async function fetchGames(filter: GamesFilter): Promise<GameWithTeams[]> {
+// Re-export types for client components to import from this module
+// This avoids client components importing from server-only modules
+export type { GamesFilter, GameWithTeams, SeasonPhase } from '@/lib/queries/games'
+
+export async function fetchGames(filter: import('@/lib/queries/games').GamesFilter): Promise<import('@/lib/queries/games').GameWithTeams[]> {
   return getGames(filter)
 }
 
