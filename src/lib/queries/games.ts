@@ -2,12 +2,16 @@ import { cache } from 'react'
 import { createClient } from '@/lib/supabase/server'
 import { getTeamLookup, CURRENT_SEASON } from './shared'
 
+// Season phase type
+export type SeasonPhase = 'all' | 'regular' | 'postseason'
+
 // Filter options for games query
 export interface GamesFilter {
   season: number
-  week?: number
-  conference?: string  // At least one team from this conference
-  team?: string        // Exact team name match
+  phase?: SeasonPhase   // Season phase filter (all, regular, postseason)
+  week?: number | null  // null or 0 = "All" within phase
+  conference?: string   // At least one team from this conference
+  team?: string         // Exact team name match
 }
 
 // Game data enriched with team logos/colors
@@ -58,7 +62,15 @@ export const getGames = cache(async (filter: GamesFilter): Promise<GameWithTeams
     .order('start_date', { ascending: false })
 
   // Database-level filters
-  if (filter.week) {
+  // Phase filter: regular = weeks 1-14, postseason = weeks 15+, all = no constraint
+  if (filter.phase === 'regular') {
+    query = query.lte('week', 14)
+  } else if (filter.phase === 'postseason') {
+    query = query.gte('week', 15)
+  }
+
+  // Specific week filter (when week is a positive number)
+  if (filter.week && filter.week > 0) {
     query = query.eq('week', filter.week)
   }
 
@@ -110,6 +122,16 @@ export const getCurrentWeek = cache(async (season: number): Promise<number> => {
   return data?.week ?? 1
 })
 
+// Get smart default week for regular season view
+// Returns latest completed week within regular season (weeks 1-14)
+// If season has moved to postseason (week 15+), defaults to week 14
+export const getDefaultWeek = cache(async (season: number): Promise<number> => {
+  const maxWeek = await getCurrentWeek(season)
+  // If we're in postseason, default to last regular season week
+  if (maxWeek >= 15) return 14
+  return maxWeek
+})
+
 // Get all available weeks for a season
 export const getAvailableWeeks = cache(async (season: number): Promise<number[]> => {
   const supabase = await createClient()
@@ -125,6 +147,21 @@ export const getAvailableWeeks = cache(async (season: number): Promise<number[]>
   // Get unique weeks
   const weeks = [...new Set(data.map(d => d.week))].sort((a, b) => a - b)
   return weeks
+})
+
+// Get all available seasons with completed games (descending order)
+export const getAvailableSeasons = cache(async (): Promise<number[]> => {
+  const supabase = await createClient()
+  const { data } = await supabase
+    .from('games')
+    .select('season')
+    .eq('completed', true)
+    .order('season', { ascending: false })
+
+  if (!data) return []
+
+  // Get unique seasons
+  return [...new Set(data.map(d => d.season))].sort((a, b) => b - a)
 })
 
 // Re-export for convenience
