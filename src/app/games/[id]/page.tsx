@@ -80,7 +80,13 @@ export default async function GamePage({ params }: GamePageProps) {
           <h2 className="text-lg font-semibold text-[var(--text-primary)] mb-4">
             Player Leaders
           </h2>
-          <PlayerLeaders leaders={playerLeaders} game={game} />
+          {playerLeaders ? (
+            <PlayerLeaders leaders={playerLeaders} game={game} />
+          ) : (
+            <p className="text-[var(--text-muted)] text-sm py-4">
+              Player stats unavailable for this game.
+            </p>
+          )}
         </div>
       </div>
     </main>
