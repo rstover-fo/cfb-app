@@ -3,8 +3,7 @@ import Image from 'next/image'
 import { TrendUp, TrendDown, ArrowRight } from '@phosphor-icons/react/dist/ssr'
 import { getTopMovers, type Mover } from '@/lib/queries/dashboard'
 import { teamNameToSlug } from '@/lib/utils'
-
-const CURRENT_SEASON = 2025
+import { CURRENT_SEASON } from '@/lib/queries/constants'
 
 function MoverRow({ mover, index }: { mover: Mover; index: number }) {
   const isRiser = mover.direction === 'up'

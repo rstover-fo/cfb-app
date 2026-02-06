@@ -2,8 +2,7 @@ import { ArrowRight } from '@phosphor-icons/react/dist/ssr'
 import Link from 'next/link'
 import { getStatLeaders } from '@/lib/queries/dashboard'
 import { StatLeadersTabs } from './StatLeadersTabs'
-
-const CURRENT_SEASON = 2025
+import { CURRENT_SEASON } from '@/lib/queries/constants'
 
 export async function StatLeadersWidget() {
   const data = await getStatLeaders(CURRENT_SEASON)

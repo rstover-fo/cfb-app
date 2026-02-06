@@ -1,34 +1,19 @@
 import { createClient } from '@/lib/supabase/server'
 import type { Team, TeamSeasonEpa, TeamStyleProfile, DefensiveHavoc, TeamTempoMetrics, TeamRecord, TeamSpecialTeamsSos } from '@/lib/types/database'
 import { ScatterPlotClient } from '@/components/analytics/ScatterPlotClient'
-
-// FBS conferences only (excludes FCS, D2, etc. which often have placeholder logos)
-const FBS_CONFERENCES = [
-  'ACC',
-  'American Athletic',
-  'Big 12',
-  'Big Ten',
-  'Conference USA',
-  'FBS Independents',
-  'Mid-American',
-  'Mountain West',
-  'Pac-12',
-  'SEC',
-  'Sun Belt'
-]
+import { FBS_CONFERENCES } from '@/lib/queries/shared'
+import { CURRENT_SEASON } from '@/lib/queries/constants'
 
 export default async function AnalyticsPage() {
   const supabase = await createClient()
-  const currentSeason = 2025
-
   const [teamsResult, metricsResult, stylesResult, havocResult, tempoResult, recordsResult, specialTeamsResult] = await Promise.all([
-    supabase.from('teams_with_logos').select('*').in('conference', FBS_CONFERENCES),
-    supabase.from('team_epa_season').select('*').eq('season', currentSeason),
-    supabase.from('team_style_profile').select('*').eq('season', currentSeason),
-    supabase.from('defensive_havoc').select('*').eq('season', currentSeason),
-    supabase.from('team_tempo_metrics').select('*').eq('season', currentSeason),
-    supabase.from('records').select('team, year, total__wins, total__losses, conference_games__wins, conference_games__losses').eq('year', currentSeason).eq('classification', 'fbs'),
-    supabase.from('team_special_teams_sos').select('*').eq('season', currentSeason)
+    supabase.from('teams_with_logos').select('*').in('conference', FBS_CONFERENCES as unknown as string[]),
+    supabase.from('team_epa_season').select('*').eq('season', CURRENT_SEASON),
+    supabase.from('team_style_profile').select('*').eq('season', CURRENT_SEASON),
+    supabase.from('defensive_havoc').select('*').eq('season', CURRENT_SEASON),
+    supabase.from('team_tempo_metrics').select('*').eq('season', CURRENT_SEASON),
+    supabase.from('records').select('team, year, total__wins, total__losses, conference_games__wins, conference_games__losses').eq('year', CURRENT_SEASON).eq('classification', 'fbs'),
+    supabase.from('team_special_teams_sos').select('*').eq('season', CURRENT_SEASON)
   ])
 
   const teams = (teamsResult.data as Team[]) || []
@@ -46,7 +31,7 @@ export default async function AnalyticsPage() {
           Team Analytics
         </h1>
         <p className="text-[var(--text-secondary)] mt-2">
-          {currentSeason} Season · All FBS Teams
+          {CURRENT_SEASON} Season · All FBS Teams
         </p>
       </header>
 
@@ -58,7 +43,7 @@ export default async function AnalyticsPage() {
         tempo={tempo}
         records={records}
         specialTeams={specialTeams}
-        currentSeason={currentSeason}
+        currentSeason={CURRENT_SEASON}
       />
     </div>
   )

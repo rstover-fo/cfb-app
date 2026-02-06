@@ -3,8 +3,7 @@ import Image from 'next/image'
 import { ArrowRight } from '@phosphor-icons/react/dist/ssr'
 import { getStandings, type Standing } from '@/lib/queries/dashboard'
 import { teamNameToSlug } from '@/lib/utils'
-
-const CURRENT_SEASON = 2025
+import { CURRENT_SEASON } from '@/lib/queries/constants'
 
 function StandingRow({ standing, index }: { standing: Standing; index: number }) {
   return (
