@@ -45,7 +45,11 @@ export function PlayRow({ play }: PlayRowProps) {
       {play.yards_gained != null && (
         <span
           className={`text-xs font-mono font-medium whitespace-nowrap ${
-            play.yards_gained > 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'
+            play.yards_gained > 0
+              ? 'text-green-600 dark:text-green-400'
+              : play.yards_gained < 0
+                ? 'text-red-600 dark:text-red-400'
+                : 'text-[var(--text-muted)]'
           }`}
         >
           {play.yards_gained > 0 ? '+' : ''}{play.yards_gained} yds

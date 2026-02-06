@@ -51,6 +51,8 @@ function buildWPData(drives: GameDrive[], finalHome: number, finalAway: number):
 
   for (const drive of drives) {
     const gameMinute = (drive.start_period - 1) * 15 + (15 - drive.start_time_minutes)
+    // Clamp to regulation time. Overtime drives are collapsed to the final minute
+    // since the chart uses a fixed 60-minute axis. Acceptable for initial version.
     const clampedMinute = Math.max(0, Math.min(TOTAL_MINUTES, gameMinute))
 
     if (drive.is_home_offense) {
@@ -130,33 +132,81 @@ function buildSmoothPath(points: WPDataPoint[]): string {
 }
 
 /**
+ * Evaluate a Catmull-Rom spline at parameter t (0..1) for a segment between p1 and p2,
+ * using the same tension as buildSmoothPath. This ensures the area fill matches the bezier line.
+ */
+function evalCatmullRom(
+  p0: { x: number; y: number },
+  p1: { x: number; y: number },
+  p2: { x: number; y: number },
+  p3: { x: number; y: number },
+  t: number,
+  tension: number = 0.3,
+): { x: number; y: number } {
+  // Convert Catmull-Rom to cubic bezier control points
+  const cp1x = p1.x + (p2.x - p0.x) * tension
+  const cp1y = p1.y + (p2.y - p0.y) * tension
+  const cp2x = p2.x - (p3.x - p1.x) * tension
+  const cp2y = p2.y - (p3.y - p1.y) * tension
+
+  // Evaluate cubic bezier: B(t) = (1-t)^3*P0 + 3*(1-t)^2*t*CP1 + 3*(1-t)*t^2*CP2 + t^3*P1
+  const u = 1 - t
+  const tt = t * t
+  const uu = u * u
+  const uuu = uu * u
+  const ttt = tt * t
+
+  return {
+    x: uuu * p1.x + 3 * uu * t * cp1x + 3 * u * tt * cp2x + ttt * p2.x,
+    y: uuu * p1.y + 3 * uu * t * cp1y + 3 * u * tt * cp2y + ttt * p2.y,
+  }
+}
+
+/**
  * Build an area path that fills from the line to the 50% baseline.
  * Returns two paths: one for above 50% (home advantage) and one for below (away advantage).
- * Uses a simplified approach: area fill from the smooth line down/up to 50%.
+ * Uses the same Catmull-Rom bezier math as buildSmoothPath so the fill aligns with the curve.
  */
 function buildAreaPaths(points: WPDataPoint[]): { abovePath: string; belowPath: string } {
   if (points.length < 2) return { abovePath: '', belowPath: '' }
 
-  // Sample the curve at many points for smooth area fill
-  const SAMPLES = 200
+  // Convert data points to screen coordinates
+  const coords = points.map(p => ({
+    x: xScale(p.gameMinute),
+    y: yScale(p.homeWP),
+    wp: p.homeWP,
+  }))
+
+  // Sample the Catmull-Rom curve at many points for smooth area fill
+  const SAMPLES_PER_SEGMENT = 30
   const sampledPoints: { x: number; y: number; wp: number }[] = []
 
-  for (let i = 0; i <= SAMPLES; i++) {
-    const t = i / SAMPLES
-    const minute = t * TOTAL_MINUTES
-    // Linearly interpolate between data points
-    let wp = 50
-    for (let j = 0; j < points.length - 1; j++) {
-      if (minute >= points[j].gameMinute && minute <= points[j + 1].gameMinute) {
-        const segT =
-          points[j + 1].gameMinute === points[j].gameMinute
-            ? 0
-            : (minute - points[j].gameMinute) / (points[j + 1].gameMinute - points[j].gameMinute)
-        wp = points[j].homeWP + segT * (points[j + 1].homeWP - points[j].homeWP)
-        break
+  if (coords.length === 2) {
+    // Linear case: just sample the line
+    for (let s = 0; s <= SAMPLES_PER_SEGMENT; s++) {
+      const t = s / SAMPLES_PER_SEGMENT
+      const x = coords[0].x + t * (coords[1].x - coords[0].x)
+      const y = coords[0].y + t * (coords[1].y - coords[0].y)
+      const wp = points[0].homeWP + t * (points[1].homeWP - points[0].homeWP)
+      sampledPoints.push({ x, y, wp })
+    }
+  } else {
+    // Catmull-Rom spline sampling (matches buildSmoothPath exactly)
+    for (let i = 0; i < coords.length - 1; i++) {
+      const p0 = coords[Math.max(0, i - 1)]
+      const p1 = coords[i]
+      const p2 = coords[i + 1]
+      const p3 = coords[Math.min(coords.length - 1, i + 2)]
+
+      const steps = i === coords.length - 2 ? SAMPLES_PER_SEGMENT : SAMPLES_PER_SEGMENT
+      for (let s = 0; s <= (i === coords.length - 2 ? steps : steps - 1); s++) {
+        const t = s / steps
+        const pt = evalCatmullRom(p0, p1, p2, p3, t)
+        // Estimate WP from y position (inverse of yScale)
+        const wp = (1 - (pt.y - MARGIN.top) / PLOT_HEIGHT) * 100
+        sampledPoints.push({ x: pt.x, y: pt.y, wp })
       }
     }
-    sampledPoints.push({ x: xScale(minute), y: yScale(wp), wp })
   }
 
   const midY = yScale(50)

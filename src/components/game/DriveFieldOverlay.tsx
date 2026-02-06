@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useCallback, useRef, useState } from 'react'
+import { useEffect, useCallback, useRef, useState, useMemo } from 'react'
 import rough from 'roughjs'
 import type { RoughSVG } from 'roughjs/bin/svg'
 import { FootballField, yardToX } from '@/components/visualizations/FootballField'
@@ -96,9 +96,9 @@ export function DriveFieldOverlay({ drives, game }: DriveFieldOverlayProps) {
     }
   }, [rc])
 
-  // Split drives by team
-  const homeDrives = drives.filter(d => d.is_home_offense)
-  const awayDrives = drives.filter(d => !d.is_home_offense)
+  // Split drives by team (memoized to prevent unnecessary redraws)
+  const homeDrives = useMemo(() => drives.filter(d => d.is_home_offense), [drives])
+  const awayDrives = useMemo(() => drives.filter(d => !d.is_home_offense), [drives])
 
   const drawDrives = useCallback(() => {
     if (!rc || !fieldRef.current) return

@@ -19,11 +19,22 @@ interface RedZoneStats {
   pointsPerTrip: number
 }
 
-const TURNOVER_RESULTS = ['INT', 'FUMBLE']
+/** Normalize drive result to a canonical category (case-insensitive, handles variations) */
+function mapDriveResult(driveResult: string): string {
+  const r = driveResult.toUpperCase()
+  if (r === 'TD' || r.includes('TOUCHDOWN')) return 'touchdown'
+  if (r === 'FG' || r.includes('FIELD GOAL')) return 'field_goal'
+  if (r === 'PUNT') return 'punt'
+  if (r === 'INT' || r === 'FUMBLE' || r.includes('INTERCEPT') || r.includes('FUMBLE')) return 'turnover'
+  if (r === 'DOWNS' || r.includes('DOWNS')) return 'downs'
+  if (r.includes('END OF HALF') || r.includes('END OF GAME') || r.includes('HALF')) return 'end_of_half'
+  return 'uncategorized'
+}
 
 function computeRedZone(drives: GameDrive[], team: string): RedZoneStats {
+  // Red zone = drives that start in or enter the red zone (within 20 yards of goal)
   const redZoneDrives = drives.filter(
-    d => d.offense === team && d.start_yards_to_goal <= 20
+    d => d.offense === team && (d.start_yards_to_goal <= 20 || d.end_yards_to_goal <= 20)
   )
 
   const trips = redZoneDrives.length
@@ -31,9 +42,9 @@ function computeRedZone(drives: GameDrive[], team: string): RedZoneStats {
     return { trips: 0, tds: 0, fgs: 0, turnovers: 0, tdRate: 0, scoringRate: 0, pointsPerTrip: 0 }
   }
 
-  const tds = redZoneDrives.filter(d => d.drive_result === 'TD').length
-  const fgs = redZoneDrives.filter(d => d.drive_result === 'FG').length
-  const turnovers = redZoneDrives.filter(d => TURNOVER_RESULTS.includes(d.drive_result)).length
+  const tds = redZoneDrives.filter(d => mapDriveResult(d.drive_result) === 'touchdown').length
+  const fgs = redZoneDrives.filter(d => mapDriveResult(d.drive_result) === 'field_goal').length
+  const turnovers = redZoneDrives.filter(d => mapDriveResult(d.drive_result) === 'turnover').length
 
   return {
     trips,

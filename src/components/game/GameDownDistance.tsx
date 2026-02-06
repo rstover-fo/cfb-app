@@ -12,6 +12,7 @@ interface GameDownDistanceProps {
 interface BucketStats {
   playCount: number
   successes: number
+  totalPpa: number
   successRate: number
   avgPpa: number
 }
@@ -45,22 +46,17 @@ function computeTeamGrid(plays: GamePlay[], team: string): Map<string, BucketSta
     const bucket = getDistanceBucket(play.distance!)
     const key = `${play.down}-${bucket}`
 
-    const existing = grid.get(key) ?? { playCount: 0, successes: 0, successRate: 0, avgPpa: 0 }
+    const existing = grid.get(key) ?? { playCount: 0, successes: 0, totalPpa: 0, successRate: 0, avgPpa: 0 }
     existing.playCount += 1
+    existing.totalPpa += play.ppa ?? 0
     if (play.ppa! > 0) existing.successes += 1
     grid.set(key, existing)
   }
 
-  // Compute rates
-  for (const [key, stats] of grid) {
+  // Compute rates from accumulated totals (avoids O(n*m) re-filtering)
+  for (const [, stats] of grid) {
     stats.successRate = stats.playCount > 0 ? stats.successes / stats.playCount : 0
-    // Compute avgPpa from the raw plays
-    const matchPlays = teamPlays.filter(p => {
-      const bucket = getDistanceBucket(p.distance!)
-      return `${p.down}-${bucket}` === key
-    })
-    stats.avgPpa = matchPlays.reduce((sum, p) => sum + (p.ppa ?? 0), 0) / matchPlays.length
-    grid.set(key, stats)
+    stats.avgPpa = stats.playCount > 0 ? stats.totalPpa / stats.playCount : 0
   }
 
   return grid

@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useEffect, useRef } from 'react'
+import { useMemo, useEffect, useRef, useCallback } from 'react'
 import rough from 'roughjs'
 import type { GameDrive } from '@/lib/types/database'
 import type { LineScores } from '@/lib/types/database'
@@ -91,7 +91,7 @@ export function MomentumChart({ drives: _drives, lineScores, game }: MomentumCha
   }, [maxAbsDiff])
 
   // Draw roughjs bars
-  useEffect(() => {
+  const drawBars = useCallback(() => {
     const svg = svgRef.current
     const group = roughGroupRef.current
     if (!svg || !group) return
@@ -129,6 +129,22 @@ export function MomentumChart({ drives: _drives, lineScores, game }: MomentumCha
       group.appendChild(rect)
     }
   }, [quarterDiffs, homeColor, awayColor, maxAbsDiff])
+
+  useEffect(() => {
+    drawBars()
+  }, [drawBars])
+
+  // Redraw on theme change
+  useEffect(() => {
+    const observer = new MutationObserver(() => {
+      requestAnimationFrame(drawBars)
+    })
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['class', 'data-theme'],
+    })
+    return () => observer.disconnect()
+  }, [drawBars])
 
   const finalHome = lineScores.home.reduce((s, q) => s + q, 0)
   const finalAway = lineScores.away.reduce((s, q) => s + q, 0)

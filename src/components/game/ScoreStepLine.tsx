@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useEffect, useRef } from 'react'
+import { useMemo, useEffect, useRef, useCallback } from 'react'
 import rough from 'roughjs'
 import type { GameDrive } from '@/lib/types/database'
 import type { GameWithTeams } from '@/lib/queries/games'
@@ -137,7 +137,7 @@ export function ScoreStepLine({ drives, lineScores, game }: ScoreStepLineProps) 
   }, [maxScore])
 
   // Draw roughjs lines
-  useEffect(() => {
+  const drawLines = useCallback(() => {
     const svg = svgRef.current
     const group = roughGroupRef.current
     if (!svg || !group) return
@@ -197,6 +197,22 @@ export function ScoreStepLine({ drives, lineScores, game }: ScoreStepLineProps) 
       group.appendChild(awayDot)
     }
   }, [homePoints, awayPoints, scoringEvents, homeColor, awayColor, maxScore])
+
+  useEffect(() => {
+    drawLines()
+  }, [drawLines])
+
+  // Redraw on theme change
+  useEffect(() => {
+    const observer = new MutationObserver(() => {
+      requestAnimationFrame(drawLines)
+    })
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['class', 'data-theme'],
+    })
+    return () => observer.disconnect()
+  }, [drawLines])
 
   return (
     <div className="relative">

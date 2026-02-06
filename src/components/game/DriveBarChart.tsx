@@ -9,6 +9,7 @@ import type { GameWithTeams } from '@/lib/queries/games'
 // Constants
 // ---------------------------------------------------------------------------
 
+const CHART_WIDTH = 800
 const BAR_HEIGHT = 14
 const ROW_HEIGHT = 36
 const YARD_MARKERS = [20, 40, 50, 60, 80] // absolute 0-100 scale positions
@@ -88,7 +89,6 @@ export function DriveBarChart({ drives, game }: DriveBarChartProps) {
 
     const chartArea = svg.querySelector('.chart-area')
     if (!chartArea) return
-    const chartWidth = chartArea.getBoundingClientRect().width
 
     drives.forEach((drive, i) => {
       const outcome = mapDriveResult(drive.drive_result)
@@ -98,8 +98,8 @@ export function DriveBarChart({ drives, game }: DriveBarChartProps) {
       // Field position: start at own (100 - yards_to_goal), end at (100 - end_yards_to_goal)
       const startX = (100 - drive.start_yards_to_goal) / 100
       const endX = (100 - drive.end_yards_to_goal) / 100
-      const x = Math.min(startX, endX) * chartWidth
-      const w = Math.max(Math.abs(endX - startX) * chartWidth, 3) // minimum 3px width
+      const x = Math.min(startX, endX) * CHART_WIDTH
+      const w = Math.max(Math.abs(endX - startX) * CHART_WIDTH, 3) // minimum 3px width
       const y = i * ROW_HEIGHT + (ROW_HEIGHT - BAR_HEIGHT) / 2
 
       const rect = rc.rectangle(x, y, w, BAR_HEIGHT, {
@@ -165,7 +165,7 @@ export function DriveBarChart({ drives, game }: DriveBarChartProps) {
               const teamName = drive.offense
               return (
                 <div
-                  key={i}
+                  key={drive.drive_number}
                   className={`flex items-center gap-1.5 px-1 ${
                     i % 2 === 0 ? 'bg-[var(--bg-surface)]' : ''
                   }`}
@@ -187,9 +187,10 @@ export function DriveBarChart({ drives, game }: DriveBarChartProps) {
           <div className="flex-1 relative">
             <svg
               ref={svgRef}
-              width="100%"
-              height={totalHeight}
-              className="block"
+              viewBox={`0 0 ${CHART_WIDTH} ${totalHeight}`}
+              className="w-full block"
+              role="img"
+              aria-label={`Drive chart: ${drives.length} drives for ${game.home_team} vs ${game.away_team}`}
             >
               {/* Alternating row backgrounds */}
               {drives.map((_, i) => (
@@ -198,7 +199,7 @@ export function DriveBarChart({ drives, game }: DriveBarChartProps) {
                     key={`bg-${i}`}
                     x={0}
                     y={i * ROW_HEIGHT}
-                    width="100%"
+                    width={CHART_WIDTH}
                     height={ROW_HEIGHT}
                     fill="var(--bg-surface)"
                   />
@@ -208,9 +209,9 @@ export function DriveBarChart({ drives, game }: DriveBarChartProps) {
               {YARD_MARKERS.map(yard => (
                 <line
                   key={`line-${yard}`}
-                  x1={`${yard}%`}
+                  x1={(yard / 100) * CHART_WIDTH}
                   y1={0}
-                  x2={`${yard}%`}
+                  x2={(yard / 100) * CHART_WIDTH}
                   y2={totalHeight}
                   stroke="var(--border)"
                   strokeWidth={1}
@@ -219,9 +220,9 @@ export function DriveBarChart({ drives, game }: DriveBarChartProps) {
               ))}
               {/* 50-yard line slightly more prominent */}
               <line
-                x1="50%"
+                x1={CHART_WIDTH / 2}
                 y1={0}
-                x2="50%"
+                x2={CHART_WIDTH / 2}
                 y2={totalHeight}
                 stroke="var(--text-muted)"
                 strokeWidth={1}
@@ -240,7 +241,7 @@ export function DriveBarChart({ drives, game }: DriveBarChartProps) {
               const colorVar = getOutcomeColor(outcome)
               return (
                 <div
-                  key={i}
+                  key={drive.drive_number}
                   className={`flex items-center gap-1.5 px-2 ${
                     i % 2 === 0 ? 'bg-[var(--bg-surface)]' : ''
                   }`}
