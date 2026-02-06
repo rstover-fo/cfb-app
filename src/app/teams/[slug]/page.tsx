@@ -28,7 +28,7 @@ export default async function TeamPage({ params }: TeamPageProps) {
 
   const currentSeason = 2025
 
-  const [metricsResult, styleResult, trajectoryResult, drivesResult] = await Promise.all([
+  const [metricsResult, styleResult, trajectoryResult, drivesResult, defenseDrivesResult] = await Promise.all([
     supabase
       .from('team_epa_season')
       .select('*')
@@ -48,7 +48,12 @@ export default async function TeamPage({ params }: TeamPageProps) {
       .order('season', { ascending: true }),
     supabase.rpc('get_drive_patterns', {
       p_team: team.school,
-      p_season: currentSeason
+      p_season: currentSeason,
+    }),
+    supabase.rpc('get_drive_patterns', {
+      p_team: team.school,
+      p_season: currentSeason,
+      p_side: 'defense',
     })
   ])
 
@@ -150,7 +155,8 @@ export default async function TeamPage({ params }: TeamPageProps) {
   const metrics = metricsResult.data as TeamSeasonEpa | null
   const style = styleResult.data as TeamStyleProfile | null
   const trajectory = trajectoryResult.data as TeamSeasonTrajectory[] | null
-  const drives = drivesResult.data as DrivePattern[] | null
+  const offenseDrives = drivesResult.data as DrivePattern[] | null
+  const defenseDrives = defenseDrivesResult.data as DrivePattern[] | null
 
   return (
     <TeamPageClient
@@ -160,7 +166,8 @@ export default async function TeamPage({ params }: TeamPageProps) {
       style={style}
       trajectory={trajectory}
       trajectoryAverages={trajectoryAverages}
-      drives={drives}
+      offenseDrives={offenseDrives}
+      defenseDrives={defenseDrives}
       downDistanceSplits={downDistanceSplits}
       redZoneSplits={redZoneSplits}
       fieldPositionSplits={fieldPositionSplits}

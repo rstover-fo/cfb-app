@@ -45,7 +45,7 @@ export default async function GamePage({ params }: GamePageProps) {
   }
 
   return (
-    <main className="min-h-screen p-8">
+    <main className="min-h-screen p-4 sm:p-8">
       <div className="max-w-4xl mx-auto">
         {/* Back link and date/week info */}
         <div className="flex items-center justify-between mb-6">

@@ -35,7 +35,8 @@ interface TeamPageClientProps {
   style: TeamStyleProfile | null
   trajectory: TeamSeasonTrajectory[] | null
   trajectoryAverages: TrajectoryAverages[] | null
-  drives: DrivePattern[] | null
+  offenseDrives: DrivePattern[] | null
+  defenseDrives: DrivePattern[] | null
   downDistanceSplits: DownDistanceSplit[] | null
   redZoneSplits: RedZoneSplit[] | null
   fieldPositionSplits: FieldPositionSplit[] | null
@@ -54,7 +55,8 @@ export function TeamPageClient({
   style,
   trajectory,
   trajectoryAverages,
-  drives,
+  offenseDrives,
+  defenseDrives,
   downDistanceSplits,
   redZoneSplits,
   fieldPositionSplits,
@@ -133,8 +135,12 @@ export function TeamPageClient({
             {/* Drive Patterns */}
             <section className="mb-10">
               <h2 className="font-headline text-2xl text-[var(--text-primary)] mb-4">Drive Patterns</h2>
-              {drives && drives.length > 0 ? (
-                <DrivePatterns drives={drives} teamName={team.school ?? ''} />
+              {offenseDrives && offenseDrives.length > 0 ? (
+                <DrivePatterns
+                  offenseDrives={offenseDrives}
+                  defenseDrives={defenseDrives ?? []}
+                  teamName={team.school ?? ''}
+                />
               ) : (
                 <p className="text-[var(--text-muted)]">No drive data available</p>
               )}
