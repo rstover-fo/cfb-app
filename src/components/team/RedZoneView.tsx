@@ -8,9 +8,9 @@ interface RedZoneViewProps {
 
 function StatCard({ label, value, subtext }: { label: string; value: string; subtext?: string }) {
   return (
-    <div className="card p-4 text-center">
+    <div className="bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg p-3 text-center">
       <p className="text-xs text-[var(--text-muted)] uppercase tracking-wider mb-1">{label}</p>
-      <p className="font-headline text-3xl text-[var(--text-primary)]">{value}</p>
+      <p className="font-headline text-2xl tabular-nums text-[var(--text-primary)]">{value}</p>
       {subtext && <p className="text-xs text-[var(--text-secondary)] mt-1">{subtext}</p>}
     </div>
   )

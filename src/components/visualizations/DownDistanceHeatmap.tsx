@@ -47,7 +47,7 @@ export function DownDistanceHeatmap({ data, side, title }: DownDistanceHeatmapPr
     <div className="relative">
       <h3 className="font-headline text-lg text-[var(--text-primary)] mb-3">{title}</h3>
 
-      <div className="card p-4">
+      <div className="bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg overflow-hidden p-4">
         {/* Column Headers */}
         <div className="grid grid-cols-5 gap-1 mb-1">
           <div /> {/* Empty corner cell */}
@@ -103,8 +103,13 @@ export function DownDistanceHeatmap({ data, side, title }: DownDistanceHeatmapPr
                   }
                 >
                   {hasData && (
-                    <span className="text-xs font-medium text-[var(--text-primary)]">
-                      {(cellData.success_rate * 100).toFixed(0)}%
+                    <span className="flex flex-col items-center">
+                      <span className="text-xs font-medium tabular-nums text-[var(--text-primary)]">
+                        {(cellData.success_rate * 100).toFixed(0)}%
+                      </span>
+                      <span className="text-[10px] tabular-nums text-[var(--text-muted)]">
+                        {cellData.play_count}
+                      </span>
                     </span>
                   )}
                 </button>

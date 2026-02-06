@@ -24,7 +24,7 @@ function FieldZoneBar({ zones, side }: { zones: FieldPositionSplit[]; side: 'off
       </h3>
 
       {/* Field visualization */}
-      <div className="card p-4 mb-4">
+      <div className="bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg p-3 mb-4">
         <div className="flex gap-1 h-16 rounded overflow-hidden">
           {orderedZones.map(zoneId => {
             const zone = sideZones.find(z => z.zone === zoneId)
@@ -68,14 +68,14 @@ function FieldZoneBar({ zones, side }: { zones: FieldPositionSplit[]; side: 'off
               return (
                 <tr key={zoneId} className="border-b border-[var(--border)]">
                   <td className="py-2 text-[var(--text-primary)]">{zone.zone_label}</td>
-                  <td className="py-2 text-right text-[var(--text-secondary)]">{zone.play_count}</td>
-                  <td className="py-2 text-right text-[var(--text-primary)]">
+                  <td className="py-2 text-right tabular-nums text-[var(--text-secondary)]">{zone.play_count}</td>
+                  <td className="py-2 text-right tabular-nums text-[var(--text-primary)]">
                     {(zone.success_rate * 100).toFixed(0)}%
                   </td>
-                  <td className={`py-2 text-right ${zone.epa_per_play >= 0 ? 'text-[var(--color-positive)]' : 'text-[var(--color-negative)]'}`}>
+                  <td className={`py-2 text-right tabular-nums ${zone.epa_per_play >= 0 ? 'text-[var(--color-positive)]' : 'text-[var(--color-negative)]'}`}>
                     {zone.epa_per_play.toFixed(3)}
                   </td>
-                  <td className="py-2 text-right text-[var(--text-secondary)]">
+                  <td className="py-2 text-right tabular-nums text-[var(--text-secondary)]">
                     {zone.yards_per_play.toFixed(1)}
                   </td>
                 </tr>

@@ -31,11 +31,11 @@ function ComparisonRow({
 
   return (
     <div className="grid grid-cols-3 gap-4 py-3 border-b border-[var(--border)]">
-      <div className={`text-right ${homeBetter ? 'text-[var(--color-positive)] font-medium' : 'text-[var(--text-secondary)]'}`}>
+      <div className={`text-right tabular-nums ${homeBetter ? 'text-[var(--color-positive)] font-medium' : 'text-[var(--text-secondary)]'}`}>
         {formatValue(homeValue)}
       </div>
       <div className="text-center text-[var(--text-muted)] text-sm">{label}</div>
-      <div className={`text-left ${awayBetter ? 'text-[var(--color-positive)] font-medium' : 'text-[var(--text-secondary)]'}`}>
+      <div className={`text-left tabular-nums ${awayBetter ? 'text-[var(--color-positive)] font-medium' : 'text-[var(--text-secondary)]'}`}>
         {formatValue(awayValue)}
       </div>
     </div>
@@ -63,7 +63,7 @@ export function HomeAwayView({ data }: HomeAwayViewProps) {
   }
 
   return (
-    <div className="card p-6 max-w-2xl mx-auto">
+    <div className="bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg p-4 max-w-2xl mx-auto">
       {/* Headers */}
       <div className="grid grid-cols-3 gap-4 mb-4">
         <div className="text-right">
@@ -86,11 +86,11 @@ export function HomeAwayView({ data }: HomeAwayViewProps) {
       {/* Record */}
       <div className="grid grid-cols-3 gap-4 py-4 mb-2 bg-[var(--bg-surface-alt)] rounded">
         <div className="text-right">
-          <span className="font-headline text-2xl text-[var(--text-primary)]">{home.wins}-{home.games - home.wins}</span>
+          <span className="font-headline text-xl tabular-nums text-[var(--text-primary)]">{home.wins}-{home.games - home.wins}</span>
         </div>
         <div className="text-center text-[var(--text-muted)] text-sm self-center">Record</div>
         <div className="text-left">
-          <span className="font-headline text-2xl text-[var(--text-primary)]">{away.wins}-{away.games - away.wins}</span>
+          <span className="font-headline text-xl tabular-nums text-[var(--text-primary)]">{away.wins}-{away.games - away.wins}</span>
         </div>
       </div>
 
