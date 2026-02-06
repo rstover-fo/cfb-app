@@ -93,6 +93,7 @@ export const getRankingsForWeek = cache(async (
       .eq('week', week - 1)
       .eq('poll', poll),
     supabase
+      .schema('core')
       .from('records')
       .select('team, total__wins, total__losses')
       .eq('year', season)
@@ -104,11 +105,17 @@ export const getRankingsForWeek = cache(async (
     return []
   }
 
-  // Build previous week rank lookup
+  // Build previous week rank lookup (keep best rank per school)
   const prevRankLookup = new Map<string, number>()
   if (!prevResult.error && prevResult.data) {
     prevResult.data.forEach(r => {
-      if (r.school) prevRankLookup.set(r.school as string, r.rank as number)
+      if (!r.school) return
+      const school = r.school as string
+      const rank = r.rank as number
+      const existing = prevRankLookup.get(school)
+      if (!existing || rank < existing) {
+        prevRankLookup.set(school, rank)
+      }
     })
   }
 
@@ -120,7 +127,15 @@ export const getRankingsForWeek = cache(async (
     })
   }
 
-  const rankings = currentResult.data as PollRanking[]
+  // Deduplicate schools (keep best rank)
+  const deduped = new Map<string, PollRanking>()
+  for (const r of currentResult.data as PollRanking[]) {
+    const existing = deduped.get(r.school)
+    if (!existing || r.rank < existing.rank) {
+      deduped.set(r.school, r)
+    }
+  }
+  const rankings = Array.from(deduped.values()).sort((a, b) => a.rank - b.rank)
 
   return rankings.map(r => {
     const teamInfo = teamLookup.get(r.school)
@@ -160,23 +175,27 @@ export const getRankingsAllWeeks = cache(async (
 
   const rankings = data as PollRanking[]
 
-  // Group by week
-  const weekMap = new Map<number, (PollRanking & { color: string | null })[]>()
+  // Group by week, deduplicating schools (keep lowest/best rank)
+  const weekMap = new Map<number, Map<string, PollRanking & { color: string | null }>>()
 
   for (const r of rankings) {
     const teamInfo = teamLookup.get(r.school)
     const enriched = { ...r, color: teamInfo?.color ?? null }
 
-    const existing = weekMap.get(r.week)
-    if (existing) {
-      existing.push(enriched)
-    } else {
-      weekMap.set(r.week, [enriched])
+    let weekSchools = weekMap.get(r.week)
+    if (!weekSchools) {
+      weekSchools = new Map()
+      weekMap.set(r.week, weekSchools)
+    }
+
+    const existing = weekSchools.get(r.school)
+    if (!existing || r.rank < existing.rank) {
+      weekSchools.set(r.school, enriched)
     }
   }
 
   // Convert to sorted array
   return Array.from(weekMap.entries())
     .sort(([a], [b]) => a - b)
-    .map(([week, weekRankings]) => ({ week, rankings: weekRankings }))
+    .map(([week, schoolMap]) => ({ week, rankings: Array.from(schoolMap.values()) }))
 })
