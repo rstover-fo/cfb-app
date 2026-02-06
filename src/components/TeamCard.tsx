@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import Image from 'next/image'
 import { Team } from '@/lib/types/database'
 import { TeamMetrics } from './TeamList'
 
@@ -35,10 +36,13 @@ export function TeamCard({ team, metrics }: TeamCardProps) {
       {/* Logo Area */}
       <div className="flex justify-center mb-4">
         {team.logo ? (
-          <img
+          <Image
             src={team.logo}
             alt={`${team.school} logo`}
+            width={120}
+            height={120}
             className="w-[120px] h-[120px] object-contain"
+            unoptimized
           />
         ) : (
           <TeamInitials school={team.school ?? ''} />

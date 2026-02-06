@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import Image from 'next/image'
 import { Team, TeamSeasonEpa, TeamStyleProfile, TeamSeasonTrajectory, DrivePattern, DownDistanceSplit, TrajectoryAverages, RedZoneSplit, FieldPositionSplit, HomeAwaySplit, ConferenceSplit, RosterPlayer, PlayerSeasonStat, ScheduleGame } from '@/lib/types/database'
 import { MetricsCards } from '@/components/team/MetricsCards'
 import { StyleProfile } from '@/components/team/StyleProfile'
@@ -71,10 +72,13 @@ export function TeamPageClient({
       {/* Page Header */}
       <header className="flex items-center gap-6 mb-8 pb-6 border-b border-[var(--border)]">
         {team.logo ? (
-          <img
+          <Image
             src={team.logo}
             alt={`${team.school} logo`}
+            width={80}
+            height={80}
             className="w-20 h-20 object-contain"
+            unoptimized
           />
         ) : (
           <div className="w-20 h-20 rounded-full bg-[var(--bg-surface-alt)] flex items-center justify-center">

@@ -33,7 +33,7 @@ export default function RootLayout({
       >
         <PaperTexture />
         <Sidebar />
-        <main className="ml-60 min-h-screen transition-all duration-200">
+        <main className="ml-0 pt-14 md:pt-0 md:ml-60 min-h-screen transition-all duration-200">
           {children}
         </main>
       </body>

@@ -1,5 +1,6 @@
 'use client'
 
+import Image from 'next/image'
 import { ScheduleGame } from '@/lib/types/database'
 
 interface ScheduleViewProps {
@@ -34,10 +35,13 @@ function GameRow({ game, teamColor }: { game: ScheduleGame; teamColor: string | 
       {/* Opponent */}
       <div className="flex-1 flex items-center gap-3">
         {game.opponent_logo ? (
-          <img
+          <Image
             src={game.opponent_logo}
             alt={game.opponent ?? ''}
+            width={32}
+            height={32}
             className="w-8 h-8 object-contain"
+            unoptimized
           />
         ) : (
           <div

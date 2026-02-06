@@ -146,17 +146,6 @@ const PLOT_OPTIONS: PlotOption[] = [
   },
 ]
 
-interface DataPoint {
-  id: number
-  name: string
-  x: number
-  y: number
-  color: string
-  logo: string | null
-  conference: string | null
-  compositeScore?: number
-}
-
 export function ScatterPlotClient({ teams, metrics, styles, havoc, tempo, records, specialTeams, currentSeason }: ScatterPlotClientProps) {
   const [viewMode, setViewMode] = useState<'scatter' | 'rankings'>('scatter')
   const [activePlot, setActivePlot] = useState<MetricKey>('epa_vs_success')

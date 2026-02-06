@@ -73,7 +73,6 @@ export const getTopMovers = cache(async (season: number): Promise<{ risers: Move
     .order('epa_delta', { ascending: false })
 
   if (trajectoryError) {
-    console.error('Error fetching trajectory:', trajectoryError)
     return { risers: [], fallers: [] }
   }
 
@@ -129,7 +128,6 @@ export const getRecentGames = cache(async (season: number, limit: number = 5): P
     .limit(limit * 3) // Fetch extra to filter for FBS
 
   if (gamesError) {
-    console.error('Error fetching games:', gamesError)
     return []
   }
 
