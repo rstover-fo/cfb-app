@@ -109,7 +109,7 @@ export interface LineScores {
 }
 
 // ---------------------------------------------------------------------------
-// Box score types — from core_staging schema, not public views
+// Box score types — from core schema, not public views
 // ---------------------------------------------------------------------------
 
 export interface GameTeamStat {
@@ -129,7 +129,7 @@ export interface GameBoxScore {
 }
 
 // ---------------------------------------------------------------------------
-// Player leader types — from core_staging schema, not public views
+// Player leader types — from core schema, not public views
 // ---------------------------------------------------------------------------
 
 export interface PlayerStat {
@@ -148,4 +148,51 @@ export interface TeamLeaders {
 export interface PlayerLeaders {
   away: TeamLeaders
   home: TeamLeaders
+}
+
+// ---------------------------------------------------------------------------
+// Game detail types — from core schema drives and plays tables
+// ---------------------------------------------------------------------------
+
+export interface GameDrive {
+  drive_number: number
+  offense: string
+  defense: string
+  start_period: number
+  start_yards_to_goal: number
+  end_yards_to_goal: number
+  plays: number
+  yards: number
+  drive_result: string
+  scoring: boolean
+  start_offense_score: number
+  end_offense_score: number
+  start_defense_score: number
+  end_defense_score: number
+  start_time_minutes: number
+  start_time_seconds: number
+  elapsed_minutes: number
+  elapsed_seconds: number
+  is_home_offense: boolean
+}
+
+export interface GamePlay {
+  game_id: number
+  drive_number: number
+  play_number: number
+  offense: string
+  defense: string
+  period: number
+  clock_minutes: number | null
+  clock_seconds: number | null
+  down: number | null
+  distance: number | null
+  yards_to_goal: number | null
+  yards_gained: number | null
+  play_type: string | null
+  play_text: string | null
+  ppa: number | null
+  scoring: boolean
+  offense_score: number
+  defense_score: number
 }

@@ -1,10 +1,14 @@
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
-import { getGameById, getGameBoxScore, getGamePlayerLeaders, getGameLineScores } from '@/lib/queries/games'
+import { getGameById, getGameBoxScore, getGamePlayerLeaders, getGameLineScores, getGameDrives, getGamePlays } from '@/lib/queries/games'
 import { GameScoreHeader } from '@/components/game/GameScoreHeader'
 import { QuarterScores } from '@/components/game/QuarterScores'
 import { GameBoxScore } from '@/components/game/GameBoxScore'
 import { PlayerLeaders } from '@/components/game/PlayerLeaders'
+import { ScoringTimeline } from '@/components/game/ScoringTimeline'
+import { DriveChart } from '@/components/game/DriveChart'
+import { PlayByPlay } from '@/components/game/PlayByPlay'
+import { GameSituationalSplits } from '@/components/game/GameSituationalSplits'
 
 interface GamePageProps {
   params: Promise<{ id: string }>
@@ -18,11 +22,13 @@ export default async function GamePage({ params }: GamePageProps) {
     notFound()
   }
 
-  const [game, boxScore, playerLeaders, lineScores] = await Promise.all([
+  const [game, boxScore, playerLeaders, lineScores, drives, plays] = await Promise.all([
     getGameById(gameId),
     getGameBoxScore(gameId),
     getGamePlayerLeaders(gameId),
     getGameLineScores(gameId),
+    getGameDrives(gameId),
+    getGamePlays(gameId),
   ])
 
   if (!game) {
@@ -70,6 +76,26 @@ export default async function GamePage({ params }: GamePageProps) {
           </div>
         )}
 
+        {/* Scoring Timeline */}
+        {drives.length > 0 && lineScores && (
+          <div className="mt-8">
+            <h2 className="text-lg font-semibold text-[var(--text-primary)] mb-4">
+              Scoring Timeline
+            </h2>
+            <ScoringTimeline drives={drives} lineScores={lineScores} game={game} />
+          </div>
+        )}
+
+        {/* Drive Chart */}
+        {drives.length > 0 && (
+          <div className="mt-8">
+            <h2 className="text-lg font-semibold text-[var(--text-primary)] mb-4">
+              Drive Chart
+            </h2>
+            <DriveChart drives={drives} game={game} />
+          </div>
+        )}
+
         {/* Box Score */}
         <div className="mt-8">
           <h2 className="text-lg font-semibold text-[var(--text-primary)] mb-4">
@@ -97,6 +123,26 @@ export default async function GamePage({ params }: GamePageProps) {
             </p>
           )}
         </div>
+
+        {/* Play-by-Play */}
+        {drives.length > 0 && plays.length > 0 && (
+          <div className="mt-8">
+            <h2 className="text-lg font-semibold text-[var(--text-primary)] mb-4">
+              Play-by-Play
+            </h2>
+            <PlayByPlay drives={drives} plays={plays} game={game} />
+          </div>
+        )}
+
+        {/* Situational Analysis */}
+        {plays.length > 0 && (
+          <div className="mt-8">
+            <h2 className="text-lg font-semibold text-[var(--text-primary)] mb-4">
+              Situational Analysis
+            </h2>
+            <GameSituationalSplits plays={plays} drives={drives} game={game} />
+          </div>
+        )}
       </div>
     </main>
   )
