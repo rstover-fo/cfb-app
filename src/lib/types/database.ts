@@ -80,6 +80,35 @@ export interface RosterPlayerWithStats extends RosterPlayer {
 }
 
 // ---------------------------------------------------------------------------
+// Rankings types — from core schema
+// ---------------------------------------------------------------------------
+
+export interface PollRanking {
+  rank: number
+  school: string
+  conference: string
+  first_place_votes: number
+  points: number
+  season: number
+  week: number
+  poll: string
+}
+
+export interface EnrichedPollRanking extends PollRanking {
+  logo: string | null
+  color: string | null
+  wins: number
+  losses: number
+  prev_rank: number | null
+  movement: number | null
+}
+
+export interface LineScores {
+  home: number[]
+  away: number[]
+}
+
+// ---------------------------------------------------------------------------
 // Box score types — from core_staging schema, not public views
 // ---------------------------------------------------------------------------
 

@@ -1,7 +1,8 @@
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
-import { getGameById, getGameBoxScore, getGamePlayerLeaders } from '@/lib/queries/games'
+import { getGameById, getGameBoxScore, getGamePlayerLeaders, getGameLineScores } from '@/lib/queries/games'
 import { GameScoreHeader } from '@/components/game/GameScoreHeader'
+import { QuarterScores } from '@/components/game/QuarterScores'
 import { GameBoxScore } from '@/components/game/GameBoxScore'
 import { PlayerLeaders } from '@/components/game/PlayerLeaders'
 
@@ -17,10 +18,11 @@ export default async function GamePage({ params }: GamePageProps) {
     notFound()
   }
 
-  const [game, boxScore, playerLeaders] = await Promise.all([
+  const [game, boxScore, playerLeaders, lineScores] = await Promise.all([
     getGameById(gameId),
     getGameBoxScore(gameId),
     getGamePlayerLeaders(gameId),
+    getGameLineScores(gameId),
   ])
 
   if (!game) {
@@ -60,6 +62,13 @@ export default async function GamePage({ params }: GamePageProps) {
 
         {/* Score Header */}
         <GameScoreHeader game={game} />
+
+        {/* Quarter Scores */}
+        {lineScores && (
+          <div className="mt-6">
+            <QuarterScores lineScores={lineScores} game={game} />
+          </div>
+        )}
 
         {/* Box Score */}
         <div className="mt-8">

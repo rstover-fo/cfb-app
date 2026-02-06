@@ -12,6 +12,7 @@ import {
   MagnifyingGlass,
   ChartScatter,
   CalendarBlank,
+  Trophy,
   List,
   X,
 } from '@phosphor-icons/react'
@@ -21,6 +22,7 @@ const navItems = [
   { href: '/', label: 'Home', icon: House },
   { href: '/teams', label: 'Teams', icon: Football },
   { href: '/games', label: 'Games', icon: CalendarBlank },
+  { href: '/rankings', label: 'Rankings', icon: Trophy },
   { href: '/analytics', label: 'Analytics', icon: ChartScatter },
 ]
 

@@ -61,13 +61,21 @@ export async function StandingsWidget() {
       {/* Header */}
       <div className="flex items-center justify-between mb-4 pb-3 border-b border-[var(--border)]">
         <h2 className="text-sm font-medium text-[var(--text-muted)]">Composite Rankings</h2>
-        <Link
-          href="/analytics"
-          className="flex items-center gap-1 text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
-        >
-          View All
-          <ArrowRight size={12} weight="thin" />
-        </Link>
+        <div className="flex items-center gap-3">
+          <Link
+            href="/rankings"
+            className="text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
+          >
+            AP Poll
+          </Link>
+          <Link
+            href="/analytics"
+            className="flex items-center gap-1 text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
+          >
+            View All
+            <ArrowRight size={12} weight="thin" />
+          </Link>
+        </div>
       </div>
 
       {hasData ? (
