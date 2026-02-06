@@ -18,6 +18,8 @@ const YARD_LABELS = ['Own 20', 'Own 40', '50', 'Opp 40', 'Opp 20']
 const OUTCOME_COLOR_MAP: Record<string, string> = {
   touchdown: 'var(--color-positive)',
   field_goal: 'var(--color-field-goal)',
+  missed_fg: 'var(--color-field-goal)',
+  safety: 'var(--color-negative)',
   punt: 'var(--color-neutral)',
   turnover: 'var(--color-negative)',
   downs: 'var(--color-run)',
@@ -27,6 +29,8 @@ const OUTCOME_COLOR_MAP: Record<string, string> = {
 const RESULT_LABELS: Record<string, string> = {
   touchdown: 'TD',
   field_goal: 'FG',
+  missed_fg: 'MISS',
+  safety: 'SAF',
   punt: 'PUNT',
   turnover: 'TO',
   downs: 'DOWNS',
@@ -39,12 +43,15 @@ const RESULT_LABELS: Record<string, string> = {
 
 function mapDriveResult(driveResult: string): string {
   const r = driveResult.toUpperCase()
-  if (r === 'TD' || r.includes('TOUCHDOWN')) return 'touchdown'
-  if (r === 'FG' || r.includes('FIELD GOAL')) return 'field_goal'
-  if (r === 'PUNT') return 'punt'
+  if (r.includes('TD') || r.includes('TOUCHDOWN') || r.includes('TOUCH')) return 'touchdown'
+  if (r === 'MISSED FG' || r === 'FG MISSED' || r === 'BLOCKED FG') return 'missed_fg'
+  if (r === 'FG' || r.includes('FIELD GOAL') || r === 'FG GOOD' || r === 'MADE FG') return 'field_goal'
+  if (r === 'SF' || r.includes('SAFETY')) return 'safety'
+  if (r === 'PUNT' || r === 'BLOCKED PUNT') return 'punt'
   if (r === 'INT' || r === 'FUMBLE' || r.includes('INTERCEPT') || r.includes('FUMBLE')) return 'turnover'
-  if (r === 'DOWNS' || r.includes('DOWNS')) return 'downs'
-  if (r.includes('END OF HALF') || r.includes('END OF GAME') || r.includes('HALF')) return 'end_of_half'
+  if (r.includes('DOWNS')) return 'downs'
+  if (r.includes('END OF') || r.includes('HALF') || r.includes('4TH QUARTER')) return 'end_of_half'
+  if (r === 'KICKOFF') return 'end_of_half'
   return 'uncategorized'
 }
 

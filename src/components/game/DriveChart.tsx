@@ -24,9 +24,6 @@ export function DriveChart({ drives, game }: DriveChartProps) {
 
   return (
     <section>
-      <h3 className="font-headline text-lg mb-3 text-[var(--text-primary)]">
-        Drive Chart
-      </h3>
       <GameTabSelector
         tabs={DRIVE_CHART_TABS}
         activeTab={activeTab}

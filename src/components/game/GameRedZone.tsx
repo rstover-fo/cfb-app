@@ -22,12 +22,15 @@ interface RedZoneStats {
 /** Normalize drive result to a canonical category (case-insensitive, handles variations) */
 function mapDriveResult(driveResult: string): string {
   const r = driveResult.toUpperCase()
-  if (r === 'TD' || r.includes('TOUCHDOWN')) return 'touchdown'
-  if (r === 'FG' || r.includes('FIELD GOAL')) return 'field_goal'
-  if (r === 'PUNT') return 'punt'
+  if (r.includes('TD') || r.includes('TOUCHDOWN') || r.includes('TOUCH')) return 'touchdown'
+  if (r === 'MISSED FG' || r === 'FG MISSED' || r === 'BLOCKED FG') return 'missed_fg'
+  if (r === 'FG' || r.includes('FIELD GOAL') || r === 'FG GOOD' || r === 'MADE FG') return 'field_goal'
+  if (r === 'SF' || r.includes('SAFETY')) return 'safety'
+  if (r === 'PUNT' || r === 'BLOCKED PUNT') return 'punt'
   if (r === 'INT' || r === 'FUMBLE' || r.includes('INTERCEPT') || r.includes('FUMBLE')) return 'turnover'
-  if (r === 'DOWNS' || r.includes('DOWNS')) return 'downs'
-  if (r.includes('END OF HALF') || r.includes('END OF GAME') || r.includes('HALF')) return 'end_of_half'
+  if (r.includes('DOWNS')) return 'downs'
+  if (r.includes('END OF') || r.includes('HALF') || r.includes('4TH QUARTER')) return 'end_of_half'
+  if (r === 'KICKOFF') return 'end_of_half'
   return 'uncategorized'
 }
 
