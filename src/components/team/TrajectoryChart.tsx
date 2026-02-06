@@ -1,7 +1,8 @@
 'use client'
 
-import { useState, useRef, useMemo } from 'react'
+import { useState, useRef, useMemo, useCallback, useEffect } from 'react'
 import { CaretDown } from '@phosphor-icons/react'
+import rough from 'roughjs'
 import { TeamSeasonTrajectory, TrajectoryAverages } from '@/lib/types/database'
 
 interface TrajectoryChartProps {
@@ -95,37 +96,23 @@ const METRICS: MetricConfig[] = [
     label: 'EPA Δ',
     definition: 'Year-over-year change in EPA/play',
     getValue: t => t.epa_delta,
-    getConfValue: () => null, // No average for delta
+    getConfValue: () => null,
     getFbsValue: () => null,
     format: v => (v >= 0 ? '+' : '') + v.toFixed(3),
   },
 ]
 
-// Generate smooth curve path using cubic bezier
-function generateSmoothPath(points: { x: number; y: number }[]): string {
-  if (points.length < 2) return ''
-  if (points.length === 2) {
-    return `M ${points[0].x} ${points[0].y} L ${points[1].x} ${points[1].y}`
-  }
+const WIDTH = 700
+const HEIGHT = 350
+const PADDING = { top: 30, right: 30, bottom: 50, left: 60 }
+const CHART_WIDTH = WIDTH - PADDING.left - PADDING.right
+const CHART_HEIGHT = HEIGHT - PADDING.top - PADDING.bottom
 
-  let path = `M ${points[0].x} ${points[0].y}`
-
-  for (let i = 0; i < points.length - 1; i++) {
-    const p0 = points[Math.max(0, i - 1)]
-    const p1 = points[i]
-    const p2 = points[i + 1]
-    const p3 = points[Math.min(points.length - 1, i + 2)]
-
-    const tension = 0.3
-    const cp1x = p1.x + (p2.x - p0.x) * tension
-    const cp1y = p1.y + (p2.y - p0.y) * tension
-    const cp2x = p2.x - (p3.x - p1.x) * tension
-    const cp2y = p2.y - (p3.y - p1.y) * tension
-
-    path += ` C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${p2.x} ${p2.y}`
-  }
-
-  return path
+function resolveColor(cssVar: string): string {
+  if (typeof document === 'undefined') return '#999'
+  const match = cssVar.match(/var\((.+)\)/)
+  if (!match) return cssVar
+  return getComputedStyle(document.documentElement).getPropertyValue(match[1]).trim() || '#999'
 }
 
 export function TrajectoryChart({ trajectory, averages, conference }: TrajectoryChartProps) {
@@ -133,11 +120,11 @@ export function TrajectoryChart({ trajectory, averages, conference }: Trajectory
   const [dropdownOpen, setDropdownOpen] = useState(false)
   const [hoveredSeason, setHoveredSeason] = useState<number | null>(null)
   const [visibleLines, setVisibleLines] = useState({ team: true, conf: true, fbs: true })
-  const chartRef = useRef<SVGSVGElement>(null)
+  const svgRef = useRef<SVGSVGElement>(null)
+  const roughGroupRef = useRef<SVGGElement>(null)
 
   const metric = METRICS.find(m => m.key === selectedMetric)!
 
-  // Process team data
   const teamData = useMemo(() => {
     return trajectory
       .map(t => ({ season: t.season, value: metric.getValue(t) }))
@@ -145,7 +132,6 @@ export function TrajectoryChart({ trajectory, averages, conference }: Trajectory
       .sort((a, b) => a.season - b.season)
   }, [trajectory, metric])
 
-  // Process conference averages
   const confData = useMemo(() => {
     if (!averages) return []
     return averages
@@ -154,7 +140,6 @@ export function TrajectoryChart({ trajectory, averages, conference }: Trajectory
       .sort((a, b) => a.season - b.season)
   }, [averages, metric])
 
-  // Process FBS averages
   const fbsData = useMemo(() => {
     if (!averages) return []
     return averages
@@ -163,9 +148,171 @@ export function TrajectoryChart({ trajectory, averages, conference }: Trajectory
       .sort((a, b) => a.season - b.season)
   }, [averages, metric])
 
-  if (teamData.length === 0) {
+  // Chart geometry: scales, points, ticks
+  const chartGeometry = useMemo(() => {
+    if (teamData.length === 0) return null
+
+    const allValues = [
+      ...(visibleLines.team ? teamData.map(d => d.value) : []),
+      ...(visibleLines.conf ? confData.map(d => d.value) : []),
+      ...(visibleLines.fbs ? fbsData.map(d => d.value) : []),
+    ]
+    const scaleValues = allValues.length > 0 ? allValues : teamData.map(d => d.value)
+
+    const minVal = Math.min(...scaleValues)
+    const maxVal = Math.max(...scaleValues)
+    const valueRange = maxVal - minVal || 1
+    const valuePadding = valueRange * 0.1
+
+    const seasons = teamData.map(d => d.season)
+
+    const getX = (season: number) => {
+      const idx = seasons.indexOf(season)
+      return PADDING.left + (idx / (seasons.length - 1 || 1)) * CHART_WIDTH
+    }
+    const getY = (val: number) => {
+      const normalized = (val - (minVal - valuePadding)) / (valueRange + valuePadding * 2)
+      return metric.invert
+        ? PADDING.top + normalized * CHART_HEIGHT
+        : PADDING.top + (1 - normalized) * CHART_HEIGHT
+    }
+
+    const teamPoints = teamData.map(d => ({
+      x: getX(d.season), y: getY(d.value), season: d.season, value: d.value,
+    }))
+    const confPoints = confData
+      .filter(d => seasons.includes(d.season))
+      .map(d => ({ x: getX(d.season), y: getY(d.value) }))
+    const fbsPoints = fbsData
+      .filter(d => seasons.includes(d.season))
+      .map(d => ({ x: getX(d.season), y: getY(d.value) }))
+
+    const yTicks = [0, 0.25, 0.5, 0.75, 1].map(pct => {
+      const val = metric.invert
+        ? minVal - valuePadding + pct * (valueRange + valuePadding * 2)
+        : maxVal + valuePadding - pct * (valueRange + valuePadding * 2)
+      return { pct, val }
+    })
+
+    return { seasons, getX, teamPoints, confPoints, fbsPoints, yTicks }
+  }, [teamData, confData, fbsData, visibleLines, metric])
+
+  // Draw roughjs chart elements
+  const drawChart = useCallback(() => {
+    const svg = svgRef.current
+    const group = roughGroupRef.current
+    if (!svg || !group || !chartGeometry) return
+
+    while (group.firstChild) group.removeChild(group.firstChild)
+
+    const rc = rough.svg(svg)
+    const runColor = resolveColor('var(--color-run)')
+    const mutedColor = resolveColor('var(--text-muted)')
+    const surfaceColor = resolveColor('var(--bg-surface)')
+
+    const { teamPoints, confPoints, fbsPoints } = chartGeometry
+
+    // Area fill under team line
+    if (visibleLines.team && teamPoints.length >= 2) {
+      const areaCoords: [number, number][] = [
+        ...teamPoints.map(p => [p.x, p.y] as [number, number]),
+        [teamPoints[teamPoints.length - 1].x, PADDING.top + CHART_HEIGHT],
+        [teamPoints[0].x, PADDING.top + CHART_HEIGHT],
+      ]
+      const area = rc.polygon(areaCoords, {
+        fill: runColor,
+        fillStyle: 'solid',
+        stroke: 'none',
+        strokeWidth: 0,
+        roughness: 0,
+      })
+      area.style.opacity = '0.1'
+      group.appendChild(area)
+    }
+
+    // FBS average line (lightest)
+    if (visibleLines.fbs && fbsPoints.length >= 2) {
+      const line = rc.linearPath(
+        fbsPoints.map(p => [p.x, p.y] as [number, number]),
+        { stroke: mutedColor, strokeWidth: 1.5, roughness: 0.5, bowing: 0.2 },
+      )
+      line.style.opacity = '0.45'
+      group.appendChild(line)
+    }
+
+    // Conference average line (medium)
+    if (visibleLines.conf && confPoints.length >= 2) {
+      const line = rc.linearPath(
+        confPoints.map(p => [p.x, p.y] as [number, number]),
+        { stroke: mutedColor, strokeWidth: 2, roughness: 0.7, bowing: 0.3 },
+      )
+      line.style.opacity = '0.65'
+      group.appendChild(line)
+    }
+
+    // Team line (boldest)
+    if (visibleLines.team && teamPoints.length >= 2) {
+      const line = rc.linearPath(
+        teamPoints.map(p => [p.x, p.y] as [number, number]),
+        { stroke: runColor, strokeWidth: 3, roughness: 1.0, bowing: 0.4 },
+      )
+      group.appendChild(line)
+    }
+
+    // Data dots — team
+    if (visibleLines.team) {
+      for (const p of teamPoints) {
+        group.appendChild(rc.circle(p.x, p.y, 10, {
+          fill: surfaceColor, fillStyle: 'solid',
+          stroke: runColor, strokeWidth: 2, roughness: 0.5,
+        }))
+      }
+    }
+
+    // Data dots — conference
+    if (visibleLines.conf) {
+      for (const p of confPoints) {
+        const dot = rc.circle(p.x, p.y, 6, {
+          fill: surfaceColor, fillStyle: 'solid',
+          stroke: mutedColor, strokeWidth: 1.5, roughness: 0.5,
+        })
+        dot.style.opacity = '0.7'
+        group.appendChild(dot)
+      }
+    }
+
+    // Data dots — FBS
+    if (visibleLines.fbs) {
+      for (const p of fbsPoints) {
+        const dot = rc.circle(p.x, p.y, 5, {
+          fill: surfaceColor, fillStyle: 'solid',
+          stroke: mutedColor, strokeWidth: 1, roughness: 0.5,
+        })
+        dot.style.opacity = '0.5'
+        group.appendChild(dot)
+      }
+    }
+  }, [chartGeometry, visibleLines])
+
+  useEffect(() => {
+    drawChart()
+  }, [drawChart])
+
+  // Redraw on theme change
+  useEffect(() => {
+    const observer = new MutationObserver(() => {
+      requestAnimationFrame(drawChart)
+    })
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['class', 'data-theme'],
+    })
+    return () => observer.disconnect()
+  }, [drawChart])
+
+  if (!chartGeometry || teamData.length === 0) {
     return (
-      <div className="card p-6">
+      <div className="bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg p-4">
         <p className="text-[var(--text-muted)] text-center py-8">
           Historical data not available for this team.
         </p>
@@ -173,60 +320,8 @@ export function TrajectoryChart({ trajectory, averages, conference }: Trajectory
     )
   }
 
-  // Chart dimensions
-  const padding = { top: 30, right: 30, bottom: 50, left: 60 }
-  const width = 700
-  const height = 350
-  const chartWidth = width - padding.left - padding.right
-  const chartHeight = height - padding.top - padding.bottom
+  const { seasons, getX, yTicks } = chartGeometry
 
-  // Calculate value range across all visible datasets
-  const allValues = [
-    ...(visibleLines.team ? teamData.map(d => d.value) : []),
-    ...(visibleLines.conf ? confData.map(d => d.value) : []),
-    ...(visibleLines.fbs ? fbsData.map(d => d.value) : []),
-  ]
-  const minVal = Math.min(...allValues)
-  const maxVal = Math.max(...allValues)
-  const valueRange = maxVal - minVal || 1
-  const valuePadding = valueRange * 0.1
-
-  // Scale functions
-  const seasons = teamData.map(d => d.season)
-  const getX = (season: number) => {
-    const idx = seasons.indexOf(season)
-    return padding.left + (idx / (seasons.length - 1 || 1)) * chartWidth
-  }
-  const getY = (val: number) => {
-    const normalized = (val - (minVal - valuePadding)) / (valueRange + valuePadding * 2)
-    return metric.invert
-      ? padding.top + normalized * chartHeight
-      : padding.top + (1 - normalized) * chartHeight
-  }
-
-  // Generate paths
-  const teamPoints = teamData.map(d => ({ x: getX(d.season), y: getY(d.value) }))
-  const confPoints = confData.filter(d => seasons.includes(d.season)).map(d => ({ x: getX(d.season), y: getY(d.value) }))
-  const fbsPoints = fbsData.filter(d => seasons.includes(d.season)).map(d => ({ x: getX(d.season), y: getY(d.value) }))
-
-  const teamPath = generateSmoothPath(teamPoints)
-  const confPath = generateSmoothPath(confPoints)
-  const fbsPath = generateSmoothPath(fbsPoints)
-
-  // Gradient area path (team line to bottom)
-  const gradientPath = teamPath
-    ? `${teamPath} L ${teamPoints[teamPoints.length - 1]?.x} ${padding.top + chartHeight} L ${teamPoints[0]?.x} ${padding.top + chartHeight} Z`
-    : ''
-
-  // Y-axis tick values
-  const yTicks = [0, 0.25, 0.5, 0.75, 1].map(pct => {
-    const val = metric.invert
-      ? minVal - valuePadding + pct * (valueRange + valuePadding * 2)
-      : maxVal + valuePadding - pct * (valueRange + valuePadding * 2)
-    return { pct, val }
-  })
-
-  // Get values for hovered season
   const getHoverData = (season: number) => {
     const teamVal = teamData.find(d => d.season === season)?.value
     const confVal = confData.find(d => d.season === season)?.value
@@ -239,7 +334,7 @@ export function TrajectoryChart({ trajectory, averages, conference }: Trajectory
   }
 
   return (
-    <div className="card p-6">
+    <div className="bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg p-4">
       {/* Metric Dropdown */}
       <div className="relative mb-2">
         <button
@@ -270,32 +365,23 @@ export function TrajectoryChart({ trajectory, averages, conference }: Trajectory
         )}
       </div>
 
-      {/* Metric Definition */}
-      <p className="text-xs text-[var(--text-muted)] mb-4">{metric.definition}</p>
+      <p className="text-xs text-[var(--text-muted)] mb-3">{metric.definition}</p>
 
       {/* Chart */}
       <svg
-        ref={chartRef}
-        viewBox={`0 0 ${width} ${height}`}
+        ref={svgRef}
+        viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
         className="w-full h-auto"
         onMouseLeave={() => setHoveredSeason(null)}
       >
-        <defs>
-          {/* Gradient for team line fill */}
-          <linearGradient id="teamGradient" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="var(--color-run)" stopOpacity="0.3" />
-            <stop offset="100%" stopColor="var(--color-run)" stopOpacity="0" />
-          </linearGradient>
-        </defs>
-
         {/* Horizontal grid lines */}
         {yTicks.map(({ pct }) => (
           <line
             key={pct}
-            x1={padding.left}
-            y1={padding.top + pct * chartHeight}
-            x2={width - padding.right}
-            y2={padding.top + pct * chartHeight}
+            x1={PADDING.left}
+            y1={PADDING.top + pct * CHART_HEIGHT}
+            x2={WIDTH - PADDING.right}
+            y2={PADDING.top + pct * CHART_HEIGHT}
             stroke="var(--border)"
             strokeWidth={1}
             opacity={0.4}
@@ -306,8 +392,8 @@ export function TrajectoryChart({ trajectory, averages, conference }: Trajectory
         {yTicks.map(({ pct, val }) => (
           <text
             key={pct}
-            x={padding.left - 10}
-            y={padding.top + pct * chartHeight}
+            x={PADDING.left - 10}
+            y={PADDING.top + pct * CHART_HEIGHT}
             textAnchor="end"
             dominantBaseline="middle"
             className="fill-[var(--text-muted)] text-xs"
@@ -316,71 +402,33 @@ export function TrajectoryChart({ trajectory, averages, conference }: Trajectory
           </text>
         ))}
 
-        {/* X-axis labels (seasons) */}
-        {seasons.map((season) => (
-          <text
-            key={season}
-            x={getX(season)}
-            y={height - 15}
-            textAnchor="middle"
-            className="fill-[var(--text-muted)] text-xs"
-          >
-            {season}
-          </text>
-        ))}
+        {/* X-axis labels — show every Nth to prevent overlap */}
+        {(() => {
+          const step = seasons.length > 16 ? 3 : seasons.length > 10 ? 2 : 1
+          return seasons.filter((_, i) => i % step === 0 || i === seasons.length - 1).map(season => (
+            <text
+              key={season}
+              x={getX(season)}
+              y={HEIGHT - 15}
+              textAnchor="middle"
+              className="fill-[var(--text-muted)] text-xs"
+            >
+              {season}
+            </text>
+          ))
+        })()}
 
-        {/* Gradient fill under team line */}
-        {visibleLines.team && gradientPath && (
-          <path
-            d={gradientPath}
-            fill="url(#teamGradient)"
-          />
-        )}
-
-        {/* FBS average line (dotted, lightest) */}
-        {visibleLines.fbs && fbsPath && (
-          <path
-            d={fbsPath}
-            fill="none"
-            stroke="var(--text-muted)"
-            strokeWidth={1.5}
-            strokeDasharray="3 3"
-            opacity={0.5}
-          />
-        )}
-
-        {/* Conference average line (dashed) */}
-        {visibleLines.conf && confPath && (
-          <path
-            d={confPath}
-            fill="none"
-            stroke="var(--text-muted)"
-            strokeWidth={2}
-            strokeDasharray="6 4"
-            opacity={0.7}
-          />
-        )}
-
-        {/* Team line (solid, primary) */}
-        {visibleLines.team && teamPath && (
-          <path
-            d={teamPath}
-            fill="none"
-            stroke="var(--color-run)"
-            strokeWidth={3}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        )}
+        {/* Rough-drawn chart elements */}
+        <g ref={roughGroupRef} />
 
         {/* Interactive hover areas */}
-        {seasons.map((season) => (
+        {seasons.map(season => (
           <rect
             key={season}
-            x={getX(season) - chartWidth / seasons.length / 2}
-            y={padding.top}
-            width={chartWidth / seasons.length}
-            height={chartHeight}
+            x={getX(season) - CHART_WIDTH / seasons.length / 2}
+            y={PADDING.top}
+            width={CHART_WIDTH / seasons.length}
+            height={CHART_HEIGHT}
             fill="transparent"
             onMouseEnter={() => setHoveredSeason(season)}
           />
@@ -390,64 +438,20 @@ export function TrajectoryChart({ trajectory, averages, conference }: Trajectory
         {hoveredSeason && (
           <line
             x1={getX(hoveredSeason)}
-            y1={padding.top}
+            y1={PADDING.top}
             x2={getX(hoveredSeason)}
-            y2={padding.top + chartHeight}
+            y2={PADDING.top + CHART_HEIGHT}
             stroke="var(--text-muted)"
             strokeWidth={1}
             strokeDasharray="4 2"
             opacity={0.6}
           />
         )}
-
-        {/* Data points - Team */}
-        {visibleLines.team && teamData.map((d) => (
-          <circle
-            key={`team-${d.season}`}
-            cx={getX(d.season)}
-            cy={getY(d.value)}
-            r={hoveredSeason === d.season ? 7 : 5}
-            fill={hoveredSeason === d.season ? 'var(--color-run)' : 'var(--bg-surface)'}
-            stroke="var(--color-run)"
-            strokeWidth={2}
-            className="transition-all duration-150"
-          />
-        ))}
-
-        {/* Data points - Conference */}
-        {visibleLines.conf && confData.filter(d => seasons.includes(d.season)).map((d) => (
-          <circle
-            key={`conf-${d.season}`}
-            cx={getX(d.season)}
-            cy={getY(d.value)}
-            r={hoveredSeason === d.season ? 5 : 3}
-            fill={hoveredSeason === d.season ? 'var(--text-muted)' : 'var(--bg-surface)'}
-            stroke="var(--text-muted)"
-            strokeWidth={1.5}
-            opacity={0.7}
-            className="transition-all duration-150"
-          />
-        ))}
-
-        {/* Data points - FBS */}
-        {visibleLines.fbs && fbsData.filter(d => seasons.includes(d.season)).map((d) => (
-          <circle
-            key={`fbs-${d.season}`}
-            cx={getX(d.season)}
-            cy={getY(d.value)}
-            r={hoveredSeason === d.season ? 4 : 2.5}
-            fill={hoveredSeason === d.season ? 'var(--text-muted)' : 'var(--bg-surface)'}
-            stroke="var(--text-muted)"
-            strokeWidth={1}
-            opacity={0.5}
-            className="transition-all duration-150"
-          />
-        ))}
       </svg>
 
       {/* Tooltip */}
       {hoveredSeason && (
-        <div className="mt-2 p-3 bg-[var(--bg-surface-alt)] border border-[var(--border)] rounded text-sm">
+        <div className="mt-2 p-3 bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg text-sm">
           <p className="font-headline text-base text-[var(--text-primary)] mb-2">{hoveredSeason}</p>
           {(() => {
             const { teamVal, confVal, fbsVal } = getHoverData(hoveredSeason)
@@ -481,7 +485,7 @@ export function TrajectoryChart({ trajectory, averages, conference }: Trajectory
       )}
 
       {/* Legend */}
-      <div className="flex items-center justify-center gap-6 mt-4 pt-3 border-t border-[var(--border)]">
+      <div className="flex items-center justify-center gap-6 mt-3 pt-2 border-t border-[var(--border)]">
         <button
           onClick={() => toggleLine('team')}
           className={`flex items-center gap-2 text-xs transition-opacity ${visibleLines.team ? '' : 'opacity-40'}`}

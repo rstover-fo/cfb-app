@@ -2,9 +2,11 @@ import { createClient } from '@/lib/supabase/server'
 import { notFound } from 'next/navigation'
 import { Team, TeamSeasonEpa, TeamStyleProfile, TeamSeasonTrajectory, DrivePattern, DownDistanceSplit, TrajectoryAverages, RedZoneSplit, FieldPositionSplit, HomeAwaySplit, ConferenceSplit, RosterPlayer, PlayerSeasonStat, Game, ScheduleGame } from '@/lib/types/database'
 import { TeamPageClient } from '@/components/team/TeamPageClient'
+import { CURRENT_SEASON } from '@/lib/queries/constants'
 
 interface TeamPageProps {
   params: Promise<{ slug: string }>
+  searchParams: Promise<{ season?: string }>
 }
 
 async function getTeamBySlug(supabase: ReturnType<typeof createClient> extends Promise<infer T> ? T : never, slug: string): Promise<Team | null> {
@@ -16,8 +18,9 @@ async function getTeamBySlug(supabase: ReturnType<typeof createClient> extends P
   }) || null
 }
 
-export default async function TeamPage({ params }: TeamPageProps) {
+export default async function TeamPage({ params, searchParams }: TeamPageProps) {
   const { slug } = await params
+  const { season: seasonParam } = await searchParams
   const supabase = await createClient()
 
   const team = await getTeamBySlug(supabase, slug)
@@ -26,7 +29,10 @@ export default async function TeamPage({ params }: TeamPageProps) {
     notFound()
   }
 
-  const currentSeason = 2025
+  // Get available seasons for the selector
+  const { data: seasonsData } = await supabase.rpc('get_available_seasons')
+  const seasons = (seasonsData as number[]) ?? [CURRENT_SEASON]
+  const currentSeason = seasonParam ? parseInt(seasonParam, 10) : Math.max(...seasons)
 
   const [metricsResult, styleResult, trajectoryResult, drivesResult, defenseDrivesResult] = await Promise.all([
     supabase
@@ -162,6 +168,7 @@ export default async function TeamPage({ params }: TeamPageProps) {
     <TeamPageClient
       team={team}
       currentSeason={currentSeason}
+      availableSeasons={seasons}
       metrics={metrics}
       style={style}
       trajectory={trajectory}

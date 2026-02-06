@@ -1,9 +1,21 @@
 import { createClient } from '@/lib/supabase/server'
 import { TeamList } from '@/components/TeamList'
+import { SeasonSelector } from '@/components/SeasonSelector'
 import { Team } from '@/lib/types/database'
+import { CURRENT_SEASON } from '@/lib/queries/constants'
 
-export default async function TeamsPage() {
+interface TeamsPageProps {
+  searchParams: Promise<{ season?: string }>
+}
+
+export default async function TeamsPage({ searchParams }: TeamsPageProps) {
+  const { season: seasonParam } = await searchParams
   const supabase = await createClient()
+
+  // Get available seasons
+  const { data: seasonsData } = await supabase.rpc('get_available_seasons')
+  const seasons = (seasonsData as number[]) ?? [CURRENT_SEASON]
+  const selectedSeason = seasonParam ? parseInt(seasonParam, 10) : Math.max(...seasons)
 
   // Fetch FBS/FCS teams
   const { data: teams } = await supabase
@@ -12,17 +24,17 @@ export default async function TeamsPage() {
     .in('classification', ['fbs', 'fcs'])
     .order('school')
 
-  // Fetch 2024 metrics for all teams
+  // Fetch metrics for selected season
   const { data: metrics } = await supabase
     .from('team_epa_season')
     .select('team, epa_per_play, off_epa_rank')
-    .eq('season', 2024)
+    .eq('season', selectedSeason)
 
   // Fetch win/loss records
   const { data: records } = await supabase
     .from('team_season_trajectory')
     .select('team, wins, games')
-    .eq('season', 2024)
+    .eq('season', selectedSeason)
 
   // Build metrics lookup map
   const metricsMap = new Map<string, { epa: number; rank: number; wins: number; losses: number }>()
@@ -54,10 +66,11 @@ export default async function TeamsPage() {
   return (
     <div className="p-8">
       {/* Page Header */}
-      <header className="mb-8">
+      <header className="mb-8 flex items-baseline justify-between gap-4">
         <h1 className="font-headline text-3xl text-[var(--text-primary)] underline-sketch inline-block">
           Teams
         </h1>
+        <SeasonSelector seasons={seasons} currentSeason={selectedSeason} />
       </header>
 
       {/* Team Grid */}

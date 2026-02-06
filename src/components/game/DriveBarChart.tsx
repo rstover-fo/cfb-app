@@ -10,9 +10,12 @@ import type { GameWithTeams } from '@/lib/queries/games'
 // ---------------------------------------------------------------------------
 
 const CHART_WIDTH = 800
+const TEAM_COL_WIDTH = 72
+const RESULT_COL_WIDTH = 110
+const TOTAL_WIDTH = TEAM_COL_WIDTH + CHART_WIDTH + RESULT_COL_WIDTH
 const BAR_HEIGHT = 14
 const ROW_HEIGHT = 36
-const YARD_MARKERS = [20, 40, 50, 60, 80] // absolute 0-100 scale positions
+const YARD_MARKERS = [20, 40, 50, 60, 80]
 const YARD_LABELS = ['Own 20', 'Own 40', '50', 'Opp 40', 'Opp 20']
 
 const OUTCOME_COLOR_MAP: Record<string, string> = {
@@ -67,15 +70,13 @@ function getOutcomeColor(outcome: string): string {
 }
 
 function abbreviateTeam(name: string): string {
-  // Common multi-word abbreviations
   const words = name.split(/\s+/)
   if (words.length === 1) return name.slice(0, 3).toUpperCase()
-  // Use first letter of each word (up to 4)
   return words.slice(0, 4).map(w => w[0]).join('').toUpperCase()
 }
 
 // ---------------------------------------------------------------------------
-// Component
+// Component — Single SVG approach for perfect row alignment
 // ---------------------------------------------------------------------------
 
 interface DriveBarChartProps {
@@ -90,7 +91,6 @@ export function DriveBarChart({ drives, game }: DriveBarChartProps) {
     if (!rc || !svgRef.current) return
     const svg = svgRef.current
 
-    // Clear old rough elements
     const existing = svg.querySelectorAll('.rough-bar')
     existing.forEach(el => el.remove())
 
@@ -102,11 +102,10 @@ export function DriveBarChart({ drives, game }: DriveBarChartProps) {
       const colorVar = getOutcomeColor(outcome)
       const color = resolveColor(colorVar)
 
-      // Field position: start at own (100 - yards_to_goal), end at (100 - end_yards_to_goal)
       const startX = (100 - drive.start_yards_to_goal) / 100
       const endX = (100 - drive.end_yards_to_goal) / 100
-      const x = Math.min(startX, endX) * CHART_WIDTH
-      const w = Math.max(Math.abs(endX - startX) * CHART_WIDTH, 3) // minimum 3px width
+      const x = TEAM_COL_WIDTH + Math.min(startX, endX) * CHART_WIDTH
+      const w = Math.max(Math.abs(endX - startX) * CHART_WIDTH, 3)
       const y = i * ROW_HEIGHT + (ROW_HEIGHT - BAR_HEIGHT) / 2
 
       const rect = rc.rectangle(x, y, w, BAR_HEIGHT, {
@@ -137,140 +136,164 @@ export function DriveBarChart({ drives, game }: DriveBarChartProps) {
     return () => observer.disconnect()
   }, [drawBars])
 
+  const headerHeight = 20
   const totalHeight = drives.length * ROW_HEIGHT
 
   return (
     <div className="overflow-x-auto">
       <div className="min-w-[600px]">
-        {/* Yard marker header */}
-        <div className="flex">
-          {/* Left spacer for team column */}
-          <div className="w-[72px] shrink-0" />
-          {/* Chart header */}
-          <div className="flex-1 relative h-6 border-b border-[var(--border)]">
-            {YARD_MARKERS.map((yard, i) => (
-              <span
-                key={yard}
-                className="absolute text-[10px] text-[var(--text-muted)] -translate-x-1/2"
-                style={{ left: `${yard}%` }}
-              >
-                {YARD_LABELS[i]}
-              </span>
-            ))}
-          </div>
-          {/* Right spacer for result column */}
-          <div className="w-[110px] shrink-0" />
-        </div>
+        <svg
+          ref={svgRef}
+          viewBox={`0 0 ${TOTAL_WIDTH} ${headerHeight + totalHeight}`}
+          className="w-full block"
+          role="img"
+          aria-label={`Drive chart: ${drives.length} drives for ${game.home_team} vs ${game.away_team}`}
+        >
+          {/* ===== HEADER ROW ===== */}
+          {/* Bottom border for header */}
+          <line
+            x1={TEAM_COL_WIDTH}
+            y1={headerHeight}
+            x2={TEAM_COL_WIDTH + CHART_WIDTH}
+            y2={headerHeight}
+            stroke="var(--border)"
+            strokeWidth={1}
+          />
+          {/* Yard marker labels */}
+          {YARD_MARKERS.map((yard, idx) => (
+            <text
+              key={`hdr-${yard}`}
+              x={TEAM_COL_WIDTH + (yard / 100) * CHART_WIDTH}
+              y={headerHeight - 5}
+              textAnchor="middle"
+              fill="var(--text-muted)"
+              fontSize={10}
+              fontFamily="var(--font-body)"
+            >
+              {YARD_LABELS[idx]}
+            </text>
+          ))}
 
-        {/* Drive rows */}
-        <div className="flex">
-          {/* Left column: team indicators */}
-          <div className="w-[72px] shrink-0">
+          {/* ===== DRIVE ROWS ===== */}
+          <g transform={`translate(0, ${headerHeight})`}>
+            {/* Alternating row backgrounds — full width for perfect alignment */}
+            {drives.map((_, i) => (
+              i % 2 === 0 ? (
+                <rect
+                  key={`bg-${i}`}
+                  x={0}
+                  y={i * ROW_HEIGHT}
+                  width={TOTAL_WIDTH}
+                  height={ROW_HEIGHT}
+                  fill="var(--bg-surface)"
+                />
+              ) : null
+            ))}
+
+            {/* Yard marker lines in chart area */}
+            {YARD_MARKERS.map(yard => (
+              <line
+                key={`line-${yard}`}
+                x1={TEAM_COL_WIDTH + (yard / 100) * CHART_WIDTH}
+                y1={0}
+                x2={TEAM_COL_WIDTH + (yard / 100) * CHART_WIDTH}
+                y2={totalHeight}
+                stroke="var(--border)"
+                strokeWidth={1}
+                strokeDasharray="4 3"
+              />
+            ))}
+            {/* 50-yard line */}
+            <line
+              x1={TEAM_COL_WIDTH + CHART_WIDTH / 2}
+              y1={0}
+              x2={TEAM_COL_WIDTH + CHART_WIDTH / 2}
+              y2={totalHeight}
+              stroke="var(--text-muted)"
+              strokeWidth={1}
+              opacity={0.4}
+            />
+
+            {/* Team indicators (left column) */}
             {drives.map((drive, i) => {
               const isHome = drive.is_home_offense
               const color = isHome ? game.homeColor : game.awayColor
               const teamName = drive.offense
+              const cy = i * ROW_HEIGHT + ROW_HEIGHT / 2
               return (
-                <div
-                  key={drive.drive_number}
-                  className={`flex items-center gap-1.5 px-1 ${
-                    i % 2 === 0 ? 'bg-[var(--bg-surface)]' : ''
-                  }`}
-                  style={{ height: ROW_HEIGHT }}
-                >
-                  <span
-                    className="w-2.5 h-2.5 rounded-full shrink-0"
-                    style={{ backgroundColor: color ?? 'var(--text-muted)' }}
+                <g key={`team-${drive.drive_number}`}>
+                  <circle
+                    cx={10}
+                    cy={cy}
+                    r={4}
+                    fill={color ?? 'var(--text-muted)'}
                   />
-                  <span className="text-[11px] text-[var(--text-secondary)] font-medium truncate">
+                  <text
+                    x={20}
+                    y={cy}
+                    dominantBaseline="central"
+                    fill="var(--text-secondary)"
+                    fontSize={11}
+                    fontWeight={500}
+                    fontFamily="var(--font-body)"
+                  >
                     {abbreviateTeam(teamName)}
-                  </span>
-                </div>
+                  </text>
+                </g>
               )
             })}
-          </div>
 
-          {/* Center: SVG chart area */}
-          <div className="flex-1 relative">
-            <svg
-              ref={svgRef}
-              viewBox={`0 0 ${CHART_WIDTH} ${totalHeight}`}
-              className="w-full block"
-              role="img"
-              aria-label={`Drive chart: ${drives.length} drives for ${game.home_team} vs ${game.away_team}`}
-            >
-              {/* Alternating row backgrounds */}
-              {drives.map((_, i) => (
-                i % 2 === 0 ? (
-                  <rect
-                    key={`bg-${i}`}
-                    x={0}
-                    y={i * ROW_HEIGHT}
-                    width={CHART_WIDTH}
-                    height={ROW_HEIGHT}
-                    fill="var(--bg-surface)"
-                  />
-                ) : null
-              ))}
-              {/* Yard marker lines */}
-              {YARD_MARKERS.map(yard => (
-                <line
-                  key={`line-${yard}`}
-                  x1={(yard / 100) * CHART_WIDTH}
-                  y1={0}
-                  x2={(yard / 100) * CHART_WIDTH}
-                  y2={totalHeight}
-                  stroke="var(--border)"
-                  strokeWidth={1}
-                  strokeDasharray="4 3"
-                />
-              ))}
-              {/* 50-yard line slightly more prominent */}
-              <line
-                x1={CHART_WIDTH / 2}
-                y1={0}
-                x2={CHART_WIDTH / 2}
-                y2={totalHeight}
-                stroke="var(--text-muted)"
-                strokeWidth={1}
-                opacity={0.4}
-              />
-              {/* Rough bars get appended here */}
-              <g className="chart-area" />
-            </svg>
-          </div>
-
-          {/* Right column: result + stats */}
-          <div className="w-[110px] shrink-0">
+            {/* Result labels (right column) */}
             {drives.map((drive, i) => {
               const outcome = mapDriveResult(drive.drive_result)
               const label = RESULT_LABELS[outcome] ?? drive.drive_result
               const colorVar = getOutcomeColor(outcome)
+              const color = resolveColor(colorVar)
+              const cy = i * ROW_HEIGHT + ROW_HEIGHT / 2
+              const rightX = TEAM_COL_WIDTH + CHART_WIDTH + 6
+
               return (
-                <div
-                  key={drive.drive_number}
-                  className={`flex items-center gap-1.5 px-2 ${
-                    i % 2 === 0 ? 'bg-[var(--bg-surface)]' : ''
-                  }`}
-                  style={{ height: ROW_HEIGHT }}
-                >
-                  <span
-                    className="text-[10px] font-bold px-1.5 py-0.5 rounded-sm"
-                    style={{
-                      backgroundColor: `color-mix(in srgb, ${colorVar} 15%, transparent)`,
-                      color: colorVar,
-                    }}
+                <g key={`result-${drive.drive_number}`}>
+                  {/* Result badge background */}
+                  <rect
+                    x={rightX}
+                    y={cy - 8}
+                    width={label.length * 7 + 8}
+                    height={16}
+                    rx={2}
+                    fill={color}
+                    opacity={0.15}
+                  />
+                  <text
+                    x={rightX + 4}
+                    y={cy}
+                    dominantBaseline="central"
+                    fill={color}
+                    fontSize={10}
+                    fontWeight={700}
+                    fontFamily="var(--font-body)"
                   >
                     {label}
-                  </span>
-                  <span className="text-[10px] text-[var(--text-muted)] whitespace-nowrap">
-                    {drive.plays}p&middot;{drive.yards}yd
-                  </span>
-                </div>
+                  </text>
+                  {/* Stats */}
+                  <text
+                    x={rightX + label.length * 7 + 14}
+                    y={cy}
+                    dominantBaseline="central"
+                    fill="var(--text-muted)"
+                    fontSize={10}
+                    fontFamily="var(--font-body)"
+                  >
+                    {drive.plays}p·{drive.yards}yd
+                  </text>
+                </g>
               )
             })}
-          </div>
-        </div>
+
+            {/* Rough bars get appended here */}
+            <g className="chart-area" />
+          </g>
+        </svg>
       </div>
     </div>
   )

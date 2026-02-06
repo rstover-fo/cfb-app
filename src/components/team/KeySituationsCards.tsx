@@ -27,11 +27,11 @@ function SituationCard({ label, description, value, rank, trend }: SituationCard
     : null
 
   return (
-    <div className="card p-4">
+    <div className="bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg p-3">
       <p className="font-headline text-base text-[var(--text-primary)]">{label}</p>
       <p className="text-xs text-[var(--text-muted)] mb-3">{description}</p>
 
-      <p className="font-headline text-3xl text-[var(--text-primary)] mb-2">{value}</p>
+      <p className="font-headline text-2xl tabular-nums text-[var(--text-primary)] mb-2">{value}</p>
 
       <div className="flex items-center justify-between text-xs">
         {rank && (

@@ -29,7 +29,7 @@ function MetricCard({ label, value, decimals = 3, suffix = '', rank, tooltip, tr
     : 'text-[var(--text-primary)]'
 
   return (
-    <div className="card p-5">
+    <div className="bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg p-3">
       <div className="flex items-center justify-between mb-2">
         <p className="text-sm text-[var(--text-muted)]">{label}</p>
         {tooltip && (
@@ -43,7 +43,7 @@ function MetricCard({ label, value, decimals = 3, suffix = '', rank, tooltip, tr
         )}
       </div>
 
-      <p className={`font-headline text-4xl ${valueColorClass} underline-sketch inline-block`}>
+      <p className={`font-headline text-2xl tabular-nums ${valueColorClass} underline-sketch inline-block`}>
         {displayValue}{suffix}
       </p>
 

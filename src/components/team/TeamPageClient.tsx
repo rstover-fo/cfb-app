@@ -8,6 +8,7 @@ import { StyleProfile } from '@/components/team/StyleProfile'
 import { DrivePatterns } from '@/components/visualizations/DrivePatterns'
 import { TrajectoryChart } from '@/components/team/TrajectoryChart'
 import { SituationalView } from '@/components/team/SituationalView'
+import { SeasonSelector } from '@/components/SeasonSelector'
 import { RosterView } from './RosterView'
 import { ScheduleView } from './ScheduleView'
 import { CompareView } from './CompareView'
@@ -31,6 +32,7 @@ const TABS: Tab[] = [
 interface TeamPageClientProps {
   team: Team
   currentSeason: number
+  availableSeasons: number[]
   metrics: TeamSeasonEpa | null
   style: TeamStyleProfile | null
   trajectory: TeamSeasonTrajectory[] | null
@@ -51,6 +53,7 @@ interface TeamPageClientProps {
 export function TeamPageClient({
   team,
   currentSeason,
+  availableSeasons,
   metrics,
   style,
   trajectory,
@@ -89,7 +92,7 @@ export function TeamPageClient({
             </span>
           </div>
         )}
-        <div>
+        <div className="flex-1">
           <h1 className="font-headline text-4xl text-[var(--text-primary)] underline-sketch inline-block">
             {team.school}
           </h1>
@@ -97,6 +100,7 @@ export function TeamPageClient({
             {team.conference || 'Independent'} · {currentSeason} Season
           </p>
         </div>
+        <SeasonSelector seasons={availableSeasons} currentSeason={currentSeason} />
       </header>
 
       {/* Tab Navigation */}

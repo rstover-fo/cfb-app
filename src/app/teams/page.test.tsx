@@ -17,7 +17,12 @@ function chainable(data: unknown = []) {
 vi.mock('@/lib/supabase/server', () => ({
   createClient: vi.fn().mockResolvedValue({
     from: vi.fn().mockReturnValue(chainable()),
+    rpc: vi.fn().mockResolvedValue({ data: [2024, 2025], error: null }),
   }),
+}))
+
+vi.mock('@/components/SeasonSelector', () => ({
+  SeasonSelector: () => <select data-testid="season-selector" />,
 }))
 
 vi.mock('@/components/TeamList', () => ({
@@ -28,7 +33,7 @@ vi.mock('@/components/TeamList', () => ({
 
 describe('Teams page', () => {
   it('renders the Teams heading', async () => {
-    const jsx = await TeamsPage()
+    const jsx = await TeamsPage({ searchParams: Promise.resolve({}) })
     render(jsx)
     expect(screen.getByText('Teams')).toBeInTheDocument()
   })

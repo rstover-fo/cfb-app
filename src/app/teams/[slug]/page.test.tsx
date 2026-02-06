@@ -57,7 +57,7 @@ vi.mock('@/components/team/TeamPageClient', () => ({
 
 describe('Team detail page', () => {
   it('renders team data for a valid slug', async () => {
-    const jsx = await TeamPage({ params: Promise.resolve({ slug: 'alabama' }) })
+    const jsx = await TeamPage({ params: Promise.resolve({ slug: 'alabama' }), searchParams: Promise.resolve({}) })
     render(jsx)
     expect(screen.getByText('Alabama')).toBeInTheDocument()
   })
@@ -65,7 +65,7 @@ describe('Team detail page', () => {
   it('calls notFound for an unknown slug', async () => {
     mockNotFound.mockClear()
     await expect(
-      TeamPage({ params: Promise.resolve({ slug: 'nonexistent-team-xyz' }) })
+      TeamPage({ params: Promise.resolve({ slug: 'nonexistent-team-xyz' }), searchParams: Promise.resolve({}) })
     ).rejects.toThrow('NEXT_NOT_FOUND')
     expect(mockNotFound).toHaveBeenCalled()
   })
