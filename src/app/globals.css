@@ -24,14 +24,14 @@
   --color-neutral: #6B635A;
   --color-field-goal: #5A7AC4;
 
-  /* Accent (interactive elements) */
-  --accent: var(--color-run);
-  --accent-hover: #B06A4A;
-
   /* Field colors */
   --field-green: #2d5a27;
   --field-endzone: #1e3d1a;
   --field-line: #ffffff;
+
+  /* Accent (interactive elements) */
+  --accent: #C47A5A;
+  --accent-hover: #B06A4A;
 
   /* Shadows */
   --shadow-soft: 0 4px 20px rgba(26, 24, 20, 0.08);
@@ -79,11 +79,11 @@
   --text-secondary: #4A4740;
   --text-muted: #6B635A;
   --border: #D9D2C7;
-  --accent: var(--color-run);
-  --accent-hover: #B06A4A;
   --field-green: #2d5a27;
   --field-endzone: #1e3d1a;
   --field-line: #ffffff;
+  --accent: #C47A5A;
+  --accent-hover: #B06A4A;
   --shadow-soft: 0 4px 20px rgba(26, 24, 20, 0.08);
   --shadow-hover: 0 8px 30px rgba(26, 24, 20, 0.12);
 }

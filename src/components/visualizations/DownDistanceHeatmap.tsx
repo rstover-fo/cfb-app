@@ -72,7 +72,8 @@ export function DownDistanceHeatmap({ data, side, title }: DownDistanceHeatmapPr
             {/* Data Cells */}
             {DISTANCE_BUCKETS.map(bucket => {
               const cellData = getCellData(down, bucket)
-              const bgColor = cellData
+              const hasData = cellData && cellData.success_rate != null
+              const bgColor = hasData
                 ? getPerformanceColor(cellData.success_rate, side)
                 : 'var(--bg-surface-alt)'
 
@@ -82,26 +83,26 @@ export function DownDistanceHeatmap({ data, side, title }: DownDistanceHeatmapPr
                   className="aspect-square min-h-[44px] rounded border border-[var(--border)] transition-all hover:scale-105 focus:outline-none focus:ring-2 focus:ring-[var(--color-run)]"
                   style={{ backgroundColor: bgColor }}
                   onMouseEnter={(e) => {
-                    if (cellData) {
+                    if (hasData) {
                       const rect = e.currentTarget.getBoundingClientRect()
                       setTooltip({ x: rect.left + rect.width / 2, y: rect.top, data: cellData })
                     }
                   }}
                   onMouseLeave={() => setTooltip(null)}
                   onFocus={(e) => {
-                    if (cellData) {
+                    if (hasData) {
                       const rect = e.currentTarget.getBoundingClientRect()
                       setTooltip({ x: rect.left + rect.width / 2, y: rect.top, data: cellData })
                     }
                   }}
                   onBlur={() => setTooltip(null)}
                   aria-label={
-                    cellData
-                      ? `${down}${down === 1 ? 'st' : down === 2 ? 'nd' : down === 3 ? 'rd' : 'th'} and ${bucket}: ${(cellData.success_rate * 100).toFixed(0)}% success rate, ${cellData.epa_per_play.toFixed(2)} EPA, ${cellData.play_count} plays`
+                    hasData
+                      ? `${down}${down === 1 ? 'st' : down === 2 ? 'nd' : down === 3 ? 'rd' : 'th'} and ${bucket}: ${(cellData.success_rate * 100).toFixed(0)}% success rate, ${(cellData.epa_per_play ?? 0).toFixed(2)} EPA, ${cellData.play_count} plays`
                       : `${down}${down === 1 ? 'st' : down === 2 ? 'nd' : down === 3 ? 'rd' : 'th'} and ${bucket}: No data`
                   }
                 >
-                  {cellData && (
+                  {hasData && (
                     <span className="text-xs font-medium text-[var(--text-primary)]">
                       {(cellData.success_rate * 100).toFixed(0)}%
                     </span>
@@ -143,7 +144,7 @@ export function DownDistanceHeatmap({ data, side, title }: DownDistanceHeatmapPr
             {tooltip.data.down}{tooltip.data.down === 1 ? 'st' : tooltip.data.down === 2 ? 'nd' : tooltip.data.down === 3 ? 'rd' : 'th'} & {tooltip.data.distance_bucket}
           </p>
           <p className="text-[var(--text-secondary)]">
-            {(tooltip.data.success_rate * 100).toFixed(1)}% success · {tooltip.data.epa_per_play.toFixed(3)} EPA
+            {((tooltip.data.success_rate ?? 0) * 100).toFixed(1)}% success · {(tooltip.data.epa_per_play ?? 0).toFixed(3)} EPA
           </p>
           <p className="text-[var(--text-muted)] text-xs">
             {tooltip.data.play_count} plays · {getPerformanceLabel(tooltip.data.success_rate, side)}

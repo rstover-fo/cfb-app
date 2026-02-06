@@ -19,59 +19,71 @@ export function PlayRow({ play }: PlayRowProps) {
   const isTurnover = play.play_type?.includes('Interception') || play.play_type?.includes('Fumble')
   const isBigPlay = (play.yards_gained ?? 0) >= 15
 
-  let borderClass = 'border-b border-[var(--border)]'
+  let borderColor = 'transparent'
   if (isScoring) {
-    borderClass = 'border-b border-[var(--border)] border-l-[3px] border-l-green-600'
+    borderColor = 'var(--color-positive)'
   } else if (isTurnover) {
-    borderClass = 'border-b border-[var(--border)] border-l-[3px] border-l-red-600'
+    borderColor = 'var(--color-negative)'
   }
 
-  const bgClass = isBigPlay ? 'bg-amber-50/50 dark:bg-amber-900/10' : ''
+  const bgClass = isBigPlay
+    ? 'bg-[color-mix(in_srgb,var(--color-run)_8%,transparent)]'
+    : ''
 
   return (
-    <div className={`py-2 px-3 text-sm flex items-center gap-3 flex-wrap ${borderClass} ${bgClass}`}>
-      {play.down != null && play.distance != null && (
-        <span className="bg-[var(--bg-surface-alt)] px-2 py-0.5 rounded text-xs font-mono whitespace-nowrap">
-          {formatDown(play.down)} &amp; {play.distance}
-        </span>
-      )}
+    <div
+      className={`py-2.5 px-3 border-b border-[var(--border)] ${bgClass}`}
+      style={{ borderLeftWidth: isScoring || isTurnover ? '3px' : '0px', borderLeftColor: borderColor }}
+    >
+      {/* Row 1: Play metadata */}
+      <div className="flex items-center gap-2 mb-1">
+        {play.down != null && play.distance != null && (
+          <span className="bg-[var(--bg-surface-alt)] px-2 py-0.5 rounded text-xs font-mono whitespace-nowrap text-[var(--text-primary)]">
+            {formatDown(play.down)} &amp; {play.distance}
+          </span>
+        )}
 
-      {play.play_type && (
-        <span className="text-xs text-[var(--text-muted)] whitespace-nowrap">
-          {play.play_type}
-        </span>
-      )}
+        {play.play_type && (
+          <span className="text-xs text-[var(--text-muted)] whitespace-nowrap">
+            {play.play_type}
+          </span>
+        )}
 
-      {play.yards_gained != null && (
-        <span
-          className={`text-xs font-mono font-medium whitespace-nowrap ${
-            play.yards_gained > 0
-              ? 'text-green-600 dark:text-green-400'
-              : play.yards_gained < 0
-                ? 'text-red-600 dark:text-red-400'
-                : 'text-[var(--text-muted)]'
-          }`}
-        >
-          {play.yards_gained > 0 ? '+' : ''}{play.yards_gained} yds
-        </span>
-      )}
+        {play.yards_gained != null && (
+          <span
+            className="text-xs font-mono font-semibold whitespace-nowrap"
+            style={{
+              color: play.yards_gained > 0
+                ? 'var(--color-positive)'
+                : play.yards_gained < 0
+                  ? 'var(--color-negative)'
+                  : 'var(--text-muted)'
+            }}
+          >
+            {play.yards_gained > 0 ? '+' : ''}{play.yards_gained} yds
+          </span>
+        )}
 
+        {play.ppa != null && (
+          <span
+            className="text-[10px] font-mono px-1.5 py-0.5 rounded whitespace-nowrap ml-auto"
+            style={{
+              backgroundColor: play.ppa >= 0
+                ? 'color-mix(in srgb, var(--color-positive) 12%, transparent)'
+                : 'color-mix(in srgb, var(--color-negative) 12%, transparent)',
+              color: play.ppa >= 0 ? 'var(--color-positive)' : 'var(--color-negative)',
+            }}
+          >
+            PPA {play.ppa >= 0 ? '+' : ''}{play.ppa.toFixed(2)}
+          </span>
+        )}
+      </div>
+
+      {/* Row 2: Play description */}
       {play.play_text && (
-        <span className="text-[var(--text-primary)] line-clamp-1 md:line-clamp-none flex-1 min-w-0">
+        <p className="text-sm text-[var(--text-secondary)] leading-relaxed">
           {play.play_text}
-        </span>
-      )}
-
-      {play.ppa != null && (
-        <span
-          className={`text-xs font-mono px-1.5 py-0.5 rounded whitespace-nowrap ${
-            play.ppa >= 0
-              ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300'
-              : 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300'
-          }`}
-        >
-          {play.ppa >= 0 ? '+' : ''}{play.ppa.toFixed(2)}
-        </span>
+        </p>
       )}
     </div>
   )

@@ -47,7 +47,7 @@ export function SituationalView({
   return (
     <div>
       {/* Sub-navigation */}
-      <nav className="flex gap-2 mb-6 border-b border-[var(--border)] pb-4">
+      <nav className="flex gap-2 mb-6" role="tablist" aria-label="Situational analysis views">
         {SUB_TABS.map(tab => {
           const isActive = activeSubTab === tab.id
           const isDisabled = !tab.enabled
@@ -55,14 +55,16 @@ export function SituationalView({
           return (
             <button
               key={tab.id}
+              role="tab"
+              aria-selected={isActive}
               disabled={isDisabled}
               onClick={() => tab.enabled && setActiveSubTab(tab.id)}
-              className={`px-3 py-1.5 text-sm transition-all ${
+              className={`px-4 py-2 border-[1.5px] rounded-sm text-sm transition-all ${
                 isActive
-                  ? 'text-[var(--text-primary)] border-b-2 border-[var(--color-run)] -mb-[17px] pb-[15px]'
+                  ? 'bg-[var(--bg-surface)] border-[var(--color-run)] text-[var(--text-primary)]'
                   : isDisabled
-                  ? 'text-[var(--text-muted)] opacity-50 cursor-not-allowed'
-                  : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                  ? 'border-[var(--border)] text-[var(--text-muted)] opacity-50 cursor-not-allowed'
+                  : 'border-[var(--border)] text-[var(--text-secondary)] hover:border-[var(--text-muted)]'
               }`}
             >
               {tab.label}
