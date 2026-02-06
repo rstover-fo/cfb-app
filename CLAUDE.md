@@ -56,6 +56,11 @@ npm run test        # Vitest (run once)
 npm run test:watch  # Vitest (watch mode)
 ```
 
+## Git Conventions
+
+- Branch names: `feature/`, `fix/`, `refactor/`, `chore/` prefixes
+- Commit messages: imperative mood, 50-char subject line
+
 ## Data
 
 All data comes from Supabase Postgres. Tables include `teams_with_logos`, `team_epa_season`, `team_style_profile`, `defensive_havoc`, `team_tempo_metrics`, `records`, `team_special_teams_sos`, and more. Types are in `src/lib/types/database.ts`.

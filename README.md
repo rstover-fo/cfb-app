@@ -1,36 +1,96 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# CFB Team 360
+
+College football analytics dashboard for FBS teams -- stats, rankings, game analysis, and interactive visualizations.
+
+## Features
+
+- **Team Detail Pages** -- roster-level stats, season EPA breakdowns, style profiles, and special teams ratings per team
+- **Game Analysis** -- drive-by-drive EPA charts, down-and-distance heatmaps, and football field visualizations
+- **Scatter Plot Explorer** -- compare any two team metrics across the FBS with interactive D3 plots
+- **Defensive Havoc Metrics** -- TFL rates, sack rates, and forced turnovers aggregated by team
+- **Recruiting Analysis** -- class rankings and talent distribution
+- **Editorial Design** -- newspaper-inspired layout with paper textures and hand-drawn roughjs chart strokes
+
+## Tech Stack
+
+| Layer | Technology |
+|-------|-----------|
+| Framework | Next.js 16 (App Router) |
+| UI | React 19, Tailwind CSS 4, Radix UI primitives |
+| Charts | D3 7 + roughjs for hand-drawn aesthetic |
+| Icons | Phosphor Icons |
+| Data | Supabase (Postgres via PostgREST + RPCs) |
+| Testing | Vitest + React Testing Library |
+| Language | TypeScript 5 (strict) |
 
 ## Getting Started
 
-First, run the development server:
+### Prerequisites
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+- Node.js 24+
+- npm
+- A Supabase project with CFBD data loaded
+
+### Environment Variables
+
+Create a `.env.local` file in the project root:
+
+```
+NEXT_PUBLIC_SUPABASE_URL=<your-supabase-url>
+NEXT_PUBLIC_SUPABASE_ANON_KEY=<your-supabase-anon-key>
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+### Install and Run
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+npm install
+npm run dev
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Open [http://localhost:3000](http://localhost:3000) to view the dashboard.
 
-## Learn More
+## Scripts
 
-To learn more about Next.js, take a look at the following resources:
+| Command | Description |
+|---------|-------------|
+| `npm run dev` | Start development server |
+| `npm run build` | Production build |
+| `npm run lint` | Run ESLint |
+| `npm run typecheck` | Type-check with `tsc --noEmit` |
+| `npm run test` | Run Vitest (single run) |
+| `npm run test:watch` | Run Vitest in watch mode |
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Project Structure
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+```
+src/
+  app/
+    page.tsx              # Dashboard home (standings, stat leaders, recent games)
+    analytics/            # Scatter plot explorer
+    games/                # Game list and game detail pages
+    teams/[slug]/         # Team detail pages
+  components/
+    dashboard/            # Server components: standings, stat leaders, top movers
+    analytics/            # ScatterPlotClient (D3 scatter with roughjs)
+    visualizations/       # FootballField, DownDistanceHeatmap, DrivePatterns
+    team/                 # Team detail components (EPA, style profile, recruiting)
+    game/                 # Game-level analysis components
+  lib/
+    queries/              # Supabase data fetchers and shared constants
+    supabase/             # Client and server Supabase helpers
+    types/                # TypeScript types (manual + generated)
+    utils.ts              # Slug helpers, formatting
+```
 
-## Deploy on Vercel
+## Design System
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+- **Headlines:** Libre Baskerville (serif)
+- **Body:** DM Sans (sans-serif)
+- **Theme:** Paper textures, muted tones, editorial/newspaper aesthetic
+- **Charts:** Hand-drawn strokes via roughjs on D3-rendered SVGs
+- **Dark mode:** Supported via `ThemeToggle` component
+- **Tokens:** CSS custom properties (`--text-primary`, `--bg-surface-alt`, etc.)
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Data
+
+Powered by Supabase Postgres loaded with College Football Data (CFBD). Key tables include `teams_with_logos`, `team_epa_season`, `team_style_profile`, `defensive_havoc`, `team_tempo_metrics`, `records`, and `team_special_teams_sos`. Types are defined in `src/lib/types/database.ts`.
