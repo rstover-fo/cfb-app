@@ -6,27 +6,23 @@ export default async function TeamsPage() {
   const supabase = await createClient()
 
   // Fetch FBS/FCS teams
-  const { data: teams, error: teamsError } = await supabase
+  const { data: teams } = await supabase
     .from('teams_with_logos')
     .select('*')
     .in('classification', ['fbs', 'fcs'])
     .order('school')
 
   // Fetch 2024 metrics for all teams
-  const { data: metrics, error: metricsError } = await supabase
+  const { data: metrics } = await supabase
     .from('team_epa_season')
     .select('team, epa_per_play, off_epa_rank')
     .eq('season', 2024)
 
   // Fetch win/loss records
-  const { data: records, error: recordsError } = await supabase
+  const { data: records } = await supabase
     .from('team_season_trajectory')
     .select('team, wins, games')
     .eq('season', 2024)
-
-  if (teamsError) console.error('Error fetching teams:', teamsError)
-  if (metricsError) console.error('Error fetching metrics:', metricsError)
-  if (recordsError) console.error('Error fetching records:', recordsError)
 
   // Build metrics lookup map
   const metricsMap = new Map<string, { epa: number; rank: number; wins: number; losses: number }>()

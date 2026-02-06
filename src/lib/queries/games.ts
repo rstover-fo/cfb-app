@@ -84,7 +84,6 @@ export const getGames = cache(async (filter: GamesFilter): Promise<GameWithTeams
   const { data, error } = await query
 
   if (error) {
-    console.error('Games query failed:', error)
     throw new Error(`Failed to fetch games: ${error.message}`)
   }
 

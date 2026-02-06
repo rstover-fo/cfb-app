@@ -83,8 +83,7 @@ export function GamesList({
         if (currentRequestId === requestIdRef.current) {
           setGames(newGames)
         }
-      } catch (err) {
-        console.error('Failed to fetch games:', err)
+      } catch {
         if (currentRequestId === requestIdRef.current) {
           setError('Failed to load games. Please try again.')
         }

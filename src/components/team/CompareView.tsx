@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import Image from 'next/image'
 import { Team, TeamSeasonEpa, TeamStyleProfile } from '@/lib/types/database'
 import { createClient } from '@/lib/supabase/client'
 
@@ -145,7 +146,7 @@ export function CompareView({ team, metrics, style, allTeams, currentSeason }: C
       {/* Team Selector */}
       <div className="flex items-center gap-4 mb-8">
         <div className="flex items-center gap-3">
-          {team.logo && <img src={team.logo} alt={team.school ?? ''} className="w-10 h-10 object-contain" />}
+          {team.logo && <Image src={team.logo} alt={team.school ?? ''} width={40} height={40} className="w-10 h-10 object-contain" unoptimized />}
           <span className="font-headline text-xl text-[var(--text-primary)]">{team.school ?? ''}</span>
         </div>
 
@@ -167,7 +168,7 @@ export function CompareView({ team, metrics, style, allTeams, currentSeason }: C
         </select>
 
         {compareTeam?.logo && (
-          <img src={compareTeam.logo ?? undefined} alt={compareTeam.school ?? ''} className="w-10 h-10 object-contain" />
+          <Image src={compareTeam.logo ?? ''} alt={compareTeam.school ?? ''} width={40} height={40} className="w-10 h-10 object-contain" unoptimized />
         )}
       </div>
 

@@ -1,6 +1,7 @@
 'use client'
 
 import { useMemo, useState } from 'react'
+import Image from 'next/image'
 import { CaretUp, CaretDown } from '@phosphor-icons/react'
 
 interface RankedTeam {
@@ -188,7 +189,7 @@ export function RankedTable({ data, title = 'Composite Rankings', onTeamClick }:
               <td className="py-2 px-3">
                 <div className="flex items-center gap-2">
                   {team.logo && (
-                    <img src={team.logo} alt="" className="w-6 h-6 object-contain" />
+                    <Image src={team.logo} alt="" width={24} height={24} className="w-6 h-6 object-contain" unoptimized />
                   )}
                   <span className="font-medium text-[var(--text-primary)]">{team.team}</span>
                   <span className="text-[var(--text-tertiary)] text-xs">{team.conference}</span>

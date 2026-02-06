@@ -2,6 +2,7 @@
 
 import { useMemo, useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
+import Image from 'next/image'
 
 interface DataPoint {
   id: number
@@ -397,7 +398,7 @@ export function ScatterPlot({ data, xLabel, yLabel, xInvert = false, yInvert = f
         >
           <div className="flex items-center gap-2 mb-1">
             {hoveredPoint.logo && (
-              <img src={hoveredPoint.logo} alt="" className="w-6 h-6 object-contain" />
+              <Image src={hoveredPoint.logo} alt="" width={24} height={24} className="w-6 h-6 object-contain" unoptimized />
             )}
             <span className="font-medium text-[var(--text-primary)]">{hoveredPoint.name}</span>
           </div>
