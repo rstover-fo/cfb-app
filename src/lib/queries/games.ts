@@ -2,7 +2,7 @@ import { cache } from 'react'
 import { createClient } from '@/lib/supabase/server'
 import { getTeamLookup } from './shared'
 import { REGULAR_SEASON_MAX_WEEK, POSTSEASON_MIN_WEEK } from './constants'
-import type { GameBoxScore, BoxScoreTeam, PlayerLeaders, TeamLeaders, LineScores } from '@/lib/types/database'
+import type { GameBoxScore, BoxScoreTeam, PlayerLeaders, TeamLeaders, LineScores, GameDrive, GamePlay } from '@/lib/types/database'
 
 // Season phase type
 export type SeasonPhase = 'all' | 'regular' | 'postseason'
@@ -269,14 +269,14 @@ const SORT_STAT: Record<string, string> = {
   'defensive': 'TOT',
 }
 
-// Get player leaders for a game from core_staging schema
+// Get player leaders for a game from core schema
 // Returns null if no player stats exist for this game
 export const getGamePlayerLeaders = cache(async (gameId: number): Promise<PlayerLeaders | null> => {
   const supabase = await createClient()
 
   // Step 1: Get the game's _dlt_id from game_player_stats
   const { data: gameData, error: gameError } = await supabase
-    .schema('core_staging')
+    .schema('core')
     .from('game_player_stats')
     .select('_dlt_id')
     .eq('id', gameId)
@@ -288,7 +288,7 @@ export const getGamePlayerLeaders = cache(async (gameId: number): Promise<Player
 
   // Step 2: Get teams for this game
   const { data: teamsData, error: teamsError } = await supabase
-    .schema('core_staging')
+    .schema('core')
     .from('game_player_stats__teams')
     .select('team, home_away, _dlt_id')
     .eq('_dlt_parent_id', gameData._dlt_id)
@@ -300,7 +300,7 @@ export const getGamePlayerLeaders = cache(async (gameId: number): Promise<Player
   // Step 3: Get categories for all teams
   const teamDltIds = teamsData.map(t => t._dlt_id)
   const { data: categoriesData, error: categoriesError } = await supabase
-    .schema('core_staging')
+    .schema('core')
     .from('game_player_stats__teams__categories')
     .select('name, _dlt_id, _dlt_parent_id')
     .in('_dlt_parent_id', teamDltIds)
@@ -313,7 +313,7 @@ export const getGamePlayerLeaders = cache(async (gameId: number): Promise<Player
   // Step 4: Get stat types for all categories
   const categoryDltIds = categoriesData.map(c => c._dlt_id)
   const { data: typesData, error: typesError } = await supabase
-    .schema('core_staging')
+    .schema('core')
     .from('game_player_stats__teams__categories__types')
     .select('name, _dlt_id, _dlt_parent_id')
     .in('_dlt_parent_id', categoryDltIds)
@@ -325,7 +325,7 @@ export const getGamePlayerLeaders = cache(async (gameId: number): Promise<Player
   // Step 5: Get athletes for all stat types
   const typeDltIds = typesData.map(t => t._dlt_id)
   const { data: athletesData, error: athletesError } = await supabase
-    .schema('core_staging')
+    .schema('core')
     .from('game_player_stats__teams__categories__types__athletes')
     .select('id, name, stat, _dlt_parent_id')
     .in('_dlt_parent_id', typeDltIds)
@@ -448,5 +448,83 @@ export const getGameLineScores = cache(async (gameId: number): Promise<LineScore
     home: (homeResult.data ?? []).map(s => s.value),
     away: (awayResult.data ?? []).map(s => s.value),
   }
+})
+
+// Get all drives for a game from core schema
+export const getGameDrives = cache(async (gameId: number): Promise<GameDrive[]> => {
+  const supabase = await createClient()
+
+  const { data, error } = await supabase
+    .schema('core')
+    .from('drives')
+    .select('drive_number, offense, defense, start_period, start_yards_to_goal, end_yards_to_goal, plays, yards, drive_result, scoring, start_offense_score, end_offense_score, start_defense_score, end_defense_score, start_time__minutes, start_time__seconds, elapsed__minutes, elapsed__seconds, is_home_offense')
+    .eq('game_id', gameId)
+    .order('drive_number', { ascending: true })
+
+  if (error || !data) return []
+
+  // Map database column names (double underscore) to interface names
+  return data.map(d => ({
+    drive_number: d.drive_number,
+    offense: d.offense,
+    defense: d.defense,
+    start_period: d.start_period,
+    start_yards_to_goal: d.start_yards_to_goal,
+    end_yards_to_goal: d.end_yards_to_goal,
+    plays: d.plays,
+    yards: d.yards,
+    drive_result: d.drive_result,
+    scoring: d.scoring,
+    start_offense_score: d.start_offense_score,
+    end_offense_score: d.end_offense_score,
+    start_defense_score: d.start_defense_score,
+    end_defense_score: d.end_defense_score,
+    start_time_minutes: d.start_time__minutes,
+    start_time_seconds: d.start_time__seconds,
+    elapsed_minutes: d.elapsed__minutes,
+    elapsed_seconds: d.elapsed__seconds,
+    is_home_offense: d.is_home_offense,
+  }))
+})
+
+// Get all plays for a game from core schema (filtered to actual plays)
+const EXCLUDED_PLAY_TYPES = ['Timeout', 'End Period', 'End of Game', 'Kickoff']
+
+export const getGamePlays = cache(async (gameId: number): Promise<GamePlay[]> => {
+  const supabase = await createClient()
+
+  const { data, error } = await supabase
+    .schema('core')
+    .from('plays')
+    .select('game_id, drive_number, play_number, offense, defense, period, clock__minutes, clock__seconds, down, distance, yards_to_goal, yards_gained, play_type, play_text, ppa, scoring, offense_score, defense_score')
+    .eq('game_id', gameId)
+    .order('drive_number', { ascending: true })
+    .order('play_number', { ascending: true })
+
+  if (error || !data) return []
+
+  // Filter out non-play types and map column names
+  return data
+    .filter(p => p.play_type && !EXCLUDED_PLAY_TYPES.includes(p.play_type))
+    .map(p => ({
+      game_id: p.game_id,
+      drive_number: p.drive_number,
+      play_number: p.play_number,
+      offense: p.offense,
+      defense: p.defense,
+      period: p.period,
+      clock_minutes: p.clock__minutes,
+      clock_seconds: p.clock__seconds,
+      down: p.down,
+      distance: p.distance,
+      yards_to_goal: p.yards_to_goal,
+      yards_gained: p.yards_gained,
+      play_type: p.play_type,
+      play_text: p.play_text,
+      ppa: p.ppa,
+      scoring: p.scoring,
+      offense_score: p.offense_score,
+      defense_score: p.defense_score,
+    }))
 })
 
