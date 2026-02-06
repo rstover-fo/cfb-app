@@ -35,6 +35,7 @@ vi.mock('@/lib/queries/games', () => ({
   }),
   getGameBoxScore: vi.fn().mockResolvedValue(null),
   getGamePlayerLeaders: vi.fn().mockResolvedValue(null),
+  getGameLineScores: vi.fn().mockResolvedValue(null),
 }))
 
 vi.mock('@/components/game/GameScoreHeader', () => ({
@@ -47,6 +48,9 @@ vi.mock('@/components/game/GameBoxScore', () => ({
 }))
 vi.mock('@/components/game/PlayerLeaders', () => ({
   PlayerLeaders: () => <div data-testid="player-leaders">Leaders</div>,
+}))
+vi.mock('@/components/game/QuarterScores', () => ({
+  QuarterScores: () => <div data-testid="quarter-scores">Quarter Scores</div>,
 }))
 
 describe('Game detail page', () => {

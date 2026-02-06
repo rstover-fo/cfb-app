@@ -2,7 +2,7 @@ import { cache } from 'react'
 import { createClient } from '@/lib/supabase/server'
 import { getTeamLookup } from './shared'
 import { REGULAR_SEASON_MAX_WEEK, POSTSEASON_MIN_WEEK } from './constants'
-import type { GameBoxScore, BoxScoreTeam, PlayerLeaders, TeamLeaders } from '@/lib/types/database'
+import type { GameBoxScore, BoxScoreTeam, PlayerLeaders, TeamLeaders, LineScores } from '@/lib/types/database'
 
 // Season phase type
 export type SeasonPhase = 'all' | 'regular' | 'postseason'
@@ -412,5 +412,41 @@ export const getGamePlayerLeaders = cache(async (gameId: number): Promise<Player
   }
 
   return { home, away }
+})
+
+// Get quarter-by-quarter line scores for a game
+export const getGameLineScores = cache(async (gameId: number): Promise<LineScores | null> => {
+  const supabase = await createClient()
+
+  // Get the game's _dlt_id from core.games
+  const { data: gameData, error: gameError } = await supabase
+    .schema('core')
+    .from('games')
+    .select('_dlt_id')
+    .eq('id', gameId)
+    .single()
+
+  if (gameError || !gameData) return null
+
+  // Fetch both home and away line scores in parallel
+  const [homeResult, awayResult] = await Promise.all([
+    supabase.schema('core')
+      .from('games__home_line_scores')
+      .select('value, _dlt_list_idx')
+      .eq('_dlt_parent_id', gameData._dlt_id)
+      .order('_dlt_list_idx', { ascending: true }),
+    supabase.schema('core')
+      .from('games__away_line_scores')
+      .select('value, _dlt_list_idx')
+      .eq('_dlt_parent_id', gameData._dlt_id)
+      .order('_dlt_list_idx', { ascending: true }),
+  ])
+
+  if (!homeResult.data?.length && !awayResult.data?.length) return null
+
+  return {
+    home: (homeResult.data ?? []).map(s => s.value),
+    away: (awayResult.data ?? []).map(s => s.value),
+  }
 })
 
