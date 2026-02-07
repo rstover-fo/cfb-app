@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import Image from 'next/image'
-import { Team, TeamSeasonEpa, TeamStyleProfile, TeamSeasonTrajectory, DrivePattern, DownDistanceSplit, TrajectoryAverages, RedZoneSplit, FieldPositionSplit, HomeAwaySplit, ConferenceSplit, RosterPlayer, PlayerSeasonStat, ScheduleGame } from '@/lib/types/database'
+import { Team, TeamSeasonEpa, TeamStyleProfile, TeamSeasonTrajectory, DrivePattern, DownDistanceSplit, TrajectoryAverages, RedZoneSplit, FieldPositionSplit, HomeAwaySplit, ConferenceSplit, RosterPlayer, PlayerSeasonStat, ScheduleGame, RecruitingClassHistory, RecruitingROI, Signee, PortalActivity } from '@/lib/types/database'
 import { MetricsCards } from '@/components/team/MetricsCards'
 import { StyleProfile } from '@/components/team/StyleProfile'
 import { DrivePatterns } from '@/components/visualizations/DrivePatterns'
@@ -12,8 +12,9 @@ import { SeasonSelector } from '@/components/SeasonSelector'
 import { RosterView } from './RosterView'
 import { ScheduleView } from './ScheduleView'
 import { CompareView } from './CompareView'
+import { RecruitingView } from './RecruitingView'
 
-type TabId = 'overview' | 'situational' | 'schedule' | 'roster' | 'compare'
+type TabId = 'overview' | 'situational' | 'schedule' | 'roster' | 'compare' | 'recruiting'
 
 interface Tab {
   id: TabId
@@ -27,6 +28,7 @@ const TABS: Tab[] = [
   { id: 'schedule', label: 'Schedule', enabled: true },
   { id: 'roster', label: 'Roster', enabled: true },
   { id: 'compare', label: 'Compare', enabled: true },
+  { id: 'recruiting', label: 'Recruiting', enabled: true },
 ]
 
 interface TeamPageClientProps {
@@ -48,6 +50,10 @@ interface TeamPageClientProps {
   playerStats: PlayerSeasonStat[] | null
   schedule: ScheduleGame[] | null
   allTeams: Team[]
+  classHistory: RecruitingClassHistory[] | null
+  roi: RecruitingROI | null
+  signees: Signee[] | null
+  portalActivity: PortalActivity | null
 }
 
 export function TeamPageClient({
@@ -68,7 +74,11 @@ export function TeamPageClient({
   roster,
   playerStats,
   schedule,
-  allTeams
+  allTeams,
+  classHistory,
+  roi,
+  signees,
+  portalActivity
 }: TeamPageClientProps) {
   const [activeTab, setActiveTab] = useState<TabId>('overview')
 
@@ -104,7 +114,7 @@ export function TeamPageClient({
       </header>
 
       {/* Tab Navigation */}
-      <nav className="flex gap-2 mb-6" role="tablist" aria-label="Team page sections">
+      <nav className="flex gap-2 mb-6 overflow-x-auto scrollbar-hide" role="tablist" aria-label="Team page sections">
         {TABS.map(tab => {
           const isActive = activeTab === tab.id
           const isDisabled = !tab.enabled
@@ -117,7 +127,7 @@ export function TeamPageClient({
               aria-controls={`tabpanel-${tab.id}`}
               disabled={isDisabled}
               onClick={() => tab.enabled && setActiveTab(tab.id)}
-              className={`px-4 py-2 border-[1.5px] rounded-sm text-sm transition-all ${
+              className={`px-4 py-2 border-[1.5px] rounded-sm text-sm whitespace-nowrap transition-all ${
                 isActive
                   ? 'bg-[var(--bg-surface)] border-[var(--color-run)] text-[var(--text-primary)]'
                   : isDisabled
@@ -211,6 +221,17 @@ export function TeamPageClient({
             metrics={metrics}
             style={style}
             allTeams={allTeams}
+            currentSeason={currentSeason}
+          />
+        )}
+
+        {activeTab === 'recruiting' && (
+          <RecruitingView
+            classHistory={classHistory}
+            roi={roi}
+            signees={signees}
+            portalActivity={portalActivity}
+            teamColor={team.color}
             currentSeason={currentSeason}
           />
         )}
