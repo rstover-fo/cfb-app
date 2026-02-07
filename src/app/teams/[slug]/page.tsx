@@ -1,6 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { notFound } from 'next/navigation'
-import { Team, TeamSeasonEpa, TeamStyleProfile, TeamSeasonTrajectory, DrivePattern, DownDistanceSplit, TrajectoryAverages, RedZoneSplit, FieldPositionSplit, HomeAwaySplit, ConferenceSplit, RosterPlayer, PlayerSeasonStat, Game, ScheduleGame } from '@/lib/types/database'
+import { Team, TeamSeasonEpa, TeamStyleProfile, TeamSeasonTrajectory, DrivePattern, DownDistanceSplit, TrajectoryAverages, RedZoneSplit, FieldPositionSplit, HomeAwaySplit, ConferenceSplit, RosterPlayer, PlayerSeasonStat, Game, ScheduleGame, RecruitingClassHistory, RecruitingROI, Signee, PortalActivity } from '@/lib/types/database'
 import { TeamPageClient } from '@/components/team/TeamPageClient'
 import { CURRENT_SEASON } from '@/lib/queries/constants'
 
@@ -129,6 +129,18 @@ export default async function TeamPage({ params, searchParams }: TeamPageProps) 
     .eq('season', currentSeason)
     .order('week')
 
+  // Fetch recruiting data (4 RPCs in parallel)
+  const [classHistoryResult, roiResult, signeesResult, portalResult] = await Promise.all([
+    supabase.rpc('get_recruiting_class_history', { p_team: team.school }),
+    supabase.rpc('get_recruiting_roi', { p_team: team.school, p_season: currentSeason }),
+    supabase.rpc('get_team_signees', { p_team: team.school, p_year: currentSeason }),
+    supabase.rpc('get_team_portal_activity', { p_team: team.school, p_season: currentSeason }),
+  ])
+  const classHistory = classHistoryResult.error ? null : (classHistoryResult.data as RecruitingClassHistory[] | null)
+  const roi = roiResult.error ? null : ((roiResult.data as RecruitingROI[] | null)?.[0] ?? null)
+  const signees = signeesResult.error ? null : (signeesResult.data as Signee[] | null)
+  const portalActivity = portalResult.error ? null : (portalResult.data as PortalActivity | null)
+
   // Fetch all teams (for schedule logos and Compare tab)
   const { data: allTeamsData } = await supabase.from('teams_with_logos').select('*')
   const allTeams = (allTeamsData as Team[]) || []
@@ -184,6 +196,10 @@ export default async function TeamPage({ params, searchParams }: TeamPageProps) 
       playerStats={playerStats}
       schedule={schedule}
       allTeams={allTeams}
+      classHistory={classHistory}
+      roi={roi}
+      signees={signees}
+      portalActivity={portalActivity}
     />
   )
 }

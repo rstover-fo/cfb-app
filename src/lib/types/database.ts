@@ -303,6 +303,86 @@ export interface PlayerSearchResult {
 }
 
 // ---------------------------------------------------------------------------
+// Recruiting types — from RPCs wrapping recruiting/api schemas
+// ---------------------------------------------------------------------------
+
+export interface RecruitingClassHistory {
+  year: number
+  rank: number
+  points: number
+  five_stars: number
+  four_stars: number
+  three_stars: number
+  two_stars: number
+  total_commits: number
+}
+
+export interface RecruitingROI {
+  season: number
+  avg_class_rank_4yr: number
+  avg_class_points_4yr: number
+  total_blue_chips_4yr: number
+  blue_chip_ratio: number
+  wins: number
+  losses: number
+  win_pct: number
+  sp_rating: number | null
+  sp_rank: number | null
+  epa_per_play: number | null
+  wins_over_expected: number | null
+  epa_over_expected: number | null
+  recruiting_efficiency: number | null
+  win_pct_pctl: number | null
+  epa_pctl: number | null
+  recruiting_efficiency_pctl: number | null
+}
+
+export interface Signee {
+  ranking: number | null
+  name: string
+  position: string
+  stars: number
+  rating: number | null
+  city: string | null
+  state_province: string | null
+}
+
+export interface TransferRecord {
+  season: number
+  first_name: string
+  last_name: string
+  position: string
+  origin: string | null
+  destination: string | null
+  transfer_date: string | null
+  stars: number | null
+  rating: number | null
+  eligibility: string | null
+}
+
+export interface PortalSummary {
+  team: string
+  season: number
+  transfers_in: number
+  transfers_out: number
+  net_transfers: number
+  avg_incoming_stars: number | null
+  avg_incoming_rating: number | null
+  incoming_high_stars: number
+  win_delta: number | null
+  portal_dependency: number | null
+  net_transfers_pctl: number | null
+  win_delta_pctl: number | null
+  portal_dependency_pctl: number | null
+}
+
+export interface PortalActivity {
+  summary: PortalSummary | null
+  transfers_in: TransferRecord[]
+  transfers_out: TransferRecord[]
+}
+
+// ---------------------------------------------------------------------------
 // Game detail types — from core schema drives and plays tables
 // ---------------------------------------------------------------------------
 
