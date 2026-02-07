@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useMemo } from 'react'
+import Link from 'next/link'
 import { RosterPlayer, PlayerSeasonStat } from '@/lib/types/database'
 
 interface RosterViewProps {
@@ -39,9 +40,12 @@ function PlayerRow({ player, stats }: { player: RosterPlayer; stats: PlayerSeaso
       </td>
       <td className="py-3 px-2">
         <div>
-          <span className="text-[var(--text-primary)] font-medium">
+          <Link
+            href={`/players/${player.id}`}
+            className="text-[var(--text-primary)] font-medium hover:underline"
+          >
             {player.first_name} {player.last_name}
-          </span>
+          </Link>
           {player.home_state && (
             <span className="text-xs text-[var(--text-muted)] ml-2">
               {player.home_city}, {player.home_state}

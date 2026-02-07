@@ -151,6 +151,158 @@ export interface PlayerLeaders {
 }
 
 // ---------------------------------------------------------------------------
+// Player analytics types — from stats/marts schemas via RPCs
+// ---------------------------------------------------------------------------
+
+export interface PlayerLeaderRow {
+  player_id: string
+  player_name: string
+  team: string
+  conference: string
+  position: string | null
+  // passing
+  yards: number | null
+  touchdowns: number | null
+  interceptions: number | null
+  pct: number | null
+  attempts: number | null
+  completions: number | null
+  // rushing
+  carries: number | null
+  yards_per_carry: number | null
+  // receiving
+  receptions: number | null
+  yards_per_reception: number | null
+  longest: number | null
+  // defense
+  total_tackles: number | null
+  solo_tackles: number | null
+  sacks: number | null
+  tackles_for_loss: number | null
+  passes_defended: number | null
+  // rank
+  yards_rank: number | null
+}
+
+export type LeaderCategory = 'passing' | 'rushing' | 'receiving' | 'defense'
+
+export interface PlayerProfile {
+  player_id: string
+  name: string
+  team: string
+  position: string | null
+  jersey: number | null
+  height: number | null
+  weight: number | null
+  year: number | null
+  home_city: string | null
+  home_state: string | null
+  season: number
+  // recruiting
+  stars: number | null
+  recruit_rating: number | null
+  national_ranking: number | null
+  recruit_class: number | null
+  // stats
+  pass_att: number | null
+  pass_cmp: number | null
+  pass_yds: number | null
+  pass_td: number | null
+  pass_int: number | null
+  pass_pct: number | null
+  rush_car: number | null
+  rush_yds: number | null
+  rush_td: number | null
+  rush_ypc: number | null
+  rec: number | null
+  rec_yds: number | null
+  rec_td: number | null
+  rec_ypr: number | null
+  tackles: number | null
+  solo: number | null
+  sacks: number | null
+  tfl: number | null
+  pass_def: number | null
+  def_int: number | null
+  fg_made: number | null
+  fg_att: number | null
+  xp_made: number | null
+  xp_att: number | null
+  punt_yds: number | null
+  // team display
+  logo?: string | null
+  color?: string | null
+}
+
+export interface PlayerGameLogEntry {
+  game_id: number
+  season: number
+  team: string
+  player_name: string
+  play_category: string
+  plays: number
+  total_epa: number
+  epa_per_play: number
+  success_rate: number
+  explosive_plays: number
+  total_yards: number
+  // enriched from games
+  week?: number
+  opponent?: string
+  home_away?: string
+  result?: string
+}
+
+export interface PlayerPercentiles {
+  player_id: string
+  name: string
+  team: string
+  position: string | null
+  position_group: string | null
+  season: number
+  // raw stats
+  pass_yds: number | null
+  pass_td: number | null
+  pass_pct: number | null
+  rush_yds: number | null
+  rush_td: number | null
+  rush_ypc: number | null
+  rec_yds: number | null
+  rec_td: number | null
+  tackles: number | null
+  sacks: number | null
+  tfl: number | null
+  ppa_avg: number | null
+  // percentiles (0-1)
+  pass_yds_pctl: number | null
+  pass_td_pctl: number | null
+  pass_pct_pctl: number | null
+  rush_yds_pctl: number | null
+  rush_td_pctl: number | null
+  rush_ypc_pctl: number | null
+  rec_yds_pctl: number | null
+  rec_td_pctl: number | null
+  tackles_pctl: number | null
+  sacks_pctl: number | null
+  tfl_pctl: number | null
+  ppa_avg_pctl: number | null
+}
+
+export interface PlayerSearchResult {
+  player_id: string
+  name: string
+  team: string
+  position: string | null
+  season: number
+  height: number | null
+  weight: number | null
+  jersey: number | null
+  stars: number | null
+  recruit_rating: number | null
+  similarity_score: number
+}
+
+// ---------------------------------------------------------------------------
 // Game detail types — from core schema drives and plays tables
 // ---------------------------------------------------------------------------
 
