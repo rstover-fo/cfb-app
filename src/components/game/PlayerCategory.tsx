@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import Link from 'next/link'
 import type { PlayerStat } from '@/lib/types/database'
 
 interface PlayerCategoryProps {
@@ -62,9 +63,12 @@ export function PlayerCategory({ category, players, teamName }: PlayerCategoryPr
       <div className="space-y-2">
         {visiblePlayers.map((player) => (
           <div key={player.id}>
-            <div className="text-sm font-medium text-[var(--text-primary)]">
+            <Link
+              href={`/players/${player.id}`}
+              className="text-sm font-medium text-[var(--text-primary)] hover:underline"
+            >
               {player.name}
-            </div>
+            </Link>
             <div className="text-xs text-[var(--text-muted)] tabular-nums">
               {formatStatLine(category, player.stats)}
             </div>
