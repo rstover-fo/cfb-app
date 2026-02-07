@@ -10,6 +10,13 @@ import type {
   PlayerSearchResult,
 } from '@/lib/types/database'
 
+// PostgREST serializes numeric columns as strings — convert safely
+function toNum(v: unknown): number | null {
+  if (v == null) return null
+  const n = Number(v)
+  return Number.isNaN(n) ? null : n
+}
+
 // ---------------------------------------------------------------------------
 // Leaderboard queries
 // ---------------------------------------------------------------------------
@@ -109,42 +116,42 @@ export const getPlayerDetail = cache(async (
     home_city: row.home_city as string | null,
     home_state: row.home_state as string | null,
     season: (row.season as number) ?? season ?? 2024,
-    stars: row.stars as number | null,
-    recruit_rating: row.recruit_rating as number | null,
-    national_ranking: row.national_ranking as number | null,
-    recruit_class: row.recruit_class as number | null,
-    pass_att: row.pass_att as number | null,
-    pass_cmp: row.pass_cmp as number | null,
-    pass_yds: row.pass_yds as number | null,
-    pass_td: row.pass_td as number | null,
-    pass_int: row.pass_int as number | null,
-    pass_pct: row.pass_pct as number | null,
-    rush_car: row.rush_car as number | null,
-    rush_yds: row.rush_yds as number | null,
-    rush_td: row.rush_td as number | null,
-    rush_ypc: row.rush_ypc as number | null,
-    rec: row.rec as number | null,
-    rec_yds: row.rec_yds as number | null,
-    rec_td: row.rec_td as number | null,
-    rec_ypr: row.rec_ypr as number | null,
-    tackles: row.tackles as number | null,
-    solo: row.solo as number | null,
-    sacks: row.sacks as number | null,
-    tfl: row.tfl as number | null,
-    pass_def: row.pass_def as number | null,
-    def_int: row.def_int as number | null,
-    fg_made: row.fg_made as number | null,
-    fg_att: row.fg_att as number | null,
-    xp_made: row.xp_made as number | null,
-    xp_att: row.xp_att as number | null,
-    punt_yds: row.punt_yds as number | null,
+    stars: toNum(row.stars),
+    recruit_rating: toNum(row.recruit_rating),
+    national_ranking: toNum(row.national_ranking),
+    recruit_class: toNum(row.recruit_class),
+    pass_att: toNum(row.pass_att),
+    pass_cmp: toNum(row.pass_cmp),
+    pass_yds: toNum(row.pass_yds),
+    pass_td: toNum(row.pass_td),
+    pass_int: toNum(row.pass_int),
+    pass_pct: toNum(row.pass_pct),
+    rush_car: toNum(row.rush_car),
+    rush_yds: toNum(row.rush_yds),
+    rush_td: toNum(row.rush_td),
+    rush_ypc: toNum(row.rush_ypc),
+    rec: toNum(row.rec),
+    rec_yds: toNum(row.rec_yds),
+    rec_td: toNum(row.rec_td),
+    rec_ypr: toNum(row.rec_ypr),
+    tackles: toNum(row.tackles),
+    solo: toNum(row.solo),
+    sacks: toNum(row.sacks),
+    tfl: toNum(row.tfl),
+    pass_def: toNum(row.pass_def),
+    def_int: toNum(row.def_int),
+    fg_made: toNum(row.fg_made),
+    fg_att: toNum(row.fg_att),
+    xp_made: toNum(row.xp_made),
+    xp_att: toNum(row.xp_att),
+    punt_yds: toNum(row.punt_yds),
     logo: teamData?.logo ?? null,
     color: teamData?.color ?? null,
   }
 })
 
 // ---------------------------------------------------------------------------
-// Player game log (EPA per game from materialized view)
+// Player game log (EPA per game via RPC)
 // ---------------------------------------------------------------------------
 
 export const getPlayerGameLog = cache(async (
@@ -153,58 +160,20 @@ export const getPlayerGameLog = cache(async (
 ): Promise<PlayerGameLogEntry[]> => {
   const supabase = await createClient()
 
-  // First get player name + team from roster
-  const { data: rosterData } = await supabase
-    .from('roster')
-    .select('first_name, last_name, team')
-    .eq('id', playerId)
-    .eq('year', season)
-    .limit(1)
+  const { data, error } = await supabase.rpc('get_player_game_log', {
+    p_player_id: playerId,
+    p_season: season,
+  })
 
-  if (!rosterData || rosterData.length === 0) return []
-
-  const playerName = `${rosterData[0].first_name} ${rosterData[0].last_name}`
-  const team = rosterData[0].team
-
-  // Query marts.player_game_epa via name + team join
-  const { data: epaData, error } = await supabase
-    .schema('marts' as 'public')
-    .from('player_game_epa')
-    .select('*')
-    .eq('player_name', playerName)
-    .eq('team', team)
-    .eq('season', season)
-    .order('game_id')
-
-  if (error || !epaData) {
-    console.error('player_game_epa error:', error?.message)
+  if (error || !data) {
+    console.error('get_player_game_log error:', error?.message)
     return []
   }
 
-  // Enrich with game info
-  const gameIds = epaData.map(e => (e as Record<string, unknown>).game_id as number)
-  if (gameIds.length === 0) return []
-
-  const { data: gamesData } = await supabase
-    .from('games')
-    .select('id, week, home_team, away_team, home_points, away_points')
-    .in('id', gameIds)
-
-  const gamesMap = new Map(
-    (gamesData ?? []).map(g => [g.id, g])
-  )
-
-  return epaData.map(row => {
+  return (data as unknown[]).map(row => {
     const r = row as Record<string, unknown>
-    const gameId = r.game_id as number
-    const game = gamesMap.get(gameId)
-    const isHome = game?.home_team === team
-    const opponent = isHome ? game?.away_team : game?.home_team
-    const teamScore = isHome ? game?.home_points : game?.away_points
-    const oppScore = isHome ? game?.away_points : game?.home_points
-
     return {
-      game_id: gameId,
+      game_id: r.game_id as number,
       season: r.season as number,
       team: r.team as string,
       player_name: r.player_name as string,
@@ -215,18 +184,16 @@ export const getPlayerGameLog = cache(async (
       success_rate: Number(r.success_rate),
       explosive_plays: r.explosive_plays as number,
       total_yards: Number(r.total_yards),
-      week: game?.week ?? undefined,
-      opponent: opponent ?? undefined,
-      home_away: isHome ? 'home' : 'away',
-      result: teamScore != null && oppScore != null
-        ? (teamScore > oppScore ? 'W' : teamScore < oppScore ? 'L' : 'T')
-        : undefined,
+      week: r.week as number | undefined,
+      opponent: r.opponent as string | undefined,
+      home_away: r.home_away as string,
+      result: r.result as string | undefined,
     }
   })
 })
 
 // ---------------------------------------------------------------------------
-// Player percentiles (from materialized view)
+// Player percentiles (via RPC)
 // ---------------------------------------------------------------------------
 
 export const getPlayerPercentiles = cache(async (
@@ -235,17 +202,14 @@ export const getPlayerPercentiles = cache(async (
 ): Promise<PlayerPercentiles | null> => {
   const supabase = await createClient()
 
-  const { data, error } = await supabase
-    .schema('marts' as 'public')
-    .from('player_comparison')
-    .select('*')
-    .eq('player_id', playerId)
-    .eq('season', season)
-    .limit(1)
+  const { data, error } = await supabase.rpc('get_player_percentiles', {
+    p_player_id: playerId,
+    p_season: season,
+  })
 
-  if (error || !data || data.length === 0) return null
+  if (error || !data || (data as unknown[]).length === 0) return null
 
-  const row = data[0] as Record<string, unknown>
+  const row = (data as unknown[])[0] as Record<string, unknown>
 
   return {
     player_id: row.player_id as string,
@@ -266,18 +230,18 @@ export const getPlayerPercentiles = cache(async (
     sacks: row.sacks ? Number(row.sacks) : null,
     tfl: row.tfl ? Number(row.tfl) : null,
     ppa_avg: row.ppa_avg ? Number(row.ppa_avg) : null,
-    pass_yds_pctl: row.pass_yds_pctl as number | null,
-    pass_td_pctl: row.pass_td_pctl as number | null,
-    pass_pct_pctl: row.pass_pct_pctl as number | null,
-    rush_yds_pctl: row.rush_yds_pctl as number | null,
-    rush_td_pctl: row.rush_td_pctl as number | null,
-    rush_ypc_pctl: row.rush_ypc_pctl as number | null,
-    rec_yds_pctl: row.rec_yds_pctl as number | null,
-    rec_td_pctl: row.rec_td_pctl as number | null,
-    tackles_pctl: row.tackles_pctl as number | null,
-    sacks_pctl: row.sacks_pctl as number | null,
-    tfl_pctl: row.tfl_pctl as number | null,
-    ppa_avg_pctl: row.ppa_avg_pctl as number | null,
+    pass_yds_pctl: toNum(row.pass_yds_pctl),
+    pass_td_pctl: toNum(row.pass_td_pctl),
+    pass_pct_pctl: toNum(row.pass_pct_pctl),
+    rush_yds_pctl: toNum(row.rush_yds_pctl),
+    rush_td_pctl: toNum(row.rush_td_pctl),
+    rush_ypc_pctl: toNum(row.rush_ypc_pctl),
+    rec_yds_pctl: toNum(row.rec_yds_pctl),
+    rec_td_pctl: toNum(row.rec_td_pctl),
+    tackles_pctl: toNum(row.tackles_pctl),
+    sacks_pctl: toNum(row.sacks_pctl),
+    tfl_pctl: toNum(row.tfl_pctl),
+    ppa_avg_pctl: toNum(row.ppa_avg_pctl),
   }
 })
 

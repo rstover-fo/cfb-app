@@ -50,7 +50,6 @@ const AXES_BY_POSITION: Record<string, RadarAxis[]> = {
     { label: 'Tackles', pctlKey: 'tackles_pctl' },
     { label: 'Sacks', pctlKey: 'sacks_pctl' },
     { label: 'TFL', pctlKey: 'tfl_pctl' },
-    { label: 'PPA', pctlKey: 'ppa_avg_pctl' },
   ],
   DEFAULT: [
     { label: 'PPA', pctlKey: 'ppa_avg_pctl' },
