@@ -1,7 +1,7 @@
 // cfb-app/src/components/players/ScoutingSummaryFeed.tsx
 import React from 'react'
 import type { ScoutingReport } from '@/lib/types/scouting'
-import { CalendarIcon, TrendingUp, TrendingDown, Minus } from 'lucide-react'
+import { Calendar, ChartLineUp, ChartLineDown, Minus } from '@phosphor-icons/react/dist/ssr'
 
 interface ScoutingSummaryFeedProps {
   reports: ScoutingReport[]
@@ -29,10 +29,10 @@ export const ScoutingSummaryFeed: React.FC<ScoutingSummaryFeedProps> = ({
   }
 
   const getSentimentIcon = (score: number | null) => {
-    if (score === null) return <Minus className="h-4 w-4 text-[var(--text-muted)]" />
-    if (score > 0.3) return <TrendingUp className="h-4 w-4 text-[var(--color-positive)]" />
-    if (score < -0.3) return <TrendingDown className="h-4 w-4 text-[var(--color-negative)]" />
-    return <Minus className="h-4 w-4 text-[var(--text-muted)]" />
+    if (score === null) return <Minus size={16} className="text-[var(--text-muted)]" />
+    if (score > 0.3) return <ChartLineUp size={16} className="text-[var(--color-positive)]" />
+    if (score < -0.3) return <ChartLineDown size={16} className="text-[var(--color-negative)]" />
+    return <Minus size={16} className="text-[var(--text-muted)]" />
   }
 
   const getSentimentLabel = (score: number | null) => {
@@ -76,7 +76,7 @@ export const ScoutingSummaryFeed: React.FC<ScoutingSummaryFeedProps> = ({
                   </div>
                 </div>
                 <div className="flex items-center gap-1 text-[10px] text-[var(--text-muted)] font-medium uppercase tracking-tighter">
-                  <CalendarIcon className="h-3 w-3" />
+                  <Calendar size={12} weight="bold" />
                   {new Date(report.published_at || report.crawled_at).toLocaleDateString()}
                 </div>
               </div>

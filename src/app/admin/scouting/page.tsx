@@ -4,7 +4,7 @@
 import React, { useEffect, useState } from 'react'
 import { getPendingLinks, reviewPendingLink } from '@/lib/queries/scouting'
 import { PendingLink } from '@/lib/types/scouting'
-import { CheckCircle, XCircle, Loader2, Database, AlertTriangle } from 'lucide-react'
+import { CheckCircle, XCircle, Spinner, Database, Warning } from '@phosphor-icons/react/dist/ssr'
 
 export default function ScoutingAdminPage() {
   const [links, setLinks] = useState<PendingLink[]>([])
@@ -45,7 +45,7 @@ export default function ScoutingAdminPage() {
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
-        <Loader2 className="h-8 w-8 text-[var(--accent)] animate-spin" />
+        <Spinner size={32} className="text-[var(--accent)] animate-spin" />
       </div>
     )
   }
@@ -55,7 +55,7 @@ export default function ScoutingAdminPage() {
       <div className="flex items-center justify-between mb-8 border-b border-[var(--border)] pb-6">
         <div>
           <h1 className="text-3xl font-bold text-[var(--text-primary)] font-serif flex items-center gap-3">
-            <Database className="h-8 w-8 text-[var(--accent)]" />
+            <Database size={32} weight="bold" className="text-[var(--accent)]" />
             Agent Orchestration Control Plane
           </h1>
           <p className="text-[var(--text-secondary)] mt-2">
@@ -70,7 +70,7 @@ export default function ScoutingAdminPage() {
       <div className="space-y-6">
         {links.length === 0 ? (
           <div className="bg-[var(--bg-surface)] border-2 border-dashed border-[var(--border)] py-16 rounded-xl text-center">
-            <CheckCircle className="h-16 w-16 text-[var(--color-positive)] opacity-20 mx-auto mb-4" />
+            <CheckCircle size={64} weight="light" className="text-[var(--color-positive)] opacity-20 mx-auto mb-4" />
             <p className="text-[var(--text-primary)] font-bold text-lg">No pending links found.</p>
             <p className="text-[var(--text-muted)] mt-1">Agent matching confidence is currently within thresholds.</p>
           </div>
@@ -123,7 +123,7 @@ export default function ScoutingAdminPage() {
 
                   {link.match_score < 0.7 && (
                     <div className="flex items-start gap-2 p-3 bg-[var(--color-negative)]/10 border border-[var(--color-negative)]/20 rounded-lg text-xs font-medium text-[var(--color-negative)]">
-                      <AlertTriangle className="h-4 w-4 shrink-0" />
+                      <Warning size={16} weight="bold" className="shrink-0" />
                       Low confidence match. Manual validation recommended before approving.
                     </div>
                   )}
@@ -136,9 +136,9 @@ export default function ScoutingAdminPage() {
                     disabled={reviewingId === link.id}
                   >
                     {reviewingId === link.id && reviewingStatus === 'approved' ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
+                      <Spinner size={16} className="animate-spin" />
                     ) : (
-                      <CheckCircle className="h-4 w-4" />
+                      <CheckCircle size={16} weight="bold" />
                     )}
                     Approve
                   </button>
@@ -148,9 +148,9 @@ export default function ScoutingAdminPage() {
                     disabled={reviewingId === link.id}
                   >
                     {reviewingId === link.id && reviewingStatus === 'rejected' ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
+                      <Spinner size={16} className="animate-spin" />
                     ) : (
-                      <XCircle className="h-4 w-4" />
+                      <XCircle size={16} weight="bold" />
                     )}
                     Reject
                   </button>
