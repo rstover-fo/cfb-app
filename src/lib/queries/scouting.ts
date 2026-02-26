@@ -70,4 +70,4 @@ export const reviewPendingLink = async (
     console.error('Failed to review link:', error)
     return false
   }
-})
+}

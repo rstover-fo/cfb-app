@@ -1,8 +1,6 @@
 // cfb-app/src/components/dashboard/SystemStatusWidget.tsx
 import React from 'react'
-import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
-import { Badge } from '@/components/ui/badge'
-import { Activity, Database, Lightning } from '@phosphor-icons/react/dist/ssr'
+import { Pulse, Lightning } from '@phosphor-icons/react/dist/ssr'
 
 export const SystemStatusWidget: React.FC = () => {
   // In a real app, these would come from an API endpoint or WebSocket
@@ -16,7 +14,7 @@ export const SystemStatusWidget: React.FC = () => {
     <div className="bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg shadow-[var(--shadow-soft)]">
       <div className="px-4 py-3 border-b border-[var(--border)]">
         <h4 className="text-sm font-bold flex items-center gap-2 text-[var(--text-primary)] font-serif">
-          <Activity size={18} weight="bold" className="text-[var(--accent)]" />
+          <Pulse size={18} weight="bold" className="text-[var(--accent)]" />
           Agent Orchestration Pulse
         </h4>
       </div>
