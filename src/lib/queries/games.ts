@@ -312,40 +312,49 @@ export const getGamePlayerLeaders = cache(async (gameId: number): Promise<Player
   return { home, away }
 })
 
-// Get quarter-by-quarter line scores for a game
+// Row shape for api.game_line_scores (pivoted: one row per game, home_/away_ q1-q4 + ot columns)
+// Note: the view SUMS all overtime periods into a single *_ot column, so a
+// multi-OT game collapses to one combined OT score below (matches
+// QuarterScores.tsx, which renders a single "OT" column for index 4).
+// TODO(A0.6): regenerate supabase types to include `api` schema views/tables
+interface GameLineScoresRow {
+  home_q1: number | null
+  home_q2: number | null
+  home_q3: number | null
+  home_q4: number | null
+  home_ot: number | null
+  away_q1: number | null
+  away_q2: number | null
+  away_q3: number | null
+  away_q4: number | null
+  away_ot: number | null
+}
+
+// Get quarter-by-quarter line scores for a game from the contracted api.game_line_scores view
 export const getGameLineScores = cache(async (gameId: number): Promise<LineScores | null> => {
   const supabase = await createClient()
 
-  // Get the game's _dlt_id from core.games
-  const { data: gameData, error: gameError } = await supabase
-    .schema('core')
-    .from('games')
-    .select('_dlt_id')
-    .eq('id', gameId)
+  const { data, error } = await supabase
+    .schema('api')
+    .from('game_line_scores')
+    .select('home_q1, home_q2, home_q3, home_q4, home_ot, away_q1, away_q2, away_q3, away_q4, away_ot')
+    .eq('game_id', gameId)
     .single()
 
-  if (gameError || !gameData) return null
+  if (error || !data) return null
 
-  // Fetch both home and away line scores in parallel
-  const [homeResult, awayResult] = await Promise.all([
-    supabase.schema('core')
-      .from('games__home_line_scores')
-      .select('value, _dlt_list_idx')
-      .eq('_dlt_parent_id', gameData._dlt_id)
-      .order('_dlt_list_idx', { ascending: true }),
-    supabase.schema('core')
-      .from('games__away_line_scores')
-      .select('value, _dlt_list_idx')
-      .eq('_dlt_parent_id', gameData._dlt_id)
-      .order('_dlt_list_idx', { ascending: true }),
-  ])
+  const row = data as GameLineScoresRow
 
-  if (!homeResult.data?.length && !awayResult.data?.length) return null
+  const home = [row.home_q1, row.home_q2, row.home_q3, row.home_q4].map(v => v ?? 0)
+  const away = [row.away_q1, row.away_q2, row.away_q3, row.away_q4].map(v => v ?? 0)
 
-  return {
-    home: (homeResult.data ?? []).map(s => s.value),
-    away: (awayResult.data ?? []).map(s => s.value),
-  }
+  // Only append an OT column when there was overtime (summed across all OT periods)
+  if (row.home_ot != null && row.home_ot > 0) home.push(row.home_ot)
+  if (row.away_ot != null && row.away_ot > 0) away.push(row.away_ot)
+
+  if (home.every(v => v === 0) && away.every(v => v === 0)) return null
+
+  return { home, away }
 })
 
 // Get all drives for a game from core schema
