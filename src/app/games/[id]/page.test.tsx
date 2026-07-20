@@ -36,6 +36,8 @@ vi.mock('@/lib/queries/games', () => ({
   getGameBoxScore: vi.fn().mockResolvedValue(null),
   getGamePlayerLeaders: vi.fn().mockResolvedValue(null),
   getGameLineScores: vi.fn().mockResolvedValue(null),
+  getGameDrives: vi.fn().mockResolvedValue([]),
+  getGamePlays: vi.fn().mockResolvedValue([]),
 }))
 
 vi.mock('@/components/game/GameScoreHeader', () => ({
