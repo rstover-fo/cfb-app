@@ -21,7 +21,7 @@ export default async function ComparePage({ searchParams }: ComparePageProps) {
     <div className="p-8">
       {/* Page Header */}
       <header className="mb-8 pb-6 border-b border-[var(--border)]">
-        <h1 className="font-headline text-4xl text-[var(--text-primary)] underline-sketch inline-block">
+        <h1 className="font-headline text-3xl text-[var(--text-primary)] underline-sketch inline-block">
           Compare Teams
         </h1>
         <p className="text-[var(--text-secondary)] mt-1">

@@ -237,7 +237,9 @@ export const getMatchupGames = cache(
         'game_id, season, week, season_type, start_date, neutral_site, home_team, away_team, home_points, away_points, winner, venue'
       )
       .or(
-        `and(home_team.eq.${teamA},away_team.eq.${teamB}),and(home_team.eq.${teamB},away_team.eq.${teamA})`
+        // Double-quote values: ( ) , are structural in PostgREST filter syntax,
+        // and team names like "Miami (OH)" would otherwise corrupt the filter.
+        `and(home_team.eq."${teamA}",away_team.eq."${teamB}"),and(home_team.eq."${teamB}",away_team.eq."${teamA}")`
       )
       .order('season', { ascending: false })
       .order('week', { ascending: false })

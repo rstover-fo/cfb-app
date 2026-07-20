@@ -1,7 +1,6 @@
 import Image from 'next/image'
 import Link from 'next/link'
 import { ListBullets } from '@phosphor-icons/react/dist/ssr'
-import { EmptyState } from '@/components/EmptyState'
 import type { MatchupGame } from '@/lib/queries/matchups'
 
 interface TeamMeta {
@@ -33,12 +32,16 @@ function formatDate(dateStr: string): string {
 // teamA's perspective (icon + letter, not color alone).
 export function MatchupGamesTable({ games, teamAMeta, teamBMeta }: MatchupGamesTableProps) {
   if (games.length === 0) {
+    // Inline empty state: EmptyState is a client component, and passing an icon
+    // function across the server->client boundary is not RSC-serializable.
     return (
-      <EmptyState
-        icon={ListBullets}
-        title="No completed games on record"
-        description={`${teamAMeta.name} and ${teamBMeta.name} have no recorded meetings.`}
-      />
+      <div className="flex flex-col items-center gap-2 py-10 text-center" role="status">
+        <ListBullets size={40} weight="thin" className="text-[var(--text-muted)]" aria-hidden="true" />
+        <p className="text-sm font-medium text-[var(--text-primary)]">No completed games on record</p>
+        <p className="text-sm text-[var(--text-muted)]">
+          {teamAMeta.name} and {teamBMeta.name} have no recorded meetings.
+        </p>
+      </div>
     )
   }
 
