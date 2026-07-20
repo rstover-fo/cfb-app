@@ -1,6 +1,6 @@
 import Image from 'next/image'
 import Link from 'next/link'
-import { ListBullets } from '@phosphor-icons/react'
+import { ListBullets } from '@phosphor-icons/react/dist/ssr'
 import { EmptyState } from '@/components/EmptyState'
 import type { MatchupGame } from '@/lib/queries/matchups'
 
