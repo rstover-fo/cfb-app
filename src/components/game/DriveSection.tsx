@@ -55,7 +55,7 @@ export function DriveSection({ drive, plays, game, defaultExpanded }: DriveSecti
       {
         'Drive #': drive.drive_number,
         'Team': drive.offense,
-        'Quarter': drive.quarter,
+        'Period': drive.start_period,
         'Start Position': startPos,
         'End Position': endPos,
         'Plays': drive.plays,

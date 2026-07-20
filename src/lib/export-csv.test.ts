@@ -2,11 +2,11 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { exportToCsv } from './export-csv'
 
 describe('exportToCsv', () => {
-  let createElementSpy: any
-  let appendChildSpy: any
-  let removeChildSpy: any
-  let createObjectURLSpy: any
-  let revokeObjectURLSpy: any
+  let createElementSpy: ReturnType<typeof vi.spyOn>
+  let appendChildSpy: ReturnType<typeof vi.spyOn>
+  let removeChildSpy: ReturnType<typeof vi.spyOn>
+  let createObjectURLSpy: ReturnType<typeof vi.spyOn>
+  let revokeObjectURLSpy: ReturnType<typeof vi.spyOn>
 
   beforeEach(() => {
     // Mock DOM methods
@@ -54,7 +54,7 @@ describe('exportToCsv', () => {
       exportToCsv(input, data)
 
       const linkElement = createElementSpy.mock.results.find(
-        result => result.value?.download !== undefined,
+        (result: { value?: { download?: string } }) => result.value?.download !== undefined,
       )?.value
 
       if (linkElement) {
@@ -120,7 +120,7 @@ describe('exportToCsv', () => {
     exportToCsv('myfile', data)
 
     const linkElement = createElementSpy.mock.results.find(
-      result => result.value?.download !== undefined,
+      (result: { value?: { download?: string } }) => result.value?.download !== undefined,
     )?.value
 
     if (linkElement) {
