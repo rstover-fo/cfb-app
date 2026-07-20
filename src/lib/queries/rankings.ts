@@ -10,8 +10,8 @@ export const getAvailableRankingSeasons = cache(async (): Promise<number[]> => {
   const supabase = await createClient()
 
   const { data, error } = await supabase
-    .schema('core')
-    .from('rankings')
+    .schema('api')
+    .from('poll_rankings')
     .select('season')
     .in('poll', FBS_POLLS as unknown as string[])
 
@@ -30,8 +30,8 @@ export const getAvailablePolls = cache(async (season: number): Promise<string[]>
   const supabase = await createClient()
 
   const { data, error } = await supabase
-    .schema('core')
-    .from('rankings')
+    .schema('api')
+    .from('poll_rankings')
     .select('poll')
     .eq('season', season)
     .in('poll', FBS_POLLS as unknown as string[])
@@ -50,8 +50,8 @@ export const getLatestRankingWeek = cache(async (season: number, poll: string): 
   const supabase = await createClient()
 
   const { data, error } = await supabase
-    .schema('core')
-    .from('rankings')
+    .schema('api')
+    .from('poll_rankings')
     .select('week')
     .eq('season', season)
     .eq('poll', poll)
@@ -78,26 +78,25 @@ export const getRankingsForWeek = cache(async (
   // Fetch current week rankings + previous week in parallel
   const [currentResult, prevResult, recordsResult] = await Promise.all([
     supabase
-      .schema('core')
-      .from('rankings')
+      .schema('api')
+      .from('poll_rankings')
       .select('rank, school, conference, first_place_votes, points, season, week, poll')
       .eq('season', season)
       .eq('week', week)
       .eq('poll', poll)
       .order('rank', { ascending: true }),
     supabase
-      .schema('core')
-      .from('rankings')
+      .schema('api')
+      .from('poll_rankings')
       .select('rank, school')
       .eq('season', season)
       .eq('week', week - 1)
       .eq('poll', poll),
     supabase
-      .schema('core')
-      .from('records')
-      .select('team, total__wins, total__losses')
-      .eq('year', season)
-      .eq('classification', 'fbs'),
+      .schema('api')
+      .from('team_history')
+      .select('team, wins, losses')
+      .eq('season', season),
   ])
 
   if (currentResult.error || !currentResult.data) {
@@ -122,8 +121,8 @@ export const getRankingsForWeek = cache(async (
   // Build records lookup
   const recordsLookup = new Map<string, { wins: number; losses: number }>()
   if (!recordsResult.error && recordsResult.data) {
-    recordsResult.data.forEach((r: { team: string; total__wins: number; total__losses: number }) => {
-      recordsLookup.set(r.team, { wins: r.total__wins, losses: r.total__losses })
+    (recordsResult.data as { team: string; wins: number; losses: number }[]).forEach(r => {
+      recordsLookup.set(r.team, { wins: r.wins, losses: r.losses })
     })
   }
 
@@ -163,8 +162,8 @@ export const getRankingsAllWeeks = cache(async (
   const teamLookup = await getTeamLookup()
 
   const { data, error } = await supabase
-    .schema('core')
-    .from('rankings')
+    .schema('api')
+    .from('poll_rankings')
     .select('rank, school, conference, first_place_votes, points, season, week, poll')
     .eq('season', season)
     .eq('poll', poll)
