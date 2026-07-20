@@ -46,9 +46,43 @@ function SortIndicator({ field, currentField, direction }: SortIndicatorProps) {
   const Icon = direction === 'asc' ? CaretUp : CaretDown
 
   return (
-    <span className={`inline-flex ml-1 transition-opacity ${isActive ? 'opacity-100' : 'opacity-0 group-hover:opacity-40'}`}>
+    <span className={`inline-flex ml-1 transition-opacity ${isActive ? 'opacity-100' : 'opacity-0 group-hover:opacity-40'}`} aria-hidden="true">
       <Icon size={14} weight={isActive ? 'bold' : 'regular'} />
     </span>
+  )
+}
+
+interface SortableHeaderProps {
+  field: SortableField
+  label: string
+  sortField: SortableField
+  sortDir: 'asc' | 'desc'
+  onSort: (field: SortableField) => void
+  align?: 'left' | 'center'
+  title?: string
+}
+
+function SortableHeader({ field, label, sortField, sortDir, onSort, align = 'left', title }: SortableHeaderProps) {
+  const isActive = sortField === field
+  const ariaSort = isActive ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'
+
+  return (
+    <th
+      scope="col"
+      aria-sort={ariaSort}
+      className={`py-2 px-3 ${align === 'center' ? 'text-center' : 'text-left'}`}
+    >
+      <button
+        type="button"
+        onClick={() => onSort(field)}
+        title={title}
+        className={`inline-flex items-center select-none group transition-colors hover:text-[var(--text-primary)] ${isActive ? 'text-[var(--text-primary)]' : ''}`}
+        aria-label={`Sort by ${label}${isActive ? `, currently sorted ${sortDir === 'asc' ? 'ascending' : 'descending'}` : ''}`}
+      >
+        {label}
+        <SortIndicator field={field} currentField={sortField} direction={sortDir} />
+      </button>
+    </th>
   )
 }
 
@@ -86,96 +120,19 @@ export function RankedTable({ data, title = 'Composite Rankings', onTeamClick }:
   return (
     <div className="w-full overflow-x-auto">
       <h3 className="font-headline text-xl mb-4 text-[var(--text-primary)]">{title}</h3>
-      <table className="w-full text-sm">
+      <table className="w-full text-sm" aria-label={title}>
         <thead>
           <tr className="border-b border-[var(--border)] text-[var(--text-secondary)]">
-            <th
-              className={`py-2 px-3 text-left cursor-pointer select-none group transition-colors hover:text-[var(--text-primary)] ${sortField === 'rank' ? 'text-[var(--text-primary)]' : ''}`}
-              onClick={() => handleSort('rank')}
-            >
-              <span className="inline-flex items-center">
-                Rank
-                <SortIndicator field="rank" currentField={sortField} direction={sortDir} />
-              </span>
-            </th>
-            <th className="py-2 px-3 text-left">Team</th>
-            <th
-              className={`py-2 px-3 text-center cursor-pointer select-none group transition-colors hover:text-[var(--text-primary)] ${sortField === 'wins' ? 'text-[var(--text-primary)]' : ''}`}
-              onClick={() => handleSort('wins')}
-              title="Season record (Conference record on hover)"
-            >
-              <span className="inline-flex items-center">
-                W-L
-                <SortIndicator field="wins" currentField={sortField} direction={sortDir} />
-              </span>
-            </th>
-            <th
-              className={`py-2 px-3 text-left cursor-pointer select-none group transition-colors hover:text-[var(--text-primary)] ${sortField === 'compositeScore' ? 'text-[var(--text-primary)]' : ''}`}
-              onClick={() => handleSort('compositeScore')}
-            >
-              <span className="inline-flex items-center">
-                Composite
-                <SortIndicator field="compositeScore" currentField={sortField} direction={sortDir} />
-              </span>
-            </th>
-            <th
-              className={`py-2 px-3 text-left cursor-pointer select-none group transition-colors hover:text-[var(--text-primary)] ${sortField === 'offenseScore' ? 'text-[var(--text-primary)]' : ''}`}
-              onClick={() => handleSort('offenseScore')}
-            >
-              <span className="inline-flex items-center">
-                Off Score
-                <SortIndicator field="offenseScore" currentField={sortField} direction={sortDir} />
-              </span>
-            </th>
-            <th
-              className={`py-2 px-3 text-center cursor-pointer select-none group transition-colors hover:text-[var(--text-primary)] ${sortField === 'offRank' ? 'text-[var(--text-primary)]' : ''}`}
-              onClick={() => handleSort('offRank')}
-              title="Offensive rank among 134 FBS teams"
-            >
-              <span className="inline-flex items-center">
-                Off Rank
-                <SortIndicator field="offRank" currentField={sortField} direction={sortDir} />
-              </span>
-            </th>
-            <th
-              className={`py-2 px-3 text-left cursor-pointer select-none group transition-colors hover:text-[var(--text-primary)] ${sortField === 'defenseScore' ? 'text-[var(--text-primary)]' : ''}`}
-              onClick={() => handleSort('defenseScore')}
-            >
-              <span className="inline-flex items-center">
-                Def Score
-                <SortIndicator field="defenseScore" currentField={sortField} direction={sortDir} />
-              </span>
-            </th>
-            <th
-              className={`py-2 px-3 text-center cursor-pointer select-none group transition-colors hover:text-[var(--text-primary)] ${sortField === 'defRank' ? 'text-[var(--text-primary)]' : ''}`}
-              onClick={() => handleSort('defRank')}
-              title="Defensive rank among 134 FBS teams"
-            >
-              <span className="inline-flex items-center">
-                Def Rank
-                <SortIndicator field="defRank" currentField={sortField} direction={sortDir} />
-              </span>
-            </th>
-            <th
-              className={`py-2 px-3 text-left cursor-pointer select-none group transition-colors hover:text-[var(--text-primary)] ${sortField === 'specialTeamsScore' ? 'text-[var(--text-primary)]' : ''}`}
-              onClick={() => handleSort('specialTeamsScore')}
-              title="Special teams score (20% of composite)"
-            >
-              <span className="inline-flex items-center">
-                ST Score
-                <SortIndicator field="specialTeamsScore" currentField={sortField} direction={sortDir} />
-              </span>
-            </th>
-            <th
-              className={`py-2 px-3 text-center cursor-pointer select-none group transition-colors hover:text-[var(--text-primary)] ${sortField === 'sosRank' ? 'text-[var(--text-primary)]' : ''}`}
-              onClick={() => handleSort('sosRank')}
-              title="Strength of Schedule rank (1 = hardest)"
-            >
-              <span className="inline-flex items-center">
-                SOS
-                <SortIndicator field="sosRank" currentField={sortField} direction={sortDir} />
-              </span>
-            </th>
+            <SortableHeader field="rank" label="Rank" sortField={sortField} sortDir={sortDir} onSort={handleSort} />
+            <th scope="col" className="py-2 px-3 text-left">Team</th>
+            <SortableHeader field="wins" label="W-L" align="center" sortField={sortField} sortDir={sortDir} onSort={handleSort} title="Season record (Conference record on hover)" />
+            <SortableHeader field="compositeScore" label="Composite" sortField={sortField} sortDir={sortDir} onSort={handleSort} />
+            <SortableHeader field="offenseScore" label="Off Score" sortField={sortField} sortDir={sortDir} onSort={handleSort} />
+            <SortableHeader field="offRank" label="Off Rank" align="center" sortField={sortField} sortDir={sortDir} onSort={handleSort} title="Offensive rank among 134 FBS teams" />
+            <SortableHeader field="defenseScore" label="Def Score" sortField={sortField} sortDir={sortDir} onSort={handleSort} />
+            <SortableHeader field="defRank" label="Def Rank" align="center" sortField={sortField} sortDir={sortDir} onSort={handleSort} title="Defensive rank among 134 FBS teams" />
+            <SortableHeader field="specialTeamsScore" label="ST Score" sortField={sortField} sortDir={sortDir} onSort={handleSort} title="Special teams score (20% of composite)" />
+            <SortableHeader field="sosRank" label="SOS" align="center" sortField={sortField} sortDir={sortDir} onSort={handleSort} title="Strength of Schedule rank (1 = hardest)" />
           </tr>
         </thead>
         <tbody>
@@ -210,7 +167,7 @@ export function RankedTable({ data, title = 'Composite Rankings', onTeamClick }:
               <td className="py-2 px-3 font-mono">{team.compositeScore.toFixed(2)}</td>
               <td className="py-2 px-3">
                 <div className="flex items-center gap-2">
-                  <div className="w-16 h-2 bg-[var(--bg-tertiary)] rounded overflow-hidden">
+                  <div className="w-16 h-2 bg-[var(--bg-tertiary)] rounded overflow-hidden" aria-hidden="true">
                     <div
                       className="h-full bg-[var(--color-run)]"
                       style={{ width: `${(team.offenseScore / maxOff) * 100}%` }}
@@ -233,7 +190,7 @@ export function RankedTable({ data, title = 'Composite Rankings', onTeamClick }:
               </td>
               <td className="py-2 px-3">
                 <div className="flex items-center gap-2">
-                  <div className="w-16 h-2 bg-[var(--bg-tertiary)] rounded overflow-hidden">
+                  <div className="w-16 h-2 bg-[var(--bg-tertiary)] rounded overflow-hidden" aria-hidden="true">
                     <div
                       className="h-full bg-[var(--color-pass)]"
                       style={{ width: `${(team.defenseScore / maxDef) * 100}%` }}
@@ -257,7 +214,7 @@ export function RankedTable({ data, title = 'Composite Rankings', onTeamClick }:
               <td className="py-2 px-3">
                 {team.specialTeamsScore !== undefined ? (
                   <div className="flex items-center gap-2">
-                    <div className="w-12 h-2 bg-[var(--bg-tertiary)] rounded overflow-hidden">
+                    <div className="w-12 h-2 bg-[var(--bg-tertiary)] rounded overflow-hidden" aria-hidden="true">
                       <div
                         className="h-full bg-[var(--color-accent)]"
                         style={{ width: `${(team.specialTeamsScore / maxST) * 100}%` }}

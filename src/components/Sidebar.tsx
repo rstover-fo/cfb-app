@@ -14,6 +14,8 @@ import {
   CalendarBlank,
   Trophy,
   UserCircle,
+  Sword,
+  ArrowsLeftRight,
   List,
   X,
 } from '@phosphor-icons/react'
@@ -22,7 +24,9 @@ import { ThemeToggle } from './ThemeToggle'
 const navItems = [
   { href: '/', label: 'Home', icon: House },
   { href: '/teams', label: 'Teams', icon: Football },
+  { href: '/compare', label: 'Compare', icon: ArrowsLeftRight },
   { href: '/games', label: 'Games', icon: CalendarBlank },
+  { href: '/rivals', label: 'Rivals', icon: Sword },
   { href: '/players', label: 'Players', icon: UserCircle },
   { href: '/rankings', label: 'Rankings', icon: Trophy },
   { href: '/analytics', label: 'Analytics', icon: ChartScatter },
@@ -124,7 +128,7 @@ export function Sidebar() {
         </div>
 
         {/* Primary Nav */}
-        <nav className="flex-1 p-3 space-y-1">
+        <nav className="flex-1 p-3 space-y-1" aria-label="Primary">
           {navItems.map((item) => {
             const Icon = item.icon
             const active = isActive(item.href)

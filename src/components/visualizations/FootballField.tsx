@@ -7,10 +7,18 @@ interface FootballFieldProps {
   height?: number
   id?: string
   children?: React.ReactNode
+  /** Overrides the default generic aria-label with one describing the actual data plotted. */
+  ariaLabel?: string
+  /**
+   * Marks the field as a purely decorative duplicate of data available elsewhere on
+   * the page (e.g. an adjacent data table), hiding it from assistive tech instead of
+   * announcing it as an unlabeled image.
+   */
+  decorative?: boolean
 }
 
 export const FootballField = forwardRef<SVGSVGElement, FootballFieldProps>(
-  function FootballField({ width = 1000, height = 400, id, children }, ref) {
+  function FootballField({ width = 1000, height = 400, id, children, ariaLabel, decorative = false }, ref) {
     // Field dimensions: 100 yards + 2 end zones (10 yards each) = 120 total
     const endZoneWidth = (width / 120) * 10
     const fieldWidth = width - (2 * endZoneWidth)
@@ -23,8 +31,9 @@ export const FootballField = forwardRef<SVGSVGElement, FootballFieldProps>(
         ref={ref}
         viewBox={`0 0 ${width} ${height}`}
         className="w-full h-auto"
-        aria-label="Football field visualization showing drive patterns"
-        role="img"
+        {...(decorative
+          ? { 'aria-hidden': true }
+          : { role: 'img', 'aria-label': ariaLabel ?? 'Football field visualization showing drive patterns' })}
       >
         {/* Background */}
         <rect x={0} y={0} width={width} height={height} fill="var(--field-green)" />

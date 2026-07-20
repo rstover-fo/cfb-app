@@ -44,7 +44,13 @@ export function RadarChart({ metrics, teamName, teamColor, size = 300 }: RadarCh
   return (
     <div className="flex flex-col items-center">
       <h4 className="font-headline text-lg mb-2 text-[var(--text-primary)]">{teamName}</h4>
-      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+      <svg
+        width={size}
+        height={size}
+        viewBox={`0 0 ${size} ${size}`}
+        role="img"
+        aria-label={`${teamName} radar chart: ${metrics.map(m => `${m.label} ${Math.round(m.value)}th percentile`).join(', ')}`}
+      >
         {/* Grid circles */}
         {gridLevels.map(level => (
           <circle

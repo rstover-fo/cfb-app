@@ -1,9 +1,11 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useCallback } from 'react'
 import type { GameDrive, GamePlay } from '@/lib/types/database'
 import type { GameWithTeams } from '@/lib/queries/games'
 import { PlayRow } from './PlayRow'
+import { ExportButton } from '@/components/ExportButton'
+import { exportToCsv } from '@/lib/export-csv'
 
 interface DriveSectionProps {
   drive: GameDrive
@@ -48,49 +50,74 @@ export function DriveSection({ drive, plays, game, defaultExpanded }: DriveSecti
   const startPos = formatFieldPos(drive.start_yards_to_goal)
   const endPos = formatFieldPos(drive.end_yards_to_goal)
 
+  const handleExportDrive = useCallback(() => {
+    const csvData = [
+      {
+        'Drive #': drive.drive_number,
+        'Team': drive.offense,
+        'Period': drive.start_period,
+        'Start Position': startPos,
+        'End Position': endPos,
+        'Plays': drive.plays,
+        'Yards': drive.yards,
+        'Time': elapsed,
+        'Result': drive.drive_result,
+        'Scoring': drive.scoring ? 'Yes' : 'No',
+      },
+    ]
+
+    exportToCsv(`drive-${drive.drive_number}`, csvData)
+  }, [drive, startPos, endPos, elapsed])
+
   return (
     <div
       className="border border-[var(--border)] rounded-lg overflow-hidden mb-2"
       style={{ borderLeftWidth: '3px', borderLeftColor: teamColor ?? 'var(--border)' }}
     >
-      <button
-        type="button"
-        onClick={() => setExpanded(prev => !prev)}
-        className="w-full text-left px-4 py-3 flex items-center justify-between gap-4 bg-[var(--bg-surface)] hover:bg-[var(--bg-surface-alt)] transition-colors cursor-pointer"
-        aria-expanded={expanded}
-      >
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-medium text-[var(--text-primary)]">
-              {teamName}
+      {/* Header row: the expand toggle and the export action are sibling
+          buttons — nesting them is invalid HTML and made an export click
+          also toggle the drive. */}
+      <div className="w-full px-4 py-3 flex items-center gap-3 bg-[var(--bg-surface)] hover:bg-[var(--bg-surface-alt)] transition-colors">
+        <button
+          type="button"
+          onClick={() => setExpanded(prev => !prev)}
+          className="flex-1 min-w-0 text-left flex items-center justify-between gap-4 cursor-pointer"
+          aria-expanded={expanded}
+        >
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-medium text-[var(--text-primary)]">
+                {teamName}
+              </span>
+              <span className="text-xs text-[var(--text-muted)]">
+                Drive #{drive.drive_number}
+              </span>
+            </div>
+            <div className="text-xs text-[var(--text-muted)] mt-0.5">
+              {startPos} → {endPos}
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3 shrink-0">
+            <span
+              className="text-xs font-medium px-2 py-0.5 rounded"
+              style={{
+                color: resultColor,
+                backgroundColor: `color-mix(in srgb, ${resultColor} 15%, transparent)`,
+              }}
+            >
+              {drive.drive_result}
+            </span>
+            <span className="text-xs text-[var(--text-muted)] tabular-nums whitespace-nowrap">
+              {drive.plays} plays · {drive.yards} yds · {elapsed}
             </span>
             <span className="text-xs text-[var(--text-muted)]">
-              Drive #{drive.drive_number}
+              {expanded ? '▼' : '▶'}
             </span>
           </div>
-          <div className="text-xs text-[var(--text-muted)] mt-0.5">
-            {startPos} → {endPos}
-          </div>
-        </div>
-
-        <div className="flex items-center gap-3 shrink-0">
-          <span
-            className="text-xs font-medium px-2 py-0.5 rounded"
-            style={{
-              color: resultColor,
-              backgroundColor: `color-mix(in srgb, ${resultColor} 15%, transparent)`,
-            }}
-          >
-            {drive.drive_result}
-          </span>
-          <span className="text-xs text-[var(--text-muted)] tabular-nums whitespace-nowrap">
-            {drive.plays} plays · {drive.yards} yds · {elapsed}
-          </span>
-          <span className="text-xs text-[var(--text-muted)]">
-            {expanded ? '▼' : '▶'}
-          </span>
-        </div>
-      </button>
+        </button>
+        <ExportButton onClick={handleExportDrive} label="Export" />
+      </div>
 
       <div
         className="grid transition-all duration-300"

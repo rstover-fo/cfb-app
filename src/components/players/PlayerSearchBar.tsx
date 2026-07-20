@@ -33,7 +33,10 @@ export function PlayerSearchBar() {
     if (currentSearchId !== searchIdRef.current) return
 
     setResults(data)
-    setIsOpen(data.length > 0)
+    // Keep the dropdown open even on zero results so the user gets
+    // explicit "no matches" feedback instead of the search silently
+    // appearing to do nothing.
+    setIsOpen(true)
     setActiveIndex(-1)
     setIsSearching(false)
   }, [])
@@ -144,6 +147,17 @@ export function PlayerSearchBar() {
           </span>
         )}
       </div>
+
+      {isOpen && results.length === 0 && !isSearching && (
+        <div
+          id="player-search-results"
+          role="status"
+          aria-live="polite"
+          className="absolute z-50 top-full left-0 right-0 mt-1 bg-[var(--bg-surface)] border border-[var(--border)] rounded-sm shadow-md px-3 py-3 text-sm text-[var(--text-muted)]"
+        >
+          No players found for &ldquo;{query.trim()}&rdquo;
+        </div>
+      )}
 
       {isOpen && results.length > 0 && (
         <ul

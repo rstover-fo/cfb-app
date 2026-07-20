@@ -90,7 +90,7 @@ function StatRow({ label, awayValue, homeValue, awayRaw, homeRaw, awayColor, hom
         >
           {awayValue}
         </span>
-        <div className="w-20 h-2 rounded-full bg-[var(--bg-surface-alt)] overflow-hidden flex justify-end">
+        <div className="w-20 h-2 rounded-full bg-[var(--bg-surface-alt)] overflow-hidden flex justify-end" aria-hidden="true">
           <div
             className="h-full rounded-full transition-all"
             style={{
@@ -106,7 +106,7 @@ function StatRow({ label, awayValue, homeValue, awayRaw, homeRaw, awayColor, hom
 
       {/* Home side */}
       <div className="flex items-center gap-2">
-        <div className="w-20 h-2 rounded-full bg-[var(--bg-surface-alt)] overflow-hidden">
+        <div className="w-20 h-2 rounded-full bg-[var(--bg-surface-alt)] overflow-hidden" aria-hidden="true">
           <div
             className="h-full rounded-full transition-all"
             style={{

@@ -19,9 +19,9 @@ function TransferRow({ t, showOrigin }: { t: TransferRecord; showOrigin: boolean
 
   return (
     <tr className="border-b border-[var(--border)] last:border-b-0 hover:bg-[var(--bg-surface-alt)] transition-colors">
-      <td className="py-2.5 px-2 text-[var(--text-primary)] font-medium">
+      <th scope="row" className="py-2.5 px-2 text-left font-medium text-[var(--text-primary)]">
         {t.first_name} {t.last_name}
-      </td>
+      </th>
       <td className="py-2.5 px-2 text-center">
         <span className="px-2 py-0.5 text-xs rounded bg-[var(--bg-surface-alt)] text-[var(--text-secondary)]">
           {t.position}
@@ -29,9 +29,9 @@ function TransferRow({ t, showOrigin }: { t: TransferRecord; showOrigin: boolean
       </td>
       <td className="py-2.5 px-2 text-center">
         {t.stars !== null ? (
-          <span className="inline-flex gap-0.5">
+          <span className="inline-flex gap-0.5" aria-label={`${t.stars} star${t.stars === 1 ? '' : 's'}`}>
             {Array.from({ length: t.stars }, (_, j) => (
-              <Star key={j} size={12} weight="fill" className="text-[var(--color-run)]" />
+              <Star key={j} size={12} weight="fill" className="text-[var(--color-run)]" aria-hidden="true" />
             ))}
           </span>
         ) : (
@@ -135,16 +135,16 @@ export function PortalActivityPanel({ activity, season }: PortalActivityPanelPro
           {/* Transfer table */}
           {transfers.length > 0 ? (
             <div className="border border-[var(--border)] rounded-sm bg-[var(--bg-surface)] overflow-x-auto">
-              <table className="w-full text-sm">
+              <table className="w-full text-sm" aria-label={`${tab === 'incoming' ? 'Incoming' : 'Outgoing'} transfer portal activity for ${season}`}>
                 <thead>
                   <tr className="border-b border-[var(--border)]">
-                    <th className="py-2 px-2 text-left text-xs text-[var(--text-muted)] uppercase tracking-wide">Name</th>
-                    <th className="py-2 px-2 text-center text-xs text-[var(--text-muted)] uppercase tracking-wide">Pos</th>
-                    <th className="py-2 px-2 text-center text-xs text-[var(--text-muted)] uppercase tracking-wide">Stars</th>
-                    <th className="py-2 px-2 text-left text-xs text-[var(--text-muted)] uppercase tracking-wide hidden md:table-cell">
+                    <th scope="col" className="py-2 px-2 text-left text-xs text-[var(--text-muted)] uppercase tracking-wide">Name</th>
+                    <th scope="col" className="py-2 px-2 text-center text-xs text-[var(--text-muted)] uppercase tracking-wide">Pos</th>
+                    <th scope="col" className="py-2 px-2 text-center text-xs text-[var(--text-muted)] uppercase tracking-wide">Stars</th>
+                    <th scope="col" className="py-2 px-2 text-left text-xs text-[var(--text-muted)] uppercase tracking-wide hidden md:table-cell">
                       {showOrigin ? 'From' : 'To'}
                     </th>
-                    <th className="py-2 px-2 text-right text-xs text-[var(--text-muted)] uppercase tracking-wide hidden md:table-cell">Date</th>
+                    <th scope="col" className="py-2 px-2 text-right text-xs text-[var(--text-muted)] uppercase tracking-wide hidden md:table-cell">Date</th>
                   </tr>
                 </thead>
                 <tbody>

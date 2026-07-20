@@ -2,7 +2,9 @@
 
 import Image from 'next/image'
 import { useRouter } from 'next/navigation'
+import { Trophy } from '@phosphor-icons/react'
 import { teamNameToSlug } from '@/lib/utils'
+import { EmptyState } from '@/components/EmptyState'
 import type { EnrichedPollRanking } from '@/lib/types/database'
 
 interface PollTableProps {
@@ -32,15 +34,17 @@ export function PollTable({ rankings, poll }: PollTableProps) {
 
   if (rankings.length === 0) {
     return (
-      <div className="py-8 text-center text-sm text-[var(--text-muted)]">
-        No rankings data available for {poll}
-      </div>
+      <EmptyState
+        icon={Trophy}
+        title="No rankings for this week"
+        description={`${poll} hasn't published a ranking for the selected week yet. Try a different week or poll.`}
+      />
     )
   }
 
   return (
     <div>
-      <table className="w-full text-sm">
+      <table className="w-full text-sm" aria-label={`${poll} rankings`}>
         <thead>
           <tr className="text-[10px] uppercase tracking-wider text-[var(--text-muted)]">
             <th className="text-right pr-3 py-2 font-normal w-8">#</th>

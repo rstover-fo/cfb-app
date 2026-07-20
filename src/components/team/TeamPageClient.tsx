@@ -188,6 +188,7 @@ export function TeamPageClient({
                   trajectory={trajectory}
                   averages={trajectoryAverages}
                   conference={team.conference || 'FBS'}
+                  teamName={team.school ?? ''}
                 />
               ) : (
                 <p className="text-[var(--text-muted)]">No trajectory data available</p>

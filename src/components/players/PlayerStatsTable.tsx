@@ -170,12 +170,13 @@ export function PlayerStatsTable({ player }: PlayerStatsTableProps) {
             <h3 className="text-xs font-medium text-[var(--text-secondary)] mb-2">
               {section.title}
             </h3>
-            <table className="w-full text-sm">
+            <table className="w-full text-sm" aria-label={`${player.season} ${section.title} stats`}>
               <thead>
                 <tr>
                   {section.stats.map((stat) => (
                     <th
                       key={stat.label}
+                      scope="col"
                       className="text-[10px] uppercase tracking-wider text-[var(--text-muted)] text-right py-1 px-2 first:text-left"
                     >
                       {stat.label}

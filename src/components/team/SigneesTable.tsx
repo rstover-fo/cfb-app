@@ -12,6 +12,38 @@ interface SigneesTableProps {
 type SortKey = 'ranking' | 'name' | 'position' | 'stars' | 'rating'
 type SortDir = 'asc' | 'desc'
 
+interface SortableThProps {
+  sortKeyName: SortKey
+  label: string
+  align?: 'left' | 'center' | 'right'
+  sortKey: SortKey
+  sortDir: SortDir
+  onSort: (key: SortKey) => void
+}
+
+function SortableTh({ sortKeyName, label, align = 'left', sortKey, sortDir, onSort }: SortableThProps) {
+  const isActive = sortKey === sortKeyName
+  const ariaSort: 'ascending' | 'descending' | 'none' = !isActive ? 'none' : sortDir === 'asc' ? 'ascending' : 'descending'
+  const sortIndicator = isActive ? (sortDir === 'asc' ? ' ↑' : ' ↓') : ''
+
+  return (
+    <th
+      scope="col"
+      aria-sort={ariaSort}
+      className={`py-2 px-2 text-xs text-[var(--text-muted)] uppercase tracking-wide ${align === 'center' ? 'text-center' : align === 'right' ? 'text-right' : 'text-left'}`}
+    >
+      <button
+        type="button"
+        onClick={() => onSort(sortKeyName)}
+        className="inline-flex items-center hover:text-[var(--text-secondary)] select-none"
+        aria-label={`Sort by ${label}${isActive ? `, currently sorted ${sortDir === 'asc' ? 'ascending' : 'descending'}` : ''}`}
+      >
+        {label}{sortIndicator}
+      </button>
+    </th>
+  )
+}
+
 export function SigneesTable({ signees, season }: SigneesTableProps) {
   const [sortKey, setSortKey] = useState<SortKey>('ranking')
   const [sortDir, setSortDir] = useState<SortDir>('asc')
@@ -59,35 +91,21 @@ export function SigneesTable({ signees, season }: SigneesTableProps) {
     )
   }
 
-  const headerClass = 'py-2 px-2 text-left text-xs text-[var(--text-muted)] uppercase tracking-wide cursor-pointer hover:text-[var(--text-secondary)] select-none'
-  const sortIndicator = (key: SortKey) =>
-    sortKey === key ? (sortDir === 'asc' ? ' ↑' : ' ↓') : ''
-
   return (
     <section>
       <h2 className="font-headline text-2xl text-[var(--text-primary)] mb-4">
         {season} Signees ({signees.length})
       </h2>
       <div className="border border-[var(--border)] rounded-sm bg-[var(--bg-surface)] overflow-x-auto">
-        <table className="w-full text-sm">
+        <table className="w-full text-sm" aria-label={`${season} signing class`}>
           <thead>
             <tr className="border-b border-[var(--border)]">
-              <th className={headerClass} onClick={() => handleSort('ranking')}>
-                #{sortIndicator('ranking')}
-              </th>
-              <th className={headerClass} onClick={() => handleSort('name')}>
-                Name{sortIndicator('name')}
-              </th>
-              <th className={`${headerClass} text-center`} onClick={() => handleSort('position')}>
-                Pos{sortIndicator('position')}
-              </th>
-              <th className={`${headerClass} text-center`} onClick={() => handleSort('stars')}>
-                Stars{sortIndicator('stars')}
-              </th>
-              <th className={`${headerClass} text-right`} onClick={() => handleSort('rating')}>
-                Rating{sortIndicator('rating')}
-              </th>
-              <th className={`${headerClass} hidden md:table-cell`}>Hometown</th>
+              <SortableTh sortKeyName="ranking" label="#" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+              <SortableTh sortKeyName="name" label="Name" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+              <SortableTh sortKeyName="position" label="Pos" align="center" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+              <SortableTh sortKeyName="stars" label="Stars" align="center" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+              <SortableTh sortKeyName="rating" label="Rating" align="right" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+              <th scope="col" className="py-2 px-2 text-left text-xs text-[var(--text-muted)] uppercase tracking-wide hidden md:table-cell">Hometown</th>
             </tr>
           </thead>
           <tbody>
@@ -99,22 +117,23 @@ export function SigneesTable({ signees, season }: SigneesTableProps) {
                 <td className="py-2.5 px-2 text-[var(--text-muted)]">
                   {s.ranking ?? '--'}
                 </td>
-                <td className="py-2.5 px-2 text-[var(--text-primary)] font-medium">
+                <th scope="row" className="py-2.5 px-2 text-left font-medium text-[var(--text-primary)]">
                   {s.name}
-                </td>
+                </th>
                 <td className="py-2.5 px-2 text-center">
                   <span className="px-2 py-0.5 text-xs rounded bg-[var(--bg-surface-alt)] text-[var(--text-secondary)]">
                     {s.position}
                   </span>
                 </td>
                 <td className="py-2.5 px-2 text-center">
-                  <span className="inline-flex gap-0.5">
+                  <span className="inline-flex gap-0.5" aria-label={`${s.stars} star${s.stars === 1 ? '' : 's'}`}>
                     {Array.from({ length: 5 }, (_, j) => (
                       <Star
                         key={j}
                         size={14}
                         weight={j < s.stars ? 'fill' : 'regular'}
                         className={j < s.stars ? 'text-[var(--color-run)]' : 'text-[var(--border)]'}
+                        aria-hidden="true"
                       />
                     ))}
                   </span>

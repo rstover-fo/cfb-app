@@ -351,9 +351,14 @@ export const getGameLineScores = cache(async (gameId: number): Promise<LineScore
   const home = [row.home_q1, row.home_q2, row.home_q3, row.home_q4].map(v => v ?? 0)
   const away = [row.away_q1, row.away_q2, row.away_q3, row.away_q4].map(v => v ?? 0)
 
-  // Only append an OT column when there was overtime (summed across all OT periods)
-  if (row.home_ot != null && row.home_ot > 0) home.push(row.home_ot)
-  if (row.away_ot != null && row.away_ot > 0) away.push(row.away_ot)
+  // Only append an OT column when there was overtime (summed across all OT periods).
+  // Append to BOTH sides when either scored so the arrays stay the same length —
+  // an OT shutout renders as 0, not a missing cell.
+  const hadOvertime = (row.home_ot != null && row.home_ot > 0) || (row.away_ot != null && row.away_ot > 0)
+  if (hadOvertime) {
+    home.push(row.home_ot ?? 0)
+    away.push(row.away_ot ?? 0)
+  }
 
   if (home.every(v => v === 0) && away.every(v => v === 0)) return null
 
