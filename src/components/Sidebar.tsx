@@ -128,7 +128,7 @@ export function Sidebar() {
         </div>
 
         {/* Primary Nav */}
-        <nav className="flex-1 p-3 space-y-1">
+        <nav className="flex-1 p-3 space-y-1" aria-label="Primary">
           {navItems.map((item) => {
             const Icon = item.icon
             const active = isActive(item.href)

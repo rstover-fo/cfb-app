@@ -31,9 +31,19 @@ export default function RootLayout({
       <body
         className={`${libreBaskerville.variable} ${dmSans.variable} antialiased`}
       >
+        <a
+          href="#main-content"
+          className="sr-only focus:not-sr-only focus:fixed focus:top-3 focus:left-3 focus:z-[100] focus:px-4 focus:py-2 focus:rounded focus:bg-[var(--bg-surface)] focus:text-[var(--text-primary)] focus:border focus:border-[var(--border)] focus:shadow-lg"
+        >
+          Skip to main content
+        </a>
         <PaperTexture />
         <Sidebar />
-        <main className="ml-0 pt-14 md:pt-0 md:ml-60 min-h-screen transition-all duration-200">
+        <main
+          id="main-content"
+          tabIndex={-1}
+          className="ml-0 pt-14 md:pt-0 md:ml-60 min-h-screen transition-all duration-200 focus:outline-none"
+        >
           {children}
         </main>
       </body>
