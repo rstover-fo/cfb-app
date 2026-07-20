@@ -238,95 +238,36 @@ const SORT_STAT: Record<string, string> = {
   'defensive': 'TOT',
 }
 
-// Get player leaders for a game from core schema
+// Row shape for api.game_player_leaders (one row per player per stat_type per category)
+// TODO(A0.6): regenerate supabase types to include `api` schema views/tables
+interface GamePlayerLeaderRow {
+  team: string
+  home_away: 'home' | 'away'
+  category: string
+  stat_type: string
+  player_id: string
+  player_name: string
+  stat: string
+}
+
+// Get player leaders for a game from the contracted api.game_player_leaders view
 // Returns null if no player stats exist for this game
 export const getGamePlayerLeaders = cache(async (gameId: number): Promise<PlayerLeaders | null> => {
   const supabase = await createClient()
 
-  // Step 1: Get the game's _dlt_id from game_player_stats
-  const { data: gameData, error: gameError } = await supabase
-    .schema('core')
-    .from('game_player_stats')
-    .select('_dlt_id')
-    .eq('id', gameId)
-    .single()
+  const { data, error } = await supabase
+    .schema('api')
+    .from('game_player_leaders')
+    .select('team, home_away, category, stat_type, player_id, player_name, stat')
+    .eq('game_id', gameId)
+    .in('category', Object.keys(CATEGORY_MAP))
 
-  if (gameError || !gameData) {
+  if (error || !data || data.length === 0) {
     return null
   }
 
-  // Step 2: Get teams for this game
-  const { data: teamsData, error: teamsError } = await supabase
-    .schema('core')
-    .from('game_player_stats__teams')
-    .select('team, home_away, _dlt_id')
-    .eq('_dlt_parent_id', gameData._dlt_id)
+  const rows = data as GamePlayerLeaderRow[]
 
-  if (teamsError || !teamsData || teamsData.length === 0) {
-    return null
-  }
-
-  // Step 3: Get categories for all teams
-  const teamDltIds = teamsData.map(t => t._dlt_id)
-  const { data: categoriesData, error: categoriesError } = await supabase
-    .schema('core')
-    .from('game_player_stats__teams__categories')
-    .select('name, _dlt_id, _dlt_parent_id')
-    .in('_dlt_parent_id', teamDltIds)
-    .in('name', Object.keys(CATEGORY_MAP))
-
-  if (categoriesError || !categoriesData) {
-    return null
-  }
-
-  // Step 4: Get stat types for all categories
-  const categoryDltIds = categoriesData.map(c => c._dlt_id)
-  const { data: typesData, error: typesError } = await supabase
-    .schema('core')
-    .from('game_player_stats__teams__categories__types')
-    .select('name, _dlt_id, _dlt_parent_id')
-    .in('_dlt_parent_id', categoryDltIds)
-
-  if (typesError || !typesData) {
-    return null
-  }
-
-  // Step 5: Get athletes for all stat types
-  const typeDltIds = typesData.map(t => t._dlt_id)
-  const { data: athletesData, error: athletesError } = await supabase
-    .schema('core')
-    .from('game_player_stats__teams__categories__types__athletes')
-    .select('id, name, stat, _dlt_parent_id')
-    .in('_dlt_parent_id', typeDltIds)
-
-  if (athletesError || !athletesData) {
-    return null
-  }
-
-  // Build lookup maps for efficient traversal
-  const typesByCategory = new Map<string, typeof typesData>()
-  for (const type of typesData) {
-    const existing = typesByCategory.get(type._dlt_parent_id) ?? []
-    existing.push(type)
-    typesByCategory.set(type._dlt_parent_id, existing)
-  }
-
-  const athletesByType = new Map<string, typeof athletesData>()
-  for (const athlete of athletesData) {
-    const existing = athletesByType.get(athlete._dlt_parent_id) ?? []
-    existing.push(athlete)
-    athletesByType.set(athlete._dlt_parent_id, existing)
-  }
-
-  // Build category lookup
-  const categoriesByTeam = new Map<string, typeof categoriesData>()
-  for (const cat of categoriesData) {
-    const existing = categoriesByTeam.get(cat._dlt_parent_id) ?? []
-    existing.push(cat)
-    categoriesByTeam.set(cat._dlt_parent_id, existing)
-  }
-
-  // Process each team
   const emptyTeamLeaders = (): TeamLeaders => ({
     passing: [],
     rushing: [],
@@ -334,50 +275,38 @@ export const getGamePlayerLeaders = cache(async (gameId: number): Promise<Player
     defense: [],
   })
 
-  let home: TeamLeaders = emptyTeamLeaders()
-  let away: TeamLeaders = emptyTeamLeaders()
+  // Group rows by home_away + category, merging stat_type rows per player_id
+  // (each player appears once per stat_type, e.g. separate rows for YDS and TD)
+  const playersByTeamCategory = new Map<string, Map<string, { id: string; name: string; stats: Record<string, string> }>>()
 
-  for (const team of teamsData) {
-    const teamLeaders = emptyTeamLeaders()
-    const categories = categoriesByTeam.get(team._dlt_id) ?? []
+  for (const row of rows) {
+    const key = `${row.home_away}:${row.category}`
+    const players = playersByTeamCategory.get(key) ?? new Map()
+    playersByTeamCategory.set(key, players)
 
-    for (const category of categories) {
-      const uiCategory = CATEGORY_MAP[category.name]
-      if (!uiCategory) continue
+    const player = players.get(row.player_id) ?? { id: row.player_id, name: row.player_name, stats: {} }
+    player.stats[row.stat_type] = row.stat
+    players.set(row.player_id, player)
+  }
 
-      const types = typesByCategory.get(category._dlt_id) ?? []
+  const home: TeamLeaders = emptyTeamLeaders()
+  const away: TeamLeaders = emptyTeamLeaders()
 
-      // Collect all athletes and their stats for this category
-      // Athletes appear once per stat type, so we need to merge by athlete ID
-      const athleteStats = new Map<string, { id: string; name: string; stats: Record<string, string> }>()
+  for (const [key, players] of playersByTeamCategory) {
+    const [homeAway, category] = key.split(':')
+    const uiCategory = CATEGORY_MAP[category]
+    if (!uiCategory) continue
 
-      for (const type of types) {
-        const athletes = athletesByType.get(type._dlt_id) ?? []
-        for (const athlete of athletes) {
-          if (!athleteStats.has(athlete.id)) {
-            athleteStats.set(athlete.id, { id: athlete.id, name: athlete.name, stats: {} })
-          }
-          athleteStats.get(athlete.id)!.stats[type.name] = athlete.stat
-        }
-      }
+    // Sort by primary stat, descending
+    const sortStat = SORT_STAT[category]
+    const sorted = Array.from(players.values()).sort((a, b) => {
+      const aVal = parseFloat(a.stats[sortStat] ?? '0')
+      const bVal = parseFloat(b.stats[sortStat] ?? '0')
+      return bVal - aVal
+    })
 
-      // Convert to array and sort by primary stat
-      const sortStat = SORT_STAT[category.name]
-      const players = Array.from(athleteStats.values())
-        .sort((a, b) => {
-          const aVal = parseFloat(a.stats[sortStat] ?? '0')
-          const bVal = parseFloat(b.stats[sortStat] ?? '0')
-          return bVal - aVal  // Descending
-        })
-
-      teamLeaders[uiCategory] = players
-    }
-
-    if (team.home_away === 'home') {
-      home = teamLeaders
-    } else {
-      away = teamLeaders
-    }
+    const teamLeaders = homeAway === 'home' ? home : away
+    teamLeaders[uiCategory] = sorted
   }
 
   return { home, away }
