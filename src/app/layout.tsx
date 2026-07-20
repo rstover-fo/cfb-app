@@ -1,8 +1,10 @@
 import type { Metadata } from "next";
 import { Libre_Baskerville, DM_Sans } from "next/font/google";
+import { cookies } from "next/headers";
 import "./globals.css";
 import { Sidebar } from "@/components/Sidebar";
 import { PaperTexture } from "@/components/PaperTexture";
+import { TEAM_THEME_COOKIE, parseTeamThemeCookie } from "@/lib/theme/team-theme";
 
 const libreBaskerville = Libre_Baskerville({
   variable: "--font-headline",
@@ -21,13 +23,18 @@ export const metadata: Metadata = {
   description: "Interactive analytics portal for college football teams",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  // Read the team-theme preference cookie server-side so the correct
+  // data-team-theme attribute is present on first paint (no hydration flash).
+  const cookieStore = await cookies();
+  const teamTheme = parseTeamThemeCookie(cookieStore.get(TEAM_THEME_COOKIE)?.value);
+
   return (
-    <html lang="en">
+    <html lang="en" data-team-theme={teamTheme ?? undefined}>
       <body
         className={`${libreBaskerville.variable} ${dmSans.variable} antialiased`}
       >

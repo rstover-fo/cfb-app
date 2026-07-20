@@ -2,6 +2,8 @@
 
 import { useState } from 'react'
 import Image from 'next/image'
+import Link from 'next/link'
+import { Sword } from '@phosphor-icons/react'
 import { Team, TeamSeasonEpa, TeamStyleProfile, TeamSeasonTrajectory, DrivePattern, DownDistanceSplit, TrajectoryAverages, RedZoneSplit, FieldPositionSplit, HomeAwaySplit, ConferenceSplit, RosterPlayer, PlayerSeasonStat, ScheduleGame, RecruitingClassHistory, RecruitingROI, Signee, PortalActivity } from '@/lib/types/database'
 import { MetricsCards } from '@/components/team/MetricsCards'
 import { StyleProfile } from '@/components/team/StyleProfile'
@@ -9,10 +11,12 @@ import { DrivePatterns } from '@/components/visualizations/DrivePatterns'
 import { TrajectoryChart } from '@/components/team/TrajectoryChart'
 import { SituationalView } from '@/components/team/SituationalView'
 import { SeasonSelector } from '@/components/SeasonSelector'
+import { TeamThemeToggle } from '@/components/team/TeamThemeToggle'
 import { RosterView } from './RosterView'
 import { ScheduleView } from './ScheduleView'
 import { CompareView } from './CompareView'
 import { RecruitingView } from './RecruitingView'
+import type { TeamThemeConfig } from '@/lib/theme/team-theme'
 
 type TabId = 'overview' | 'situational' | 'schedule' | 'roster' | 'compare' | 'recruiting'
 
@@ -54,6 +58,10 @@ interface TeamPageClientProps {
   roi: RecruitingROI | null
   signees: Signee[] | null
   portalActivity: PortalActivity | null
+  /** Theme this team offers (e.g. OU "Sooner Mode"), or null if it has none. */
+  teamTheme: TeamThemeConfig | null
+  /** The theme key currently active site-wide, per the visitor's cookie. */
+  activeThemeKey: string | null
 }
 
 export function TeamPageClient({
@@ -78,14 +86,27 @@ export function TeamPageClient({
   classHistory,
   roi,
   signees,
-  portalActivity
+  portalActivity,
+  teamTheme,
+  activeThemeKey
 }: TeamPageClientProps) {
   const [activeTab, setActiveTab] = useState<TabId>('overview')
+
+  // True only when this team's own theme is the one currently active.
+  const isThemeActive = teamTheme !== null && activeThemeKey === teamTheme.key
 
   return (
     <div className="p-8">
       {/* Page Header */}
-      <header className="flex items-center gap-6 mb-8 pb-6 border-b border-[var(--border)]">
+      <header
+        className={`flex flex-wrap items-center gap-6 mb-8 pb-6 border-b transition-colors ${
+          isThemeActive ? 'border-[var(--accent)]' : 'border-[var(--border)]'
+        }`}
+        // Scope the headline underline to the team's accent color only while
+        // its theme is active — a subtle, page-local accent treatment that
+        // doesn't touch the shared --color-run token used elsewhere.
+        style={isThemeActive ? ({ '--color-run': 'var(--accent)' } as React.CSSProperties) : undefined}
+      >
         {team.logo ? (
           <Image
             src={team.logo}
@@ -102,13 +123,27 @@ export function TeamPageClient({
             </span>
           </div>
         )}
-        <div className="flex-1">
+        <div className="flex-1 min-w-[200px]">
           <h1 className="font-headline text-4xl text-[var(--text-primary)] underline-sketch inline-block">
             {team.school}
           </h1>
           <p className="text-[var(--text-secondary)] mt-1">
             {team.conference || 'Independent'} · {currentSeason} Season
           </p>
+          {teamTheme && (
+            <div className="flex flex-wrap items-center gap-3 mt-3">
+              <TeamThemeToggle themeKey={teamTheme.key} label={teamTheme.label} active={isThemeActive} />
+              {isThemeActive && (
+                <Link
+                  href="/rivals?t1=Oklahoma&t2=Texas"
+                  className="inline-flex items-center gap-1.5 text-xs font-medium text-[var(--accent)] hover:text-[var(--accent-hover)] transition-colors"
+                >
+                  <Sword size={14} weight="bold" aria-hidden="true" />
+                  Red River Rivalry
+                </Link>
+              )}
+            </div>
+          )}
         </div>
         <SeasonSelector seasons={availableSeasons} currentSeason={currentSeason} />
       </header>
