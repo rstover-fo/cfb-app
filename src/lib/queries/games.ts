@@ -261,6 +261,9 @@ export const getGamePlayerLeaders = cache(async (gameId: number): Promise<Player
     .select('team, home_away, category, stat_type, player_id, player_name, stat')
     .eq('game_id', gameId)
     .in('category', Object.keys(CATEGORY_MAP))
+    // Deterministic grouping/tie-breaking: without an order, equal-stat players
+    // surface in arbitrary PostgREST row order
+    .order('player_id')
 
   if (error || !data || data.length === 0) {
     return null
