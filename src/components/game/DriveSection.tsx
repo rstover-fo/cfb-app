@@ -1,9 +1,11 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useCallback } from 'react'
 import type { GameDrive, GamePlay } from '@/lib/types/database'
 import type { GameWithTeams } from '@/lib/queries/games'
 import { PlayRow } from './PlayRow'
+import { ExportButton } from '@/components/ExportButton'
+import { exportToCsv } from '@/lib/export-csv'
 
 interface DriveSectionProps {
   drive: GameDrive
@@ -48,6 +50,25 @@ export function DriveSection({ drive, plays, game, defaultExpanded }: DriveSecti
   const startPos = formatFieldPos(drive.start_yards_to_goal)
   const endPos = formatFieldPos(drive.end_yards_to_goal)
 
+  const handleExportDrive = useCallback(() => {
+    const csvData = [
+      {
+        'Drive #': drive.drive_number,
+        'Team': drive.offense,
+        'Period': drive.start_period,
+        'Start Position': startPos,
+        'End Position': endPos,
+        'Plays': drive.plays,
+        'Yards': drive.yards,
+        'Time': elapsed,
+        'Result': drive.drive_result,
+        'Scoring': drive.scoring ? 'Yes' : 'No',
+      },
+    ]
+
+    exportToCsv(`drive-${drive.drive_number}`, csvData)
+  }, [drive, startPos, endPos, elapsed])
+
   return (
     <div
       className="border border-[var(--border)] rounded-lg overflow-hidden mb-2"
@@ -86,6 +107,7 @@ export function DriveSection({ drive, plays, game, defaultExpanded }: DriveSecti
           <span className="text-xs text-[var(--text-muted)] tabular-nums whitespace-nowrap">
             {drive.plays} plays · {drive.yards} yds · {elapsed}
           </span>
+          <ExportButton onClick={handleExportDrive} label="Export" />
           <span className="text-xs text-[var(--text-muted)]">
             {expanded ? '▼' : '▶'}
           </span>
