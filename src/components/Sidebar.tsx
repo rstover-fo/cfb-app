@@ -14,6 +14,7 @@ import {
   CalendarBlank,
   Trophy,
   UserCircle,
+  ArrowsLeftRight,
   List,
   X,
 } from '@phosphor-icons/react'
@@ -22,6 +23,7 @@ import { ThemeToggle } from './ThemeToggle'
 const navItems = [
   { href: '/', label: 'Home', icon: House },
   { href: '/teams', label: 'Teams', icon: Football },
+  { href: '/compare', label: 'Compare', icon: ArrowsLeftRight },
   { href: '/games', label: 'Games', icon: CalendarBlank },
   { href: '/players', label: 'Players', icon: UserCircle },
   { href: '/rankings', label: 'Rankings', icon: Trophy },
