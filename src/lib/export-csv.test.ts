@@ -104,14 +104,13 @@ describe('exportToCsv', () => {
     expect(createObjectURLSpy).toHaveBeenCalled()
   })
 
-  it('should log warning when given empty rows', () => {
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+  it('should silently return early when given empty rows', () => {
     const data: Record<string, unknown>[] = []
 
     exportToCsv('empty', data)
 
-    expect(warnSpy).toHaveBeenCalledWith('exportToCsv: No rows to export')
-    warnSpy.mockRestore()
+    // Verify that createObjectURL was not called (no blob created)
+    expect(createObjectURLSpy).not.toHaveBeenCalled()
   })
 
   it('should add .csv extension to filename', () => {
