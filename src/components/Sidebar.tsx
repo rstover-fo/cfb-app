@@ -14,6 +14,7 @@ import {
   CalendarBlank,
   Trophy,
   UserCircle,
+  Sword,
   List,
   X,
 } from '@phosphor-icons/react'
@@ -23,6 +24,7 @@ const navItems = [
   { href: '/', label: 'Home', icon: House },
   { href: '/teams', label: 'Teams', icon: Football },
   { href: '/games', label: 'Games', icon: CalendarBlank },
+  { href: '/rivals', label: 'Rivals', icon: Sword },
   { href: '/players', label: 'Players', icon: UserCircle },
   { href: '/rankings', label: 'Rankings', icon: Trophy },
   { href: '/analytics', label: 'Analytics', icon: ChartScatter },
