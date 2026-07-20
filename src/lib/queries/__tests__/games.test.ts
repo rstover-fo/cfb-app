@@ -195,12 +195,9 @@ describe('getGameLineScores', () => {
     expect(result).toEqual({ home: [7, 14, 7, 10, 6], away: [0, 7, 0, 10, 3] })
   })
 
-  it('appends OT only for the side that actually scored when ot=0 on the other side', async () => {
-    // NOTE: documents current behavior — possible bug, see report. When only one
-    // side scores in overtime, the two arrays end up with different lengths
-    // (home gets 5 entries, away stays at 4), since each side's OT column is
-    // appended independently. A UI that zips home[i]/away[i] by index would
-    // misalign quarters after this point.
+  it('appends OT to both sides when only one side scored, keeping arrays the same length', async () => {
+    // When only one side scores in overtime, both arrays still get an OT entry
+    // so an OT shutout renders as an explicit 0, and home[i]/away[i] stay aligned.
     mockClient({
       apiTables: {
         game_line_scores: ok(
@@ -211,9 +208,9 @@ describe('getGameLineScores', () => {
 
     const result = await getGameLineScores(1001)
 
-    expect(result).toEqual({ home: [7, 14, 7, 10, 3], away: [0, 7, 0, 10] })
+    expect(result).toEqual({ home: [7, 14, 7, 10, 3], away: [0, 7, 0, 10, 0] })
     expect(result!.home).toHaveLength(5)
-    expect(result!.away).toHaveLength(4)
+    expect(result!.away).toHaveLength(5)
   })
 
   it('treats a null OT value the same as zero (no OT column appended)', async () => {
