@@ -428,8 +428,9 @@ export function DrivePatterns({ offenseDrives, defenseDrives, teamName }: DriveP
         })}
       </div>
 
-      {/* Field with Bars */}
-      <FootballField ref={svgRef} width={1000} height={400} id="drive-patterns">
+      {/* Field with Bars -- decorative: the "View drive data as table" details below is
+          the accessible equivalent of everything plotted here. */}
+      <FootballField ref={svgRef} width={1000} height={400} id="drive-patterns" decorative>
         <g ref={barsRef} />
       </FootballField>
 

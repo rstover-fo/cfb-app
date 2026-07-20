@@ -124,7 +124,13 @@ export function OffenseRadar({ teamData, allTeamsData, teamColor, size = 320 }: 
       <h4 className="font-headline text-lg mb-2 text-[var(--text-primary)]">
         {teamData.team} - Offense
       </h4>
-      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+      <svg
+        width={size}
+        height={size}
+        viewBox={`0 0 ${size} ${size}`}
+        role="img"
+        aria-label={`${teamData.team} offense radar: ${metrics.map(m => `${m.label} ${m.format(m.actualValue)}`).join(', ')}`}
+      >
         {/* Grid circles */}
         {gridLevels.map(level => (
           <circle

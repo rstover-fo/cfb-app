@@ -189,6 +189,7 @@ export function DriveFieldOverlay({ drives, game }: DriveFieldOverlayProps) {
         width={FIELD_WIDTH_DEFAULT}
         height={FIELD_HEIGHT}
         id="drive-field-overlay"
+        ariaLabel={`Field view of ${drives.length} drives for ${game.home_team} vs ${game.away_team}, plotted by starting and ending field position`}
       >
         {/* Team labels */}
         <text

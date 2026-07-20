@@ -237,6 +237,12 @@ export function ClassHistoryChart({ data, currentSeason, teamColor }: ClassHisto
         ref={svgRef}
         viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
         className="w-full"
+        role="img"
+        aria-label={
+          sorted.length > 0
+            ? `Recruiting class history from ${sorted[0].year} to ${sorted[sorted.length - 1].year}: total commits by star rating and national class rank per year`
+            : 'Recruiting class history'
+        }
         onMouseMove={handleMouseMove}
         onMouseLeave={() => setTooltip(null)}
       >

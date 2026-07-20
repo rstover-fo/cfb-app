@@ -9,6 +9,8 @@ interface TrajectoryChartProps {
   trajectory: TeamSeasonTrajectory[]
   averages: TrajectoryAverages[] | null
   conference: string
+  /** Team display name, used to build a meaningful chart aria-label. */
+  teamName?: string
 }
 
 type MetricKey = 'wins' | 'win_pct' | 'epa' | 'success' | 'off_rank' | 'def_rank' | 'recruiting' | 'epa_delta'
@@ -115,7 +117,7 @@ function resolveColor(cssVar: string): string {
   return getComputedStyle(document.documentElement).getPropertyValue(match[1]).trim() || '#999'
 }
 
-export function TrajectoryChart({ trajectory, averages, conference }: TrajectoryChartProps) {
+export function TrajectoryChart({ trajectory, averages, conference, teamName }: TrajectoryChartProps) {
   const [selectedMetric, setSelectedMetric] = useState<MetricKey>('wins')
   const [dropdownOpen, setDropdownOpen] = useState(false)
   const [hoveredSeason, setHoveredSeason] = useState<number | null>(null)
@@ -372,6 +374,8 @@ export function TrajectoryChart({ trajectory, averages, conference }: Trajectory
         ref={svgRef}
         viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
         className="w-full h-auto"
+        role="img"
+        aria-label={`${metric.label} by season for ${teamName || 'this team'} from ${seasons[0]} to ${seasons[seasons.length - 1]}, compared to ${conference} and FBS averages`}
         onMouseLeave={() => setHoveredSeason(null)}
       >
         {/* Horizontal grid lines */}
