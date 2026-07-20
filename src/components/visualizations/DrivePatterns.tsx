@@ -464,21 +464,21 @@ export function DrivePatterns({ offenseDrives, defenseDrives, teamName }: DriveP
         <summary className="cursor-pointer text-sm text-[var(--text-muted)] hover:text-[var(--text-secondary)]">
           View {teamName} drive data as table
         </summary>
-        <table className="mt-2 w-full text-sm border-collapse">
+        <table className="mt-2 w-full text-sm border-collapse" aria-label={`${teamName} ${side} drive data`}>
           <thead>
             <tr className="border-b border-[var(--border)]">
-              <th className="text-left p-2 text-[var(--text-muted)]">Outcome</th>
-              <th className="text-left p-2 text-[var(--text-muted)]">From</th>
-              <th className="text-left p-2 text-[var(--text-muted)]">To</th>
-              <th className="text-left p-2 text-[var(--text-muted)]">Count</th>
-              <th className="text-left p-2 text-[var(--text-muted)]">Avg Plays</th>
-              <th className="text-left p-2 text-[var(--text-muted)]">Avg Yards</th>
+              <th scope="col" className="text-left p-2 text-[var(--text-muted)]">Outcome</th>
+              <th scope="col" className="text-left p-2 text-[var(--text-muted)]">From</th>
+              <th scope="col" className="text-left p-2 text-[var(--text-muted)]">To</th>
+              <th scope="col" className="text-left p-2 text-[var(--text-muted)]">Count</th>
+              <th scope="col" className="text-left p-2 text-[var(--text-muted)]">Avg Plays</th>
+              <th scope="col" className="text-left p-2 text-[var(--text-muted)]">Avg Yards</th>
             </tr>
           </thead>
           <tbody>
             {allDrives.map((drive, i) => (
               <tr key={`${drive.outcome}-${drive.start_yard}-${drive.end_yard}-${i}`} className="border-b border-[var(--border)]">
-                <td className="p-2 capitalize text-[var(--text-primary)]">{drive.outcome.replace('_', ' ')}</td>
+                <th scope="row" className="p-2 text-left font-normal capitalize text-[var(--text-primary)]">{drive.outcome.replace('_', ' ')}</th>
                 <td className="p-2 text-[var(--text-secondary)]">{formatYardLabel(drive.start_yard)}</td>
                 <td className="p-2 text-[var(--text-secondary)]">{formatYardLabel(drive.end_yard)}</td>
                 <td className="p-2 text-[var(--text-secondary)]">{drive.count}</td>

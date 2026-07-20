@@ -51,14 +51,14 @@ function FieldZoneBar({ zones, side }: { zones: FieldPositionSplit[]; side: 'off
 
       {/* Stats table */}
       <div className="overflow-x-auto">
-        <table className="w-full text-sm">
+        <table className="w-full text-sm" aria-label={`${side === 'offense' ? 'Offense' : 'Defense'} field position splits`}>
           <thead>
             <tr className="border-b border-[var(--border)]">
-              <th className="text-left py-2 text-[var(--text-muted)] font-normal">Zone</th>
-              <th className="text-right py-2 text-[var(--text-muted)] font-normal">Plays</th>
-              <th className="text-right py-2 text-[var(--text-muted)] font-normal">Success</th>
-              <th className="text-right py-2 text-[var(--text-muted)] font-normal">EPA/Play</th>
-              <th className="text-right py-2 text-[var(--text-muted)] font-normal">Yds/Play</th>
+              <th scope="col" className="text-left py-2 text-[var(--text-muted)] font-normal">Zone</th>
+              <th scope="col" className="text-right py-2 text-[var(--text-muted)] font-normal">Plays</th>
+              <th scope="col" className="text-right py-2 text-[var(--text-muted)] font-normal">Success</th>
+              <th scope="col" className="text-right py-2 text-[var(--text-muted)] font-normal">EPA/Play</th>
+              <th scope="col" className="text-right py-2 text-[var(--text-muted)] font-normal">Yds/Play</th>
             </tr>
           </thead>
           <tbody>
@@ -67,7 +67,7 @@ function FieldZoneBar({ zones, side }: { zones: FieldPositionSplit[]; side: 'off
               if (!zone) return null
               return (
                 <tr key={zoneId} className="border-b border-[var(--border)]">
-                  <td className="py-2 text-[var(--text-primary)]">{zone.zone_label}</td>
+                  <th scope="row" className="py-2 text-left font-normal text-[var(--text-primary)]">{zone.zone_label}</th>
                   <td className="py-2 text-right tabular-nums text-[var(--text-secondary)]">{zone.play_count}</td>
                   <td className="py-2 text-right tabular-nums text-[var(--text-primary)]">
                     {(zone.success_rate * 100).toFixed(0)}%

@@ -126,7 +126,7 @@ export function PlayerGameLog({ gameLog }: PlayerGameLogProps) {
       )}
 
       <div className="overflow-x-auto">
-        <table className="w-full text-sm">
+        <table className="w-full text-sm" aria-label="Game-by-game log">
           <thead>
             <tr>
               {COLUMNS.map((col) => (
@@ -134,13 +134,19 @@ export function PlayerGameLog({ gameLog }: PlayerGameLogProps) {
                   key={col.key}
                   scope="col"
                   aria-sort={sortKey === col.key ? (sortDir === 'desc' ? 'descending' : 'ascending') : 'none'}
-                  onClick={() => handleSort(col.key)}
-                  className={`text-[10px] uppercase tracking-wider text-[var(--text-muted)] py-2 px-2 cursor-pointer select-none hover:text-[var(--text-primary)] transition-colors whitespace-nowrap ${
+                  className={`text-[10px] uppercase tracking-wider text-[var(--text-muted)] py-2 px-2 whitespace-nowrap ${
                     col.align === 'right' ? 'text-right' : 'text-left'
                   }`}
                 >
-                  {col.label}
-                  {sortIndicator(col.key)}
+                  <button
+                    type="button"
+                    onClick={() => handleSort(col.key)}
+                    className="select-none hover:text-[var(--text-primary)] transition-colors"
+                    aria-label={`Sort by ${col.label}${sortKey === col.key ? `, currently sorted ${sortDir === 'asc' ? 'ascending' : 'descending'}` : ''}`}
+                  >
+                    {col.label}
+                    {sortIndicator(col.key)}
+                  </button>
                 </th>
               ))}
               <th scope="col" className="text-[10px] uppercase tracking-wider text-[var(--text-muted)] py-2 px-2 text-left">

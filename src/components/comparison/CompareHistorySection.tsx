@@ -78,7 +78,7 @@ export async function CompareHistorySection({ t1, t2 }: CompareHistorySectionPro
       </div>
 
       <div className="overflow-x-auto">
-        <table className="w-full text-sm" role="table">
+        <table className="w-full text-sm" role="table" aria-label={`Multi-season history: ${team1.school} vs ${team2.school}`}>
           <thead>
             <tr className="border-b border-[var(--border)] text-left text-xs text-[var(--text-muted)] uppercase tracking-wider">
               <th scope="col" className="py-2 pr-4">Season</th>
@@ -91,7 +91,7 @@ export async function CompareHistorySection({ t1, t2 }: CompareHistorySectionPro
           <tbody>
             {rows.map(({ season, row1, row2 }) => (
               <tr key={season} className="border-b border-[var(--border)] last:border-0">
-                <td className="py-2 pr-4 text-[var(--text-primary)] font-medium tabular-nums">{season}</td>
+                <th scope="row" className="py-2 pr-4 text-left text-[var(--text-primary)] font-medium tabular-nums">{season}</th>
                 <td className="py-2 px-4 text-right tabular-nums text-[var(--text-secondary)]">{formatRecord(row1)}</td>
                 <td className="py-2 px-4 text-right tabular-nums text-[var(--text-secondary)]">{formatRating(row1)}</td>
                 <td className="py-2 px-4 text-right tabular-nums text-[var(--text-secondary)]">{formatRecord(row2)}</td>

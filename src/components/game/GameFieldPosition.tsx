@@ -71,14 +71,14 @@ function TeamTable({ stats, team, color }: { stats: ZoneStats[]; team: string; c
           <h4 className="text-sm font-semibold text-[var(--text-primary)]">{team}</h4>
         </div>
 
-        <table className="w-full">
+        <table className="w-full" aria-label={`${team} field position splits`}>
           <thead>
             <tr className="border-b border-[var(--border)]">
-              <th className="text-left text-xs font-medium text-[var(--text-muted)] py-2 px-3">Zone</th>
-              <th className="text-center text-xs font-medium text-[var(--text-muted)] py-2 px-2">Plays</th>
-              <th className="text-center text-xs font-medium text-[var(--text-muted)] py-2 px-2">Success%</th>
-              <th className="text-center text-xs font-medium text-[var(--text-muted)] py-2 px-2">EPA/Play</th>
-              <th className="text-center text-xs font-medium text-[var(--text-muted)] py-2 px-2">Yds/Play</th>
+              <th scope="col" className="text-left text-xs font-medium text-[var(--text-muted)] py-2 px-3">Zone</th>
+              <th scope="col" className="text-center text-xs font-medium text-[var(--text-muted)] py-2 px-2">Plays</th>
+              <th scope="col" className="text-center text-xs font-medium text-[var(--text-muted)] py-2 px-2">Success%</th>
+              <th scope="col" className="text-center text-xs font-medium text-[var(--text-muted)] py-2 px-2">EPA/Play</th>
+              <th scope="col" className="text-center text-xs font-medium text-[var(--text-muted)] py-2 px-2">Yds/Play</th>
             </tr>
           </thead>
           <tbody>
@@ -87,7 +87,7 @@ function TeamTable({ stats, team, color }: { stats: ZoneStats[]; team: string; c
                 key={row.zone}
                 className={idx % 2 === 0 ? 'bg-[var(--bg-surface-alt)]' : ''}
               >
-                <td className="text-sm text-[var(--text-secondary)] py-2 px-3">{row.zone}</td>
+                <th scope="row" className="text-sm font-normal text-left text-[var(--text-secondary)] py-2 px-3">{row.zone}</th>
                 <td className="text-sm text-[var(--text-primary)] text-center py-2 px-2 tabular-nums">
                   {row.playCount || '\u2014'}
                 </td>

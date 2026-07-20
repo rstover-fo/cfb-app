@@ -1,5 +1,7 @@
 import Image from 'next/image'
 import Link from 'next/link'
+import { ListBullets } from '@phosphor-icons/react'
+import { EmptyState } from '@/components/EmptyState'
 import type { MatchupGame } from '@/lib/queries/matchups'
 
 interface TeamMeta {
@@ -32,21 +34,23 @@ function formatDate(dateStr: string): string {
 export function MatchupGamesTable({ games, teamAMeta, teamBMeta }: MatchupGamesTableProps) {
   if (games.length === 0) {
     return (
-      <p className="text-sm text-[var(--text-muted)] py-6 text-center">
-        No completed games on record between these teams.
-      </p>
+      <EmptyState
+        icon={ListBullets}
+        title="No completed games on record"
+        description={`${teamAMeta.name} and ${teamBMeta.name} have no recorded meetings.`}
+      />
     )
   }
 
   return (
     <div className="overflow-x-auto">
-      <table className="w-full text-sm">
+      <table className="w-full text-sm" aria-label={`All meetings between ${teamAMeta.name} and ${teamBMeta.name}`}>
         <thead>
           <tr className="text-left text-xs uppercase tracking-wider text-[var(--text-muted)] border-b border-[var(--border)]">
-            <th className="py-2 pr-4 font-medium">Season</th>
-            <th className="py-2 pr-4 font-medium">Score</th>
-            <th className="py-2 pr-4 font-medium">Site</th>
-            <th className="py-2 pr-2 font-medium text-right">Result</th>
+            <th scope="col" className="py-2 pr-4 font-medium">Season</th>
+            <th scope="col" className="py-2 pr-4 font-medium">Score</th>
+            <th scope="col" className="py-2 pr-4 font-medium">Site</th>
+            <th scope="col" className="py-2 pr-2 font-medium text-right">Result</th>
           </tr>
         </thead>
         <tbody>
@@ -114,6 +118,7 @@ export function MatchupGamesTable({ games, teamAMeta, teamBMeta }: MatchupGamesT
                   <span
                     className={`inline-flex items-center justify-center w-6 h-6 rounded-sm border text-xs font-semibold ${badge.className}`}
                     title={`${teamAMeta.name} ${game.result === 'W' ? 'won' : game.result === 'L' ? 'lost' : 'tied'}`}
+                    aria-label={`${teamAMeta.name} ${game.result === 'W' ? 'won' : game.result === 'L' ? 'lost' : 'tied'}`}
                   >
                     {badge.label}
                   </span>

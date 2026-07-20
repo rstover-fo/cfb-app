@@ -38,7 +38,7 @@ function PlayerRow({ player, stats }: { player: RosterPlayer; stats: PlayerSeaso
       <td className="py-3 px-2 text-center text-[var(--text-muted)]">
         {player.jersey ?? '--'}
       </td>
-      <td className="py-3 px-2">
+      <th scope="row" className="py-3 px-2 text-left font-normal">
         <div>
           <Link
             href={`/players/${player.id}`}
@@ -52,7 +52,7 @@ function PlayerRow({ player, stats }: { player: RosterPlayer; stats: PlayerSeaso
             </span>
           )}
         </div>
-      </td>
+      </th>
       <td className="py-3 px-2 text-center">
         <span className="px-2 py-0.5 text-xs rounded bg-[var(--bg-surface-alt)] text-[var(--text-secondary)]">
           {player.position}
@@ -179,30 +179,30 @@ export function RosterView({ roster, stats }: RosterViewProps) {
       {/* Table */}
       <div className="card overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="w-full text-sm" aria-label="Team roster">
             <thead>
               <tr className="bg-[var(--bg-surface-alt)] border-b border-[var(--border)]">
-                <th className="py-3 px-2 text-center text-[var(--text-muted)] font-normal w-12">#</th>
-                <th className="py-3 px-2 text-left text-[var(--text-muted)] font-normal">Name</th>
-                <th className="py-3 px-2 text-center text-[var(--text-muted)] font-normal w-16">Pos</th>
-                <th className="py-3 px-2 text-center text-[var(--text-muted)] font-normal w-16">Ht</th>
-                <th className="py-3 px-2 text-center text-[var(--text-muted)] font-normal w-16">Wt</th>
+                <th scope="col" className="py-3 px-2 text-center text-[var(--text-muted)] font-normal w-12">#</th>
+                <th scope="col" className="py-3 px-2 text-left text-[var(--text-muted)] font-normal">Name</th>
+                <th scope="col" className="py-3 px-2 text-center text-[var(--text-muted)] font-normal w-16">Pos</th>
+                <th scope="col" className="py-3 px-2 text-center text-[var(--text-muted)] font-normal w-16">Ht</th>
+                <th scope="col" className="py-3 px-2 text-center text-[var(--text-muted)] font-normal w-16">Wt</th>
                 {currentGroup === 'offense' && (
                   <>
-                    <th className="py-3 px-2 text-center text-[var(--text-muted)] font-normal w-16">Yds</th>
-                    <th className="py-3 px-2 text-center text-[var(--text-muted)] font-normal w-12">TD</th>
+                    <th scope="col" className="py-3 px-2 text-center text-[var(--text-muted)] font-normal w-16">Yds</th>
+                    <th scope="col" className="py-3 px-2 text-center text-[var(--text-muted)] font-normal w-12">TD</th>
                   </>
                 )}
                 {currentGroup === 'defense' && (
                   <>
-                    <th className="py-3 px-2 text-center text-[var(--text-muted)] font-normal w-16">Tkl</th>
-                    <th className="py-3 px-2 text-center text-[var(--text-muted)] font-normal w-16">Sack/INT</th>
+                    <th scope="col" className="py-3 px-2 text-center text-[var(--text-muted)] font-normal w-16">Tkl</th>
+                    <th scope="col" className="py-3 px-2 text-center text-[var(--text-muted)] font-normal w-16">Sack/INT</th>
                   </>
                 )}
                 {currentGroup === 'special' && (
                   <>
-                    <th className="py-3 px-2 text-center text-[var(--text-muted)] font-normal w-16">FG</th>
-                    <th className="py-3 px-2 text-center text-[var(--text-muted)] font-normal w-12">Pts</th>
+                    <th scope="col" className="py-3 px-2 text-center text-[var(--text-muted)] font-normal w-16">FG</th>
+                    <th scope="col" className="py-3 px-2 text-center text-[var(--text-muted)] font-normal w-12">Pts</th>
                   </>
                 )}
               </tr>

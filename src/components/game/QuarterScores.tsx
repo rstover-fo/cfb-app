@@ -25,21 +25,22 @@ export function QuarterScores({ lineScores, game }: QuarterScoresProps) {
   return (
     <div className="bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg overflow-hidden">
       <div className="overflow-x-auto">
-        <table className="w-full">
+        <table className="w-full" aria-label={`Score by quarter: ${game.away_team} at ${game.home_team}`}>
           <thead>
             <tr className="border-b border-[var(--border)]">
-              <th className="text-left text-sm font-medium text-[var(--text-muted)] py-3 px-4 min-w-[140px]">
+              <th scope="col" className="text-left text-sm font-medium text-[var(--text-muted)] py-3 px-4 min-w-[140px]">
                 Team
               </th>
               {periods.map(i => (
                 <th
                   key={i}
+                  scope="col"
                   className="text-center text-sm font-medium text-[var(--text-muted)] py-3 px-3 w-12"
                 >
                   {getPeriodHeader(i)}
                 </th>
               ))}
-              <th className="text-center text-sm font-semibold text-[var(--text-primary)] py-3 px-4 w-16">
+              <th scope="col" className="text-center text-sm font-semibold text-[var(--text-primary)] py-3 px-4 w-16">
                 Final
               </th>
             </tr>
@@ -50,7 +51,7 @@ export function QuarterScores({ lineScores, game }: QuarterScoresProps) {
               className="border-l-3 bg-[var(--bg-surface-alt)]"
               style={{ borderLeftColor: game.awayColor || 'transparent' }}
             >
-              <td className="py-2.5 px-4">
+              <th scope="row" className="py-2.5 px-4 font-normal text-left">
                 <div className="flex items-center gap-2">
                   {game.awayLogo ? (
                     <Image
@@ -71,7 +72,7 @@ export function QuarterScores({ lineScores, game }: QuarterScoresProps) {
                     {game.away_team}
                   </span>
                 </div>
-              </td>
+              </th>
               {periods.map(i => (
                 <td
                   key={i}
@@ -90,7 +91,7 @@ export function QuarterScores({ lineScores, game }: QuarterScoresProps) {
               className="border-l-3"
               style={{ borderLeftColor: game.homeColor || 'transparent' }}
             >
-              <td className="py-2.5 px-4">
+              <th scope="row" className="py-2.5 px-4 font-normal text-left">
                 <div className="flex items-center gap-2">
                   {game.homeLogo ? (
                     <Image
@@ -111,7 +112,7 @@ export function QuarterScores({ lineScores, game }: QuarterScoresProps) {
                     {game.home_team}
                   </span>
                 </div>
-              </td>
+              </th>
               {periods.map(i => (
                 <td
                   key={i}

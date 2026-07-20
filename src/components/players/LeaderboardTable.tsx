@@ -144,13 +144,19 @@ export function LeaderboardTable({ leaders, category, isPending }: LeaderboardTa
                 key={col.key}
                 scope="col"
                 aria-sort={sortColumn === col.sortKey ? (sortDirection === 'desc' ? 'descending' : 'ascending') : 'none'}
-                onClick={() => handleSort(col.sortKey)}
-                className={`text-[10px] uppercase tracking-wider text-[var(--text-muted)] py-2 px-2 cursor-pointer select-none hover:text-[var(--text-primary)] transition-colors ${
+                className={`text-[10px] uppercase tracking-wider text-[var(--text-muted)] py-2 px-2 ${
                   col.align === 'right' ? 'text-right' : 'text-left'
                 }`}
               >
-                {col.label}
-                {sortIndicator(col.sortKey)}
+                <button
+                  type="button"
+                  onClick={() => handleSort(col.sortKey)}
+                  className="select-none hover:text-[var(--text-primary)] transition-colors"
+                  aria-label={`Sort by ${col.label}${sortColumn === col.sortKey ? `, currently sorted ${sortDirection === 'asc' ? 'ascending' : 'descending'}` : ''}`}
+                >
+                  {col.label}
+                  {sortIndicator(col.sortKey)}
+                </button>
               </th>
             ))}
           </tr>
