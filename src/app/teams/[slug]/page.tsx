@@ -100,7 +100,9 @@ export default async function TeamPage({ params, searchParams }: TeamPageProps) 
 
   // Fetch trajectory averages for conference and FBS comparison
   const trajectoryAvgResult = await supabase.rpc('get_trajectory_averages', {
-    p_conference: team.conference || 'SEC'
+    p_conference: team.conference || 'SEC',
+    // Pin end season; warehouse default floats to latest loaded season (contract change 2026-07-19)
+    p_season_end: currentSeason
   })
   const trajectoryAverages = trajectoryAvgResult.error ? null : (trajectoryAvgResult.data as TrajectoryAverages[] | null)
 

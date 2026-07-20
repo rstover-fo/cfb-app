@@ -178,73 +178,42 @@ export const getGameById = cache(async (gameId: number): Promise<GameWithTeams |
   }
 })
 
-// Get box score stats for a game from core schema
-// The core tables use _dlt_id/_dlt_parent_id for relationships (dlt = data loading tool)
-// so we query each table separately and join client-side
+// Row shape for api.game_box_score (EAV: one row per stat category per team)
+// TODO(A0.6): regenerate supabase types to include `api` schema views/tables
+interface GameBoxScoreRow {
+  team: string
+  home_away: 'home' | 'away'
+  category: string
+  stat_value: string
+}
+
+// Get box score stats for a game from the contracted api.game_box_score view
 export const getGameBoxScore = cache(async (gameId: number): Promise<GameBoxScore | null> => {
   const supabase = await createClient()
 
-  // Step 1: Get the game's _dlt_id from game_team_stats
-  const { data: gameData, error: gameError } = await supabase
-    .schema('core')
-    .from('game_team_stats')
-    .select('_dlt_id')
-    .eq('id', gameId)
-    .single()
+  const { data, error } = await supabase
+    .schema('api')
+    .from('game_box_score')
+    .select('team, home_away, category, stat_value')
+    .eq('game_id', gameId)
 
-  if (gameError || !gameData) {
+  if (error || !data || data.length === 0) {
     return null
   }
 
-  // Step 2: Get teams for this game via _dlt_parent_id
-  const { data: teamsData, error: teamsError } = await supabase
-    .schema('core')
-    .from('game_team_stats__teams')
-    .select('team, home_away, _dlt_id')
-    .eq('_dlt_parent_id', gameData._dlt_id)
+  const rows = data as GameBoxScoreRow[]
 
-  if (teamsError || !teamsData || teamsData.length === 0) {
-    return null
-  }
-
-  // Step 3: Get stats for all teams in one query
-  const teamDltIds = teamsData.map(t => t._dlt_id)
-  const { data: statsData, error: statsError } = await supabase
-    .schema('core')
-    .from('game_team_stats__teams__stats')
-    .select('category, stat, _dlt_parent_id')
-    .in('_dlt_parent_id', teamDltIds)
-
-  if (statsError) {
-    return null
-  }
-
-  // Build lookup of stats by team _dlt_id
-  const statsByTeam = new Map<string, Record<string, string>>()
-  for (const stat of statsData ?? []) {
-    if (!statsByTeam.has(stat._dlt_parent_id)) {
-      statsByTeam.set(stat._dlt_parent_id, {})
+  // Pivot EAV rows into one BoxScoreTeam per home_away side
+  const byHomeAway = new Map<'home' | 'away', BoxScoreTeam>()
+  for (const row of rows) {
+    if (!byHomeAway.has(row.home_away)) {
+      byHomeAway.set(row.home_away, { team: row.team, homeAway: row.home_away, stats: {} })
     }
-    statsByTeam.get(stat._dlt_parent_id)![stat.category] = stat.stat
+    byHomeAway.get(row.home_away)!.stats[row.category] = row.stat_value
   }
 
-  // Build BoxScore result
-  let home: BoxScoreTeam | null = null
-  let away: BoxScoreTeam | null = null
-
-  for (const teamData of teamsData) {
-    const boxScoreTeam: BoxScoreTeam = {
-      team: teamData.team,
-      homeAway: teamData.home_away as 'home' | 'away',
-      stats: statsByTeam.get(teamData._dlt_id) ?? {},
-    }
-
-    if (teamData.home_away === 'home') {
-      home = boxScoreTeam
-    } else {
-      away = boxScoreTeam
-    }
-  }
+  const home = byHomeAway.get('home')
+  const away = byHomeAway.get('away')
 
   if (!home || !away) {
     return null
@@ -269,95 +238,39 @@ const SORT_STAT: Record<string, string> = {
   'defensive': 'TOT',
 }
 
-// Get player leaders for a game from core schema
+// Row shape for api.game_player_leaders (one row per player per stat_type per category)
+// TODO(A0.6): regenerate supabase types to include `api` schema views/tables
+interface GamePlayerLeaderRow {
+  team: string
+  home_away: 'home' | 'away'
+  category: string
+  stat_type: string
+  player_id: string
+  player_name: string
+  stat: string
+}
+
+// Get player leaders for a game from the contracted api.game_player_leaders view
 // Returns null if no player stats exist for this game
 export const getGamePlayerLeaders = cache(async (gameId: number): Promise<PlayerLeaders | null> => {
   const supabase = await createClient()
 
-  // Step 1: Get the game's _dlt_id from game_player_stats
-  const { data: gameData, error: gameError } = await supabase
-    .schema('core')
-    .from('game_player_stats')
-    .select('_dlt_id')
-    .eq('id', gameId)
-    .single()
+  const { data, error } = await supabase
+    .schema('api')
+    .from('game_player_leaders')
+    .select('team, home_away, category, stat_type, player_id, player_name, stat')
+    .eq('game_id', gameId)
+    .in('category', Object.keys(CATEGORY_MAP))
+    // Deterministic grouping/tie-breaking: without an order, equal-stat players
+    // surface in arbitrary PostgREST row order
+    .order('player_id')
 
-  if (gameError || !gameData) {
+  if (error || !data || data.length === 0) {
     return null
   }
 
-  // Step 2: Get teams for this game
-  const { data: teamsData, error: teamsError } = await supabase
-    .schema('core')
-    .from('game_player_stats__teams')
-    .select('team, home_away, _dlt_id')
-    .eq('_dlt_parent_id', gameData._dlt_id)
+  const rows = data as GamePlayerLeaderRow[]
 
-  if (teamsError || !teamsData || teamsData.length === 0) {
-    return null
-  }
-
-  // Step 3: Get categories for all teams
-  const teamDltIds = teamsData.map(t => t._dlt_id)
-  const { data: categoriesData, error: categoriesError } = await supabase
-    .schema('core')
-    .from('game_player_stats__teams__categories')
-    .select('name, _dlt_id, _dlt_parent_id')
-    .in('_dlt_parent_id', teamDltIds)
-    .in('name', Object.keys(CATEGORY_MAP))
-
-  if (categoriesError || !categoriesData) {
-    return null
-  }
-
-  // Step 4: Get stat types for all categories
-  const categoryDltIds = categoriesData.map(c => c._dlt_id)
-  const { data: typesData, error: typesError } = await supabase
-    .schema('core')
-    .from('game_player_stats__teams__categories__types')
-    .select('name, _dlt_id, _dlt_parent_id')
-    .in('_dlt_parent_id', categoryDltIds)
-
-  if (typesError || !typesData) {
-    return null
-  }
-
-  // Step 5: Get athletes for all stat types
-  const typeDltIds = typesData.map(t => t._dlt_id)
-  const { data: athletesData, error: athletesError } = await supabase
-    .schema('core')
-    .from('game_player_stats__teams__categories__types__athletes')
-    .select('id, name, stat, _dlt_parent_id')
-    .in('_dlt_parent_id', typeDltIds)
-
-  if (athletesError || !athletesData) {
-    return null
-  }
-
-  // Build lookup maps for efficient traversal
-  const typesByCategory = new Map<string, typeof typesData>()
-  for (const type of typesData) {
-    const existing = typesByCategory.get(type._dlt_parent_id) ?? []
-    existing.push(type)
-    typesByCategory.set(type._dlt_parent_id, existing)
-  }
-
-  const athletesByType = new Map<string, typeof athletesData>()
-  for (const athlete of athletesData) {
-    const existing = athletesByType.get(athlete._dlt_parent_id) ?? []
-    existing.push(athlete)
-    athletesByType.set(athlete._dlt_parent_id, existing)
-  }
-
-  // Build category lookup
-  const categoriesByTeam = new Map<string, typeof categoriesData>()
-  for (const cat of categoriesData) {
-    const existing = categoriesByTeam.get(cat._dlt_parent_id) ?? []
-    existing.push(cat)
-    categoriesByTeam.set(cat._dlt_parent_id, existing)
-  }
-
-  // Process each team
   const emptyTeamLeaders = (): TeamLeaders => ({
     passing: [],
     rushing: [],
@@ -365,166 +278,171 @@ export const getGamePlayerLeaders = cache(async (gameId: number): Promise<Player
     defense: [],
   })
 
-  let home: TeamLeaders = emptyTeamLeaders()
-  let away: TeamLeaders = emptyTeamLeaders()
+  // Group rows by home_away + category, merging stat_type rows per player_id
+  // (each player appears once per stat_type, e.g. separate rows for YDS and TD)
+  const playersByTeamCategory = new Map<string, Map<string, { id: string; name: string; stats: Record<string, string> }>>()
 
-  for (const team of teamsData) {
-    const teamLeaders = emptyTeamLeaders()
-    const categories = categoriesByTeam.get(team._dlt_id) ?? []
+  for (const row of rows) {
+    const key = `${row.home_away}:${row.category}`
+    const players = playersByTeamCategory.get(key) ?? new Map()
+    playersByTeamCategory.set(key, players)
 
-    for (const category of categories) {
-      const uiCategory = CATEGORY_MAP[category.name]
-      if (!uiCategory) continue
+    const player = players.get(row.player_id) ?? { id: row.player_id, name: row.player_name, stats: {} }
+    player.stats[row.stat_type] = row.stat
+    players.set(row.player_id, player)
+  }
 
-      const types = typesByCategory.get(category._dlt_id) ?? []
+  const home: TeamLeaders = emptyTeamLeaders()
+  const away: TeamLeaders = emptyTeamLeaders()
 
-      // Collect all athletes and their stats for this category
-      // Athletes appear once per stat type, so we need to merge by athlete ID
-      const athleteStats = new Map<string, { id: string; name: string; stats: Record<string, string> }>()
+  for (const [key, players] of playersByTeamCategory) {
+    const [homeAway, category] = key.split(':')
+    const uiCategory = CATEGORY_MAP[category]
+    if (!uiCategory) continue
 
-      for (const type of types) {
-        const athletes = athletesByType.get(type._dlt_id) ?? []
-        for (const athlete of athletes) {
-          if (!athleteStats.has(athlete.id)) {
-            athleteStats.set(athlete.id, { id: athlete.id, name: athlete.name, stats: {} })
-          }
-          athleteStats.get(athlete.id)!.stats[type.name] = athlete.stat
-        }
-      }
+    // Sort by primary stat, descending
+    const sortStat = SORT_STAT[category]
+    const sorted = Array.from(players.values()).sort((a, b) => {
+      const aVal = parseFloat(a.stats[sortStat] ?? '0')
+      const bVal = parseFloat(b.stats[sortStat] ?? '0')
+      return bVal - aVal
+    })
 
-      // Convert to array and sort by primary stat
-      const sortStat = SORT_STAT[category.name]
-      const players = Array.from(athleteStats.values())
-        .sort((a, b) => {
-          const aVal = parseFloat(a.stats[sortStat] ?? '0')
-          const bVal = parseFloat(b.stats[sortStat] ?? '0')
-          return bVal - aVal  // Descending
-        })
-
-      teamLeaders[uiCategory] = players
-    }
-
-    if (team.home_away === 'home') {
-      home = teamLeaders
-    } else {
-      away = teamLeaders
-    }
+    const teamLeaders = homeAway === 'home' ? home : away
+    teamLeaders[uiCategory] = sorted
   }
 
   return { home, away }
 })
 
-// Get quarter-by-quarter line scores for a game
+// Row shape for api.game_line_scores (pivoted: one row per game, home_/away_ q1-q4 + ot columns)
+// Note: the view SUMS all overtime periods into a single *_ot column, so a
+// multi-OT game collapses to one combined OT score below (matches
+// QuarterScores.tsx, which renders a single "OT" column for index 4).
+// TODO(A0.6): regenerate supabase types to include `api` schema views/tables
+interface GameLineScoresRow {
+  home_q1: number | null
+  home_q2: number | null
+  home_q3: number | null
+  home_q4: number | null
+  home_ot: number | null
+  away_q1: number | null
+  away_q2: number | null
+  away_q3: number | null
+  away_q4: number | null
+  away_ot: number | null
+}
+
+// Get quarter-by-quarter line scores for a game from the contracted api.game_line_scores view
 export const getGameLineScores = cache(async (gameId: number): Promise<LineScores | null> => {
   const supabase = await createClient()
 
-  // Get the game's _dlt_id from core.games
-  const { data: gameData, error: gameError } = await supabase
-    .schema('core')
-    .from('games')
-    .select('_dlt_id')
-    .eq('id', gameId)
+  const { data, error } = await supabase
+    .schema('api')
+    .from('game_line_scores')
+    .select('home_q1, home_q2, home_q3, home_q4, home_ot, away_q1, away_q2, away_q3, away_q4, away_ot')
+    .eq('game_id', gameId)
     .single()
 
-  if (gameError || !gameData) return null
+  if (error || !data) return null
 
-  // Fetch both home and away line scores in parallel
-  const [homeResult, awayResult] = await Promise.all([
-    supabase.schema('core')
-      .from('games__home_line_scores')
-      .select('value, _dlt_list_idx')
-      .eq('_dlt_parent_id', gameData._dlt_id)
-      .order('_dlt_list_idx', { ascending: true }),
-    supabase.schema('core')
-      .from('games__away_line_scores')
-      .select('value, _dlt_list_idx')
-      .eq('_dlt_parent_id', gameData._dlt_id)
-      .order('_dlt_list_idx', { ascending: true }),
-  ])
+  const row = data as GameLineScoresRow
 
-  if (!homeResult.data?.length && !awayResult.data?.length) return null
+  const home = [row.home_q1, row.home_q2, row.home_q3, row.home_q4].map(v => v ?? 0)
+  const away = [row.away_q1, row.away_q2, row.away_q3, row.away_q4].map(v => v ?? 0)
 
-  return {
-    home: (homeResult.data ?? []).map(s => s.value),
-    away: (awayResult.data ?? []).map(s => s.value),
-  }
+  // Only append an OT column when there was overtime (summed across all OT periods)
+  if (row.home_ot != null && row.home_ot > 0) home.push(row.home_ot)
+  if (row.away_ot != null && row.away_ot > 0) away.push(row.away_ot)
+
+  if (home.every(v => v === 0) && away.every(v => v === 0)) return null
+
+  return { home, away }
 })
 
-// Get all drives for a game from core schema
+// Row shape for api.game_drives (flattened; no double-underscore columns)
+// TODO: regenerate supabase types after migration deploy
+interface GameDriveRow {
+  drive_number: number
+  offense: string
+  defense: string
+  start_period: number
+  start_yards_to_goal: number
+  end_yards_to_goal: number
+  plays: number
+  yards: number
+  drive_result: string
+  scoring: boolean
+  start_offense_score: number
+  end_offense_score: number
+  start_defense_score: number
+  end_defense_score: number
+  start_time_minutes: number
+  start_time_seconds: number
+  elapsed_minutes: number
+  elapsed_seconds: number
+  is_home_offense: boolean
+}
+
+// Get all drives for a game from the contracted api.game_drives view
 export const getGameDrives = cache(async (gameId: number): Promise<GameDrive[]> => {
   const supabase = await createClient()
 
   const { data, error } = await supabase
-    .schema('core')
-    .from('drives')
-    .select('drive_number, offense, defense, start_period, start_yards_to_goal, end_yards_to_goal, plays, yards, drive_result, scoring, start_offense_score, end_offense_score, start_defense_score, end_defense_score, start_time__minutes, start_time__seconds, elapsed__minutes, elapsed__seconds, is_home_offense')
+    .schema('api')
+    .from('game_drives')
+    .select('drive_number, offense, defense, start_period, start_yards_to_goal, end_yards_to_goal, plays, yards, drive_result, scoring, start_offense_score, end_offense_score, start_defense_score, end_defense_score, start_time_minutes, start_time_seconds, elapsed_minutes, elapsed_seconds, is_home_offense')
     .eq('game_id', gameId)
     .order('drive_number', { ascending: true })
 
   if (error || !data) return []
 
-  // Map database column names (double underscore) to interface names
-  return data.map(d => ({
-    drive_number: d.drive_number,
-    offense: d.offense,
-    defense: d.defense,
-    start_period: d.start_period,
-    start_yards_to_goal: d.start_yards_to_goal,
-    end_yards_to_goal: d.end_yards_to_goal,
-    plays: d.plays,
-    yards: d.yards,
-    drive_result: d.drive_result,
-    scoring: d.scoring,
-    start_offense_score: d.start_offense_score,
-    end_offense_score: d.end_offense_score,
-    start_defense_score: d.start_defense_score,
-    end_defense_score: d.end_defense_score,
-    start_time_minutes: d.start_time__minutes,
-    start_time_seconds: d.start_time__seconds,
-    elapsed_minutes: d.elapsed__minutes,
-    elapsed_seconds: d.elapsed__seconds,
-    is_home_offense: d.is_home_offense,
-  }))
+  return data as GameDriveRow[]
 })
 
-// Get all plays for a game from core schema (filtered to actual plays)
+// Row shape for api.game_plays (flattened; no double-underscore columns)
+// TODO: regenerate supabase types after migration deploy
+interface GamePlayRow {
+  game_id: number
+  drive_number: number
+  play_number: number
+  offense: string
+  defense: string
+  period: number
+  clock_minutes: number | null
+  clock_seconds: number | null
+  down: number | null
+  distance: number | null
+  yards_to_goal: number | null
+  yards_gained: number | null
+  play_type: string | null
+  play_text: string | null
+  ppa: number | null
+  scoring: boolean
+  offense_score: number
+  defense_score: number
+}
+
+// Get all plays for a game from the contracted api.game_plays view
+// (view is unfiltered by play type; filter out non-play types client-side)
 const EXCLUDED_PLAY_TYPES = ['Timeout', 'End Period', 'End of Game', 'Kickoff']
 
 export const getGamePlays = cache(async (gameId: number): Promise<GamePlay[]> => {
   const supabase = await createClient()
 
   const { data, error } = await supabase
-    .schema('core')
-    .from('plays')
-    .select('game_id, drive_number, play_number, offense, defense, period, clock__minutes, clock__seconds, down, distance, yards_to_goal, yards_gained, play_type, play_text, ppa, scoring, offense_score, defense_score')
+    .schema('api')
+    .from('game_plays')
+    .select('game_id, drive_number, play_number, offense, defense, period, clock_minutes, clock_seconds, down, distance, yards_to_goal, yards_gained, play_type, play_text, ppa, scoring, offense_score, defense_score')
     .eq('game_id', gameId)
     .order('drive_number', { ascending: true })
     .order('play_number', { ascending: true })
 
   if (error || !data) return []
 
-  // Filter out non-play types and map column names
-  return data
-    .filter(p => p.play_type && !EXCLUDED_PLAY_TYPES.includes(p.play_type))
-    .map(p => ({
-      game_id: p.game_id,
-      drive_number: p.drive_number,
-      play_number: p.play_number,
-      offense: p.offense,
-      defense: p.defense,
-      period: p.period,
-      clock_minutes: p.clock__minutes,
-      clock_seconds: p.clock__seconds,
-      down: p.down,
-      distance: p.distance,
-      yards_to_goal: p.yards_to_goal,
-      yards_gained: p.yards_gained,
-      play_type: p.play_type,
-      play_text: p.play_text,
-      ppa: p.ppa,
-      scoring: p.scoring,
-      offense_score: p.offense_score,
-      defense_score: p.defense_score,
-    }))
+  const rows = data as GamePlayRow[]
+
+  // Filter out non-play types
+  return rows.filter(p => p.play_type && !EXCLUDED_PLAY_TYPES.includes(p.play_type))
 })
 
