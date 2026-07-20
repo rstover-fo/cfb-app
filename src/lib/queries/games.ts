@@ -357,81 +357,89 @@ export const getGameLineScores = cache(async (gameId: number): Promise<LineScore
   return { home, away }
 })
 
-// Get all drives for a game from core schema
+// Row shape for api.game_drives (flattened; no double-underscore columns)
+// TODO: regenerate supabase types after migration deploy
+interface GameDriveRow {
+  drive_number: number
+  offense: string
+  defense: string
+  start_period: number
+  start_yards_to_goal: number
+  end_yards_to_goal: number
+  plays: number
+  yards: number
+  drive_result: string
+  scoring: boolean
+  start_offense_score: number
+  end_offense_score: number
+  start_defense_score: number
+  end_defense_score: number
+  start_time_minutes: number
+  start_time_seconds: number
+  elapsed_minutes: number
+  elapsed_seconds: number
+  is_home_offense: boolean
+}
+
+// Get all drives for a game from the contracted api.game_drives view
 export const getGameDrives = cache(async (gameId: number): Promise<GameDrive[]> => {
   const supabase = await createClient()
 
   const { data, error } = await supabase
-    .schema('core')
-    .from('drives')
-    .select('drive_number, offense, defense, start_period, start_yards_to_goal, end_yards_to_goal, plays, yards, drive_result, scoring, start_offense_score, end_offense_score, start_defense_score, end_defense_score, start_time__minutes, start_time__seconds, elapsed__minutes, elapsed__seconds, is_home_offense')
+    .schema('api')
+    .from('game_drives')
+    .select('drive_number, offense, defense, start_period, start_yards_to_goal, end_yards_to_goal, plays, yards, drive_result, scoring, start_offense_score, end_offense_score, start_defense_score, end_defense_score, start_time_minutes, start_time_seconds, elapsed_minutes, elapsed_seconds, is_home_offense')
     .eq('game_id', gameId)
     .order('drive_number', { ascending: true })
 
   if (error || !data) return []
 
-  // Map database column names (double underscore) to interface names
-  return data.map(d => ({
-    drive_number: d.drive_number,
-    offense: d.offense,
-    defense: d.defense,
-    start_period: d.start_period,
-    start_yards_to_goal: d.start_yards_to_goal,
-    end_yards_to_goal: d.end_yards_to_goal,
-    plays: d.plays,
-    yards: d.yards,
-    drive_result: d.drive_result,
-    scoring: d.scoring,
-    start_offense_score: d.start_offense_score,
-    end_offense_score: d.end_offense_score,
-    start_defense_score: d.start_defense_score,
-    end_defense_score: d.end_defense_score,
-    start_time_minutes: d.start_time__minutes,
-    start_time_seconds: d.start_time__seconds,
-    elapsed_minutes: d.elapsed__minutes,
-    elapsed_seconds: d.elapsed__seconds,
-    is_home_offense: d.is_home_offense,
-  }))
+  return data as GameDriveRow[]
 })
 
-// Get all plays for a game from core schema (filtered to actual plays)
+// Row shape for api.game_plays (flattened; no double-underscore columns)
+// TODO: regenerate supabase types after migration deploy
+interface GamePlayRow {
+  game_id: number
+  drive_number: number
+  play_number: number
+  offense: string
+  defense: string
+  period: number
+  clock_minutes: number | null
+  clock_seconds: number | null
+  down: number | null
+  distance: number | null
+  yards_to_goal: number | null
+  yards_gained: number | null
+  play_type: string | null
+  play_text: string | null
+  ppa: number | null
+  scoring: boolean
+  offense_score: number
+  defense_score: number
+}
+
+// Get all plays for a game from the contracted api.game_plays view
+// (view is unfiltered by play type; filter out non-play types client-side)
 const EXCLUDED_PLAY_TYPES = ['Timeout', 'End Period', 'End of Game', 'Kickoff']
 
 export const getGamePlays = cache(async (gameId: number): Promise<GamePlay[]> => {
   const supabase = await createClient()
 
   const { data, error } = await supabase
-    .schema('core')
-    .from('plays')
-    .select('game_id, drive_number, play_number, offense, defense, period, clock__minutes, clock__seconds, down, distance, yards_to_goal, yards_gained, play_type, play_text, ppa, scoring, offense_score, defense_score')
+    .schema('api')
+    .from('game_plays')
+    .select('game_id, drive_number, play_number, offense, defense, period, clock_minutes, clock_seconds, down, distance, yards_to_goal, yards_gained, play_type, play_text, ppa, scoring, offense_score, defense_score')
     .eq('game_id', gameId)
     .order('drive_number', { ascending: true })
     .order('play_number', { ascending: true })
 
   if (error || !data) return []
 
-  // Filter out non-play types and map column names
-  return data
-    .filter(p => p.play_type && !EXCLUDED_PLAY_TYPES.includes(p.play_type))
-    .map(p => ({
-      game_id: p.game_id,
-      drive_number: p.drive_number,
-      play_number: p.play_number,
-      offense: p.offense,
-      defense: p.defense,
-      period: p.period,
-      clock_minutes: p.clock__minutes,
-      clock_seconds: p.clock__seconds,
-      down: p.down,
-      distance: p.distance,
-      yards_to_goal: p.yards_to_goal,
-      yards_gained: p.yards_gained,
-      play_type: p.play_type,
-      play_text: p.play_text,
-      ppa: p.ppa,
-      scoring: p.scoring,
-      offense_score: p.offense_score,
-      defense_score: p.defense_score,
-    }))
+  const rows = data as GamePlayRow[]
+
+  // Filter out non-play types
+  return rows.filter(p => p.play_type && !EXCLUDED_PLAY_TYPES.includes(p.play_type))
 })
 
