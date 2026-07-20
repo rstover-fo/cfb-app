@@ -1,16 +1,26 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import Image from 'next/image'
 import { Team, TeamSeasonEpa, TeamStyleProfile } from '@/lib/types/database'
 import { createClient } from '@/lib/supabase/client'
+import { TeamPicker } from '@/components/comparison/TeamPicker'
 
 interface CompareViewProps {
-  team: Team
+  /** Team 1 -- fixed by the parent route on the team-page Compare tab; nullable + selectable on /compare. */
+  team: Team | null
   metrics: TeamSeasonEpa | null
   style: TeamStyleProfile | null
   allTeams: Team[]
   currentSeason: number
+  /** Team 2 -- when provided, seeds the comparison (used by the /compare route). */
+  compareTeam?: Team | null
+  compareMetrics?: TeamSeasonEpa | null
+  compareStyle?: TeamStyleProfile | null
+  /** When true, team 1 also gets a picker (standalone /compare route). Defaults to false (team-page tab). */
+  allowTeam1Change?: boolean
+  /** Fires whenever either side's selection changes -- lets the /compare route keep ?t1=&t2= in sync. */
+  onSelectionChange?: (team1Id: number | null, team2Id: number | null) => void
 }
 
 function MetricBar({
@@ -80,62 +90,106 @@ function MetricBar({
   )
 }
 
-export function CompareView({ team, metrics, style, allTeams, currentSeason }: CompareViewProps) {
-  const [compareTeamId, setCompareTeamId] = useState<number | null>(null)
-  const [compareMetrics, setCompareMetrics] = useState<TeamSeasonEpa | null>(null)
-  const [compareStyle, setCompareStyle] = useState<TeamStyleProfile | null>(null)
+// Owns one side of the comparison: a selectable team plus its EPA/style
+// metrics. Seeded from server-fetched props (avoids a loading flash for
+// whichever team the page already resolved server-side) and re-fetches
+// client-side -- mirroring the pre-refactor Compare-tab behavior -- whenever
+// the selection changes away from that initial seed.
+function useTeamSlot(
+  initialTeamId: number | null,
+  initialMetrics: TeamSeasonEpa | null,
+  initialStyle: TeamStyleProfile | null,
+  season: number,
+  allTeams: Team[]
+) {
+  const [teamId, setTeamId] = useState<number | null>(initialTeamId)
+  const [metrics, setMetrics] = useState<TeamSeasonEpa | null>(initialMetrics)
+  const [style, setStyle] = useState<TeamStyleProfile | null>(initialStyle)
   const [loading, setLoading] = useState(false)
 
-  const compareTeam = allTeams.find(t => t.id === compareTeamId) || null
+  // Consumed on the first effect run only -- lets us skip a redundant
+  // client-side refetch for the team we already have server-fetched data for.
+  const skipInitialFetch = useRef(initialTeamId !== null)
 
   useEffect(() => {
-    if (!compareTeamId) {
+    if (teamId === null) {
+      setMetrics(null)
+      setStyle(null)
+      setLoading(false)
+      return
+    }
+
+    if (skipInitialFetch.current && teamId === initialTeamId) {
+      skipInitialFetch.current = false
+      return
+    }
+    skipInitialFetch.current = false
+
+    const school = allTeams.find(t => t.id === teamId)?.school
+    if (!school) {
+      setMetrics(null)
+      setStyle(null)
       return
     }
 
     let cancelled = false
+    setLoading(true)
+    setMetrics(null)
+    setStyle(null)
 
-    const fetchCompareData = async () => {
-      setLoading(true)
-      setCompareMetrics(null)
-      setCompareStyle(null)
-
-      const supabase = createClient()
-      const compareTeamName = allTeams.find(t => t.id === compareTeamId)?.school
-
-      if (!compareTeamName) {
-        setLoading(false)
-        return
-      }
-
-      const [metricsRes, styleRes] = await Promise.all([
-        supabase
-          .from('team_epa_season')
-          .select('*')
-          .eq('team', compareTeamName)
-          .eq('season', currentSeason)
-          .single(),
-        supabase
-          .from('team_style_profile')
-          .select('*')
-          .eq('team', compareTeamName)
-          .eq('season', currentSeason)
-          .single()
-      ])
-
-      if (!cancelled) {
-        setCompareMetrics(metricsRes.data as TeamSeasonEpa | null)
-        setCompareStyle(styleRes.data as TeamStyleProfile | null)
-        setLoading(false)
-      }
-    }
-
-    fetchCompareData()
+    const supabase = createClient()
+    Promise.all([
+      supabase.from('team_epa_season').select('*').eq('team', school).eq('season', season).single(),
+      supabase.from('team_style_profile').select('*').eq('team', school).eq('season', season).single()
+    ]).then(([metricsRes, styleRes]) => {
+      if (cancelled) return
+      setMetrics(metricsRes.data as TeamSeasonEpa | null)
+      setStyle(styleRes.data as TeamStyleProfile | null)
+      setLoading(false)
+    })
 
     return () => {
       cancelled = true
     }
-  }, [compareTeamId, allTeams, currentSeason])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [teamId, season, allTeams])
+
+  const team = allTeams.find(t => t.id === teamId) ?? null
+
+  return { teamId, setTeamId, team, metrics, style, loading }
+}
+
+export function CompareView({
+  team,
+  metrics,
+  style,
+  allTeams,
+  currentSeason,
+  compareTeam = null,
+  compareMetrics = null,
+  compareStyle = null,
+  allowTeam1Change = false,
+  onSelectionChange
+}: CompareViewProps) {
+  const slot1 = useTeamSlot(team?.id ?? null, metrics, style, currentSeason, allTeams)
+  const slot2 = useTeamSlot(compareTeam?.id ?? null, compareMetrics, compareStyle, currentSeason, allTeams)
+
+  useEffect(() => {
+    onSelectionChange?.(slot1.teamId, slot2.teamId)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [slot1.teamId, slot2.teamId])
+
+  // Team-page tab: team 1 is fixed by the parent route, always fresh off
+  // props (so that page's season selector keeps working). Standalone route:
+  // team 1 is chosen via its own picker, tracked by slot1 instead.
+  const team1 = allowTeam1Change ? slot1.team : team
+  const team1Metrics = allowTeam1Change ? slot1.metrics : metrics
+  const team1Style = allowTeam1Change ? slot1.style : style
+
+  const team2 = slot2.team ?? compareTeam
+  const loading = (allowTeam1Change && slot1.loading) || slot2.loading
+
+  const bothSelected = !!team1 && !!team2
 
   const formatPct = (v: number) => `${(v * 100).toFixed(1)}%`
   const formatNum = (v: number) => v.toFixed(2)
@@ -144,37 +198,36 @@ export function CompareView({ team, metrics, style, allTeams, currentSeason }: C
   return (
     <div>
       {/* Team Selector */}
-      <div className="flex items-center gap-4 mb-8">
-        <div className="flex items-center gap-3">
-          {team.logo && <Image src={team.logo} alt={team.school ?? ''} width={40} height={40} className="w-10 h-10 object-contain" unoptimized />}
-          <span className="font-headline text-xl text-[var(--text-primary)]">{team.school ?? ''}</span>
-        </div>
+      <div className="flex items-center gap-4 mb-8 flex-wrap">
+        {allowTeam1Change ? (
+          <TeamPicker
+            label="Team 1"
+            teams={allTeams}
+            value={slot1.teamId}
+            onChange={slot1.setTeamId}
+            excludeId={slot2.teamId}
+          />
+        ) : (
+          <div className="flex items-center gap-3">
+            {team?.logo && <Image src={team.logo} alt={team.school ?? ''} width={40} height={40} className="w-10 h-10 object-contain" unoptimized />}
+            <span className="font-headline text-xl text-[var(--text-primary)]">{team?.school ?? ''}</span>
+          </div>
+        )}
 
         <span className="text-[var(--text-muted)]">vs</span>
 
-        <select
-          value={compareTeamId || ''}
-          onChange={(e) => setCompareTeamId(e.target.value ? Number(e.target.value) : null)}
-          className="px-4 py-2 border-[1.5px] border-[var(--border)] rounded-sm bg-[var(--bg-surface)] text-[var(--text-primary)] focus:border-[var(--color-run)] focus:outline-none"
-        >
-          <option value="">Select a team...</option>
-          {allTeams
-            .filter(t => t.id !== team.id)
-            .sort((a, b) => (a.school ?? '').localeCompare(b.school ?? ''))
-            .map(t => (
-              <option key={t.id} value={t.id ?? ''}>{t.school}</option>
-            ))
-          }
-        </select>
-
-        {compareTeam?.logo && (
-          <Image src={compareTeam.logo ?? ''} alt={compareTeam.school ?? ''} width={40} height={40} className="w-10 h-10 object-contain" unoptimized />
-        )}
+        <TeamPicker
+          label="Team 2"
+          teams={allTeams}
+          value={slot2.teamId}
+          onChange={slot2.setTeamId}
+          excludeId={slot1.teamId}
+        />
       </div>
 
-      {!compareTeamId && (
+      {!bothSelected && !loading && (
         <p className="text-[var(--text-muted)] text-center py-12">
-          Select a team to compare.
+          {allowTeam1Change ? 'Select two teams to compare.' : 'Select a team to compare.'}
         </p>
       )}
 
@@ -184,17 +237,17 @@ export function CompareView({ team, metrics, style, allTeams, currentSeason }: C
         </p>
       )}
 
-      {compareTeamId && !loading && (
+      {bothSelected && !loading && (
         <div className="card p-6">
           {/* Header */}
           <div className="flex items-center justify-between mb-6 pb-4 border-b border-[var(--border)]">
             <div className="flex items-center gap-2">
-              <div className="w-4 h-4 rounded-sm" style={{ backgroundColor: team.color || 'var(--color-run)' }} />
-              <span className="font-medium text-[var(--text-primary)]">{team.school}</span>
+              <div className="w-4 h-4 rounded-sm" style={{ backgroundColor: team1?.color || 'var(--color-run)' }} />
+              <span className="font-medium text-[var(--text-primary)]">{team1?.school}</span>
             </div>
             <div className="flex items-center gap-2">
-              <span className="font-medium text-[var(--text-primary)]">{compareTeam?.school}</span>
-              <div className="w-4 h-4 rounded-sm" style={{ backgroundColor: compareTeam?.color || 'var(--color-pass)' }} />
+              <span className="font-medium text-[var(--text-primary)]">{team2?.school}</span>
+              <div className="w-4 h-4 rounded-sm" style={{ backgroundColor: team2?.color || 'var(--color-pass)' }} />
             </div>
           </div>
 
@@ -202,76 +255,76 @@ export function CompareView({ team, metrics, style, allTeams, currentSeason }: C
           <div className="space-y-1">
             <MetricBar
               label="EPA/Play"
-              value1={metrics?.epa_per_play || null}
-              value2={compareMetrics?.epa_per_play || null}
+              value1={team1Metrics?.epa_per_play || null}
+              value2={slot2.metrics?.epa_per_play || null}
               format={formatNum}
-              color1={team.color || 'var(--color-run)'}
-              color2={compareTeam?.color || 'var(--color-pass)'}
+              color1={team1?.color || 'var(--color-run)'}
+              color2={team2?.color || 'var(--color-pass)'}
               higherIsBetter={true}
             />
             <MetricBar
               label="Success Rate"
-              value1={metrics?.success_rate || null}
-              value2={compareMetrics?.success_rate || null}
+              value1={team1Metrics?.success_rate || null}
+              value2={slot2.metrics?.success_rate || null}
               format={formatPct}
-              color1={team.color || 'var(--color-run)'}
-              color2={compareTeam?.color || 'var(--color-pass)'}
+              color1={team1?.color || 'var(--color-run)'}
+              color2={team2?.color || 'var(--color-pass)'}
               higherIsBetter={true}
             />
             <MetricBar
               label="Explosiveness"
-              value1={metrics?.explosiveness || null}
-              value2={compareMetrics?.explosiveness || null}
+              value1={team1Metrics?.explosiveness || null}
+              value2={slot2.metrics?.explosiveness || null}
               format={formatNum}
-              color1={team.color || 'var(--color-run)'}
-              color2={compareTeam?.color || 'var(--color-pass)'}
+              color1={team1?.color || 'var(--color-run)'}
+              color2={team2?.color || 'var(--color-pass)'}
               higherIsBetter={true}
             />
             <MetricBar
               label="Offensive Rank"
-              value1={metrics?.off_epa_rank || null}
-              value2={compareMetrics?.off_epa_rank || null}
+              value1={team1Metrics?.off_epa_rank || null}
+              value2={slot2.metrics?.off_epa_rank || null}
               format={formatRank}
-              color1={team.color || 'var(--color-run)'}
-              color2={compareTeam?.color || 'var(--color-pass)'}
+              color1={team1?.color || 'var(--color-run)'}
+              color2={team2?.color || 'var(--color-pass)'}
               higherIsBetter={false}
             />
             <MetricBar
               label="Defensive Rank"
-              value1={metrics?.def_epa_rank || null}
-              value2={compareMetrics?.def_epa_rank || null}
+              value1={team1Metrics?.def_epa_rank || null}
+              value2={slot2.metrics?.def_epa_rank || null}
               format={formatRank}
-              color1={team.color || 'var(--color-run)'}
-              color2={compareTeam?.color || 'var(--color-pass)'}
+              color1={team1?.color || 'var(--color-run)'}
+              color2={team2?.color || 'var(--color-pass)'}
               higherIsBetter={false}
             />
-            {style && compareStyle && (
+            {team1Style && slot2.style && (
               <>
                 <MetricBar
                   label="Run Rate"
-                  value1={style.run_rate}
-                  value2={compareStyle.run_rate}
+                  value1={team1Style.run_rate}
+                  value2={slot2.style.run_rate}
                   format={formatPct}
-                  color1={team.color || 'var(--color-run)'}
-                  color2={compareTeam?.color || 'var(--color-pass)'}
+                  color1={team1?.color || 'var(--color-run)'}
+                  color2={team2?.color || 'var(--color-pass)'}
                   higherIsBetter={true}
                 />
                 <MetricBar
                   label="Rushing EPA"
-                  value1={style.epa_rushing}
-                  value2={compareStyle.epa_rushing}
+                  value1={team1Style.epa_rushing}
+                  value2={slot2.style.epa_rushing}
                   format={formatNum}
-                  color1={team.color || 'var(--color-run)'}
-                  color2={compareTeam?.color || 'var(--color-pass)'}
+                  color1={team1?.color || 'var(--color-run)'}
+                  color2={team2?.color || 'var(--color-pass)'}
                   higherIsBetter={true}
                 />
                 <MetricBar
                   label="Passing EPA"
-                  value1={style.epa_passing}
-                  value2={compareStyle.epa_passing}
+                  value1={team1Style.epa_passing}
+                  value2={slot2.style.epa_passing}
                   format={formatNum}
-                  color1={team.color || 'var(--color-run)'}
-                  color2={compareTeam?.color || 'var(--color-pass)'}
+                  color1={team1?.color || 'var(--color-run)'}
+                  color2={team2?.color || 'var(--color-pass)'}
                   higherIsBetter={true}
                 />
               </>
