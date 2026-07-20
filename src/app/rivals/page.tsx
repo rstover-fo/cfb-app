@@ -1,6 +1,7 @@
 import { Suspense } from 'react'
 import type { Metadata } from 'next'
 import Link from 'next/link'
+import { Sword } from '@phosphor-icons/react/dist/ssr'
 import { getFBSTeams, getTeamLookup } from '@/lib/queries/shared'
 import { getMatchup, getMatchupGames } from '@/lib/queries/matchups'
 import {
@@ -60,7 +61,8 @@ async function RivalsContent({ teamA, teamB }: { teamA: string; teamB: string })
   // Never-played pair: no summary row and no games on record.
   if (!matchup && games.length === 0) {
     return (
-      <div className="card p-8 text-center">
+      <div className="card p-8 text-center" role="status" aria-live="polite">
+        <Sword size={40} weight="thin" className="mx-auto text-[var(--text-muted)] mb-3" aria-hidden="true" />
         <p className="font-headline text-lg text-[var(--text-primary)]">
           {teamA} and {teamB} have never met
         </p>

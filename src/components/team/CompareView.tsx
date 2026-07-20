@@ -2,9 +2,11 @@
 
 import { useState, useEffect, useRef } from 'react'
 import Image from 'next/image'
+import { ArrowsLeftRight } from '@phosphor-icons/react'
 import { Team, TeamSeasonEpa, TeamStyleProfile } from '@/lib/types/database'
 import { createClient } from '@/lib/supabase/client'
 import { TeamPicker } from '@/components/comparison/TeamPicker'
+import { EmptyState } from '@/components/EmptyState'
 
 interface CompareViewProps {
   /** Team 1 -- fixed by the parent route on the team-page Compare tab; nullable + selectable on /compare. */
@@ -226,9 +228,11 @@ export function CompareView({
       </div>
 
       {!bothSelected && !loading && (
-        <p className="text-[var(--text-muted)] text-center py-12">
-          {allowTeam1Change ? 'Select two teams to compare.' : 'Select a team to compare.'}
-        </p>
+        <EmptyState
+          icon={ArrowsLeftRight}
+          title={allowTeam1Change ? 'Select two teams to compare.' : 'Select a team to compare.'}
+          description="Pick from the dropdowns above to see EPA, success rate, and style metrics side by side."
+        />
       )}
 
       {loading && (

@@ -4,10 +4,12 @@ import { useState, useTransition, useRef } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
 import { useRouter } from 'next/navigation'
+import { CalendarBlank } from '@phosphor-icons/react'
 import { fetchGames, fetchAvailableWeeks, fetchDefaultWeek } from '@/app/games/actions'
 import type { GamesFilter, GameWithTeams, SeasonPhase } from '@/app/games/actions'
 import { REGULAR_SEASON_MAX_WEEK, POSTSEASON_MIN_WEEK } from '@/lib/queries/constants'
 import { teamNameToSlug, selectClassName, selectStyle } from '@/lib/utils'
+import { EmptyState } from '@/components/EmptyState'
 
 interface GamesListProps {
   initialGames: GameWithTeams[]
@@ -302,9 +304,23 @@ export function GamesList({
 
       {/* Games list or empty state */}
       {!isPending && games.length === 0 ? (
-        <div className="text-center py-8 text-[var(--text-muted)]">
-          No games found matching your filters
-        </div>
+        <EmptyState
+          icon={CalendarBlank}
+          title="No games found"
+          description={
+            conference || team
+              ? 'No games match your current filters for this week.'
+              : 'There are no games recorded for this week yet.'
+          }
+          action={
+            conference || team
+              ? { label: 'Clear filters', onClick: () => handleFilterChange({ conference: '', team: '' }) }
+              : undefined
+          }
+          secondaryAction={
+            week ? { label: 'View all weeks', onClick: () => handleFilterChange({ week: 0 }) } : undefined
+          }
+        />
       ) : !isPending && (
         <div className="space-y-2">
           {games.map(game => {

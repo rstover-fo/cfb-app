@@ -2,8 +2,10 @@
 
 import { useState, useMemo } from 'react'
 import Link from 'next/link'
+import { ChartBar } from '@phosphor-icons/react'
 import type { PlayerLeaderRow, LeaderCategory } from '@/app/players/actions'
 import { teamNameToSlug } from '@/lib/utils'
+import { EmptyState } from '@/components/EmptyState'
 
 interface ColumnDef {
   key: string
@@ -112,15 +114,20 @@ export function LeaderboardTable({ leaders, category, isPending }: LeaderboardTa
 
   if (leaders.length === 0 && !isPending) {
     return (
-      <p className="text-sm text-[var(--text-muted)] py-8 text-center">
-        No player data available for this selection.
-      </p>
+      <EmptyState
+        icon={ChartBar}
+        title="No player data for this selection"
+        description="Try a different season or conference filter."
+      />
     )
   }
 
   return (
     <div className="overflow-x-auto">
-      <table className="w-full text-sm">
+      <table className="w-full text-sm" aria-label={`${category} leaders`}>
+        <caption className="sr-only">
+          Player statistical leaders in {category}, sorted by {String(sortColumn)} {sortDirection === 'desc' ? 'descending' : 'ascending'}
+        </caption>
         <thead>
           <tr>
             <th scope="col" className="text-[10px] uppercase tracking-wider text-[var(--text-muted)] text-left py-2 px-2 w-10">
