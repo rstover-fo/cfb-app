@@ -164,12 +164,12 @@ export const getStandings = cache(async (season: number, limit: number = 10): Pr
   const [metricsResult, specialTeamsResult, recordsResult] = await Promise.all([
     supabase.from('team_epa_season').select('team, off_epa_rank, def_epa_rank').eq('season', season),
     supabase.from('team_special_teams_sos').select('team, sp_st_rating').eq('season', season),
-    supabase.from('records').select('team, total__wins, total__losses').eq('year', season).eq('classification', 'fbs')
+    supabase.schema('api').from('team_history').select('team, wins, losses').eq('season', season)
   ])
 
   const metrics = (metricsResult.data as TeamSeasonEpa[]) || []
   const specialTeams = (specialTeamsResult.data as TeamSpecialTeamsSos[]) || []
-  const records = (recordsResult.data || []) as { team: string, total__wins: number, total__losses: number }[]
+  const records = (recordsResult.data || []) as { team: string, wins: number, losses: number }[]
 
   // Build lookup maps
   const metricsLookup = new Map<string, { offRank: number, defRank: number }>()
@@ -179,7 +179,7 @@ export const getStandings = cache(async (season: number, limit: number = 10): Pr
   specialTeams.forEach(s => { if (s.team) specialTeamsLookup.set(s.team, s.sp_st_rating ?? 0) })
 
   const recordsLookup = new Map<string, { wins: number, losses: number }>()
-  records.forEach(r => recordsLookup.set(r.team, { wins: r.total__wins, losses: r.total__losses }))
+  records.forEach(r => recordsLookup.set(r.team, { wins: r.wins, losses: r.losses }))
 
   // Calculate composite scores for FBS teams
   const standings: Standing[] = []
