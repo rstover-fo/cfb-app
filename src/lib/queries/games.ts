@@ -178,73 +178,42 @@ export const getGameById = cache(async (gameId: number): Promise<GameWithTeams |
   }
 })
 
-// Get box score stats for a game from core schema
-// The core tables use _dlt_id/_dlt_parent_id for relationships (dlt = data loading tool)
-// so we query each table separately and join client-side
+// Row shape for api.game_box_score (EAV: one row per stat category per team)
+// TODO(A0.6): regenerate supabase types to include `api` schema views/tables
+interface GameBoxScoreRow {
+  team: string
+  home_away: 'home' | 'away'
+  category: string
+  stat_value: string
+}
+
+// Get box score stats for a game from the contracted api.game_box_score view
 export const getGameBoxScore = cache(async (gameId: number): Promise<GameBoxScore | null> => {
   const supabase = await createClient()
 
-  // Step 1: Get the game's _dlt_id from game_team_stats
-  const { data: gameData, error: gameError } = await supabase
-    .schema('core')
-    .from('game_team_stats')
-    .select('_dlt_id')
-    .eq('id', gameId)
-    .single()
+  const { data, error } = await supabase
+    .schema('api')
+    .from('game_box_score')
+    .select('team, home_away, category, stat_value')
+    .eq('game_id', gameId)
 
-  if (gameError || !gameData) {
+  if (error || !data || data.length === 0) {
     return null
   }
 
-  // Step 2: Get teams for this game via _dlt_parent_id
-  const { data: teamsData, error: teamsError } = await supabase
-    .schema('core')
-    .from('game_team_stats__teams')
-    .select('team, home_away, _dlt_id')
-    .eq('_dlt_parent_id', gameData._dlt_id)
+  const rows = data as GameBoxScoreRow[]
 
-  if (teamsError || !teamsData || teamsData.length === 0) {
-    return null
-  }
-
-  // Step 3: Get stats for all teams in one query
-  const teamDltIds = teamsData.map(t => t._dlt_id)
-  const { data: statsData, error: statsError } = await supabase
-    .schema('core')
-    .from('game_team_stats__teams__stats')
-    .select('category, stat, _dlt_parent_id')
-    .in('_dlt_parent_id', teamDltIds)
-
-  if (statsError) {
-    return null
-  }
-
-  // Build lookup of stats by team _dlt_id
-  const statsByTeam = new Map<string, Record<string, string>>()
-  for (const stat of statsData ?? []) {
-    if (!statsByTeam.has(stat._dlt_parent_id)) {
-      statsByTeam.set(stat._dlt_parent_id, {})
+  // Pivot EAV rows into one BoxScoreTeam per home_away side
+  const byHomeAway = new Map<'home' | 'away', BoxScoreTeam>()
+  for (const row of rows) {
+    if (!byHomeAway.has(row.home_away)) {
+      byHomeAway.set(row.home_away, { team: row.team, homeAway: row.home_away, stats: {} })
     }
-    statsByTeam.get(stat._dlt_parent_id)![stat.category] = stat.stat
+    byHomeAway.get(row.home_away)!.stats[row.category] = row.stat_value
   }
 
-  // Build BoxScore result
-  let home: BoxScoreTeam | null = null
-  let away: BoxScoreTeam | null = null
-
-  for (const teamData of teamsData) {
-    const boxScoreTeam: BoxScoreTeam = {
-      team: teamData.team,
-      homeAway: teamData.home_away as 'home' | 'away',
-      stats: statsByTeam.get(teamData._dlt_id) ?? {},
-    }
-
-    if (teamData.home_away === 'home') {
-      home = boxScoreTeam
-    } else {
-      away = boxScoreTeam
-    }
-  }
+  const home = byHomeAway.get('home')
+  const away = byHomeAway.get('away')
 
   if (!home || !away) {
     return null
