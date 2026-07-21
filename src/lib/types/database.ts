@@ -428,3 +428,18 @@ export interface GamePlay {
   offense_score: number
   defense_score: number
 }
+
+// Per-play win probability from CFBD's own in-game model (api.game_win_probability
+// -- NOT the Tier 2 house pregame number in GameElo/game_predictions). play_id
+// arrives as a string (PostgREST stringifies int8 to avoid JS precision loss).
+// period/clock_minutes/clock_seconds come from a defensive LEFT JOIN to
+// core.plays and may be null -- either for every row in a game (play_id/
+// core.plays.id mismatch) or per-row (e.g. untimed OT downs have a period
+// but no clock).
+export interface GameWinProbability {
+  play_id: string
+  home_win_probability: number | null
+  period: number | null
+  clock_minutes: number | null
+  clock_seconds: number | null
+}

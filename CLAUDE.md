@@ -75,22 +75,20 @@ All season/conference constants live in `src/lib/queries/constants.ts` and `src/
 
 ## Database
 
-This app reads from three Supabase Postgres schemas (all populated by cfb-database):
+This app reads from two Supabase Postgres schemas (both populated by cfb-database):
 
 | Schema | Contains | Examples |
 |--------|----------|---------|
-| `public` | Convenience views, RPCs | `teams_with_logos`, `games`, `team_season_trajectory`, `roster` |
-| `core` | Normalized game data | `rankings`, `records`, `game_team_stats`, line scores |
-| `core_staging` | Player stats (dlt-loaded) | `game_player_stats` and nested child tables |
+| `public` (default, no `.schema()` call) | Legacy convenience views + RPCs | `teams_with_logos`, `games`, `team_season_trajectory`, `roster`, `records` |
+| `api` (`.schema('api')`) | Contracted PostgREST views -- the primary/preferred surface for new queries | `game_box_score`, `game_player_leaders`, `game_line_scores`, `game_drives`, `game_plays`, `game_win_probability`, `team_detail`, `matchup`, `poll_rankings` |
 
-### dlt Table Conventions
-
-Tables in `core` and `core_staging` use dlt parent-child relationships:
-- `_dlt_id` -- unique row identifier
-- `_dlt_parent_id` -- FK to parent table's `_dlt_id`
-- `_dlt_list_idx` -- array position index
-
-Example traversal: `game_player_stats` -> `__teams` -> `__categories` -> `__types` -> `__athletes`
+Direct access to the internal, dlt-loaded `core`/`core_staging` schemas is **banned**: every
+known instance was migrated to an `api.*` view (see cfb-database's `docs/SCHEMA_CONTRACT.md`
+Contract Rule 4), and `src/lib/queries/__tests__/contract-guard.test.ts` fails the build on any
+new `.schema('core')` usage in `src/lib/queries`, `src/app`, or `src/lib/mcp`. Because `api.*`
+views flatten cfb-database's dlt-loaded EAV/parent-child shapes server-side, cfb-app itself never
+touches raw dlt columns (`_dlt_id`, `_dlt_parent_id`, `_dlt_list_idx`) or nested `__child` table
+traversal -- that flattening happens once, in the view definition, not in this app's query layer.
 
 ### Key RPCs
 
@@ -98,9 +96,9 @@ Example traversal: `game_player_stats` -> `__teams` -> `__categories` -> `__type
 
 ### Key Tables/Views
 
-`teams_with_logos`, `team_epa_season`, `team_style_profile`, `defensive_havoc`, `team_tempo_metrics`, `records`, `team_special_teams_sos`, `rankings`, `game_team_stats`
+`teams_with_logos`, `games`, `team_epa_season`, `team_style_profile`, `defensive_havoc`, `team_tempo_metrics`, `records`, `team_special_teams_sos`, `roster` (`public`); `game_box_score`, `game_player_leaders`, `game_line_scores`, `game_drives`, `game_plays`, `game_win_probability`, `team_detail`, `matchup`, `poll_rankings` (`api`)
 
-Types are in `src/lib/types/database.ts`.
+Full contracted surface: cfb-database's `docs/SCHEMA_CONTRACT.md`. Types are in `src/lib/types/database.ts`.
 
 ## Architectural Patterns
 
