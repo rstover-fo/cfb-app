@@ -17,6 +17,7 @@ const ALLOWLIST: string[] = []
 const SCAN_ROOTS = [
   path.resolve(__dirname, '../../queries'), // src/lib/queries
   path.resolve(__dirname, '../../../app'),  // src/app
+  path.resolve(__dirname, '../../mcp'),     // src/lib/mcp (MCP tool layer)
 ]
 
 const SOURCE_FILE_PATTERN = /\.tsx?$/
