@@ -59,3 +59,35 @@ describe('MCP route wiring', () => {
     expect(checkAuth(req({ authorization: 'BEARER correct-token' })).ok).toBe(true)
   })
 })
+
+describe('query-param token (claude.ai connector compatibility)', () => {
+  beforeEach(() => {
+    process.env.MCP_AUTH_TOKEN = 'correct-token'
+  })
+
+  afterEach(() => {
+    delete process.env.MCP_AUTH_TOKEN
+  })
+
+  it('accepts ?token= at the auth layer', async () => {
+    const { checkAuth } = await import('@/lib/mcp/auth')
+    const r = new Request('http://localhost/api/mcp?token=correct-token', { method: 'POST' })
+    expect(checkAuth(r).ok).toBe(true)
+  })
+
+  it('rejects a wrong ?token= via the route', async () => {
+    const res = await (route.POST as (r: Request) => Promise<Response>)(
+      new Request('http://localhost/api/mcp?token=wrong', { method: 'POST' })
+    )
+    expect(res.status).toBe(401)
+  })
+
+  it('header takes precedence: wrong header + right param still rejects', async () => {
+    const { checkAuth } = await import('@/lib/mcp/auth')
+    const r = new Request('http://localhost/api/mcp?token=correct-token', {
+      method: 'POST',
+      headers: { authorization: 'Bearer wrong' },
+    })
+    expect(checkAuth(r).ok).toBe(false)
+  })
+})
