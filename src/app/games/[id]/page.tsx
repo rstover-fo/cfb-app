@@ -1,7 +1,8 @@
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
-import { getGameById, getGameBoxScore, getGamePlayerLeaders, getGameLineScores, getGameDrives, getGamePlays, getGameWinProbability } from '@/lib/queries/games'
+import { getGameById, getGameBoxScore, getGamePlayerLeaders, getGameLineScores, getGameDrives, getGamePlays, getGameWinProbability, getGameRecap } from '@/lib/queries/games'
 import { GameScoreHeader } from '@/components/game/GameScoreHeader'
+import { GameRecap } from '@/components/game/GameRecap'
 import { QuarterScores } from '@/components/game/QuarterScores'
 import { GameBoxScore } from '@/components/game/GameBoxScore'
 import { PlayerLeaders } from '@/components/game/PlayerLeaders'
@@ -22,7 +23,7 @@ export default async function GamePage({ params }: GamePageProps) {
     notFound()
   }
 
-  const [game, boxScore, playerLeaders, lineScores, drives, plays, winProbability] = await Promise.all([
+  const [game, boxScore, playerLeaders, lineScores, drives, plays, winProbability, recap] = await Promise.all([
     getGameById(gameId),
     getGameBoxScore(gameId),
     getGamePlayerLeaders(gameId),
@@ -30,6 +31,7 @@ export default async function GamePage({ params }: GamePageProps) {
     getGameDrives(gameId),
     getGamePlays(gameId),
     getGameWinProbability(gameId),
+    getGameRecap(gameId),
   ])
 
   if (!game) {
@@ -69,6 +71,13 @@ export default async function GamePage({ params }: GamePageProps) {
 
         {/* Score Header */}
         <GameScoreHeader game={game} />
+
+        {/* AI-Generated Recap */}
+        {recap && (
+          <div className="mt-6">
+            <GameRecap recap={recap} />
+          </div>
+        )}
 
         {/* Quarter Scores */}
         {lineScores && (

@@ -298,3 +298,27 @@ export function createGameWinProbabilityRowsNoClockJoin(): GameWinProbabilityRow
     createGameWinProbabilityRow({ play_id: '3', home_win_probability: 0.6, period: null, clock_minutes: null, clock_seconds: null }),
   ]
 }
+
+// ---------------------------------------------------------------------------
+// api.game_recaps — one row per game, nightly LLM-generated
+// Authoritative definition: /workspace/cfb-database/src/schemas/api/034_game_recaps.sql
+// ---------------------------------------------------------------------------
+
+export interface GameRecapRow {
+  headline: string
+  recap: string
+  wp_available: boolean
+  model: string
+  generated_at: string
+}
+
+export function createGameRecapRow(overrides: Partial<GameRecapRow> = {}): GameRecapRow {
+  return {
+    headline: 'Sooners Rally Late to Stun Houston',
+    recap: 'Oklahoma trailed by 10 entering the fourth quarter before a late surge sealed the win.\n\nThe defense forced two turnovers in the final five minutes to close it out.',
+    wp_available: true,
+    model: 'claude-sonnet-4',
+    generated_at: '2026-07-20T04:00:00Z',
+    ...overrides,
+  }
+}

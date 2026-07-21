@@ -443,3 +443,16 @@ export interface GameWinProbability {
   clock_minutes: number | null
   clock_seconds: number | null
 }
+
+// Nightly LLM-generated game recap (api.game_recaps). headline/recap are
+// prose written by scripts/generate_recaps.py's Anthropic call, constrained
+// to warehouse facts already in the database -- never invented context.
+// A missing row means "not yet generated," not an error. Authoritative
+// definition: /workspace/cfb-database/src/schemas/api/034_game_recaps.sql
+export interface GameRecap {
+  headline: string
+  recap: string
+  wp_available: boolean
+  model: string
+  generated_at: string
+}
