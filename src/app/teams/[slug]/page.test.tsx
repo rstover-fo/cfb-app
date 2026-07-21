@@ -10,6 +10,10 @@ vi.mock('next/navigation', () => ({
   },
 }))
 
+vi.mock('next/headers', () => ({
+  cookies: vi.fn().mockResolvedValue({ get: () => undefined }),
+}))
+
 // Build a chainable query builder that supports arbitrary chaining
 function chainable(data: unknown = [], single = false) {
   const resolved = single

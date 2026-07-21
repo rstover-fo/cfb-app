@@ -215,3 +215,37 @@ select option {
   color: var(--text-primary);
   padding: 8px;
 }
+
+/* ===========================================
+   TEAM THEME OVERLAY — Oklahoma (OU)
+   Opt-in accent overlay, activated via the "Sooner Mode" toggle on the
+   Oklahoma team page (see TeamThemeToggle + data-team-theme on <html>).
+   Only the --accent* tokens are overridden here — the default palette
+   above is untouched, and no shared component hardcodes OU colors.
+   Retired OU-app palette: crimson #841617, cream #FDF9F2.
+   =========================================== */
+
+/* Light mode (explicit, or system-resolved when no --data-theme is set) */
+[data-team-theme="ou"][data-theme="light"],
+[data-team-theme="ou"]:not([data-theme]) {
+  --accent: #841617; /* OU crimson */
+  --accent-hover: #6E1213; /* darker crimson */
+  --accent-foreground: #FDF9F2; /* OU cream — ~10.1:1 contrast on --accent */
+}
+
+/* Dark mode: raw crimson (#841617) is only ~1.7:1 against the app's dark
+   background (#1A1814) — well under WCAG AA. Lighten it so it stays legible
+   as text/border color; ~5.5:1 against the dark background. */
+[data-team-theme="ou"][data-theme="dark"] {
+  --accent: #E2696A; /* lightened crimson */
+  --accent-hover: #EB8384;
+  --accent-foreground: #241012; /* dark maroon — ~5.6:1 contrast on --accent */
+}
+
+@media (prefers-color-scheme: dark) {
+  [data-team-theme="ou"]:not([data-theme]) {
+    --accent: #E2696A;
+    --accent-hover: #EB8384;
+    --accent-foreground: #241012;
+  }
+}

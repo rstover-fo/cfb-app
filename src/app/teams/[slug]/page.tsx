@@ -1,8 +1,10 @@
 import { createClient } from '@/lib/supabase/server'
 import { notFound } from 'next/navigation'
+import { cookies } from 'next/headers'
 import { Team, TeamSeasonEpa, TeamStyleProfile, TeamSeasonTrajectory, DrivePattern, DownDistanceSplit, TrajectoryAverages, RedZoneSplit, FieldPositionSplit, HomeAwaySplit, ConferenceSplit, RosterPlayer, PlayerSeasonStat, Game, ScheduleGame, RecruitingClassHistory, RecruitingROI, Signee, PortalActivity } from '@/lib/types/database'
 import { TeamPageClient } from '@/components/team/TeamPageClient'
 import { CURRENT_SEASON } from '@/lib/queries/constants'
+import { TEAM_THEME_COOKIE, parseTeamThemeCookie, themeConfigForSlug } from '@/lib/theme/team-theme'
 
 interface TeamPageProps {
   params: Promise<{ slug: string }>
@@ -28,6 +30,12 @@ export default async function TeamPage({ params, searchParams }: TeamPageProps) 
   if (!team) {
     notFound()
   }
+
+  // Team theme (e.g. OU "Sooner Mode"): resolve the theme this team offers
+  // (if any) and whether it's currently active per the visitor's cookie.
+  const cookieStore = await cookies()
+  const activeThemeKey = parseTeamThemeCookie(cookieStore.get(TEAM_THEME_COOKIE)?.value)
+  const teamTheme = themeConfigForSlug(slug)
 
   // Get available seasons for the selector
   const { data: seasonsData } = await supabase.rpc('get_available_seasons')
@@ -202,6 +210,8 @@ export default async function TeamPage({ params, searchParams }: TeamPageProps) 
       roi={roi}
       signees={signees}
       portalActivity={portalActivity}
+      teamTheme={teamTheme}
+      activeThemeKey={activeThemeKey}
     />
   )
 }

@@ -32,7 +32,6 @@ export function exportToCsv(
   rows: Record<string, unknown>[],
 ): void {
   if (rows.length === 0) {
-    console.warn('exportToCsv: No rows to export')
     return
   }
 
@@ -58,7 +57,6 @@ export function exportToCsv(
     document.body.removeChild(link)
     URL.revokeObjectURL(url)
   } catch (error) {
-    console.error('exportToCsv: Error during export', error)
     throw new Error(`Failed to export CSV: ${error instanceof Error ? error.message : String(error)}`)
   }
 }
