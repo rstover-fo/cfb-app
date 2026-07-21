@@ -51,10 +51,18 @@ Preview/Development if you want the endpoint reachable there too) -> redeploy.
 
 ### claude.ai
 
-Settings -> Connectors -> Add custom connector:
+Settings -> Connectors -> Add custom connector. The claude.ai dialog has no
+custom-header field (its Advanced settings cover OAuth only), so the token
+rides in the URL instead:
 
-- **URL:** `https://v0-production-data-application.vercel.app/api/mcp`
-- **Authentication:** send an `Authorization` header with value `Bearer <your token>`
+- **URL:** `https://v0-production-data-application.vercel.app/api/mcp?token=<your token>`
+- Leave the OAuth Client ID/Secret fields empty.
+
+The server accepts the token from either the `Authorization: Bearer` header
+or the `?token=` query parameter -- same constant-time check, same fail-closed
+behavior. Note the query-param form can appear in server request logs; rotate
+the token (change `MCP_AUTH_TOKEN` and update the URL) if that ever concerns
+you.
 
 ### Claude Code
 
