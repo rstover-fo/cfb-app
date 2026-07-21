@@ -2,7 +2,7 @@ import { cache } from 'react'
 import { createClient } from '@/lib/supabase/server'
 import { getTeamLookup } from './shared'
 import { REGULAR_SEASON_MAX_WEEK, POSTSEASON_MIN_WEEK } from './constants'
-import type { GameBoxScore, BoxScoreTeam, PlayerLeaders, TeamLeaders, LineScores, GameDrive, GamePlay } from '@/lib/types/database'
+import type { GameBoxScore, BoxScoreTeam, PlayerLeaders, TeamLeaders, LineScores, GameDrive, GamePlay, GameWinProbability } from '@/lib/types/database'
 
 // Season phase type
 export type SeasonPhase = 'all' | 'regular' | 'postseason'
@@ -449,5 +449,53 @@ export const getGamePlays = cache(async (gameId: number): Promise<GamePlay[]> =>
 
   // Filter out non-play types
   return rows.filter(p => p.play_type && !EXCLUDED_PLAY_TYPES.includes(p.play_type))
+})
+
+// Row shape for api.game_win_probability (one row per play; CFBD's in-game
+// win-probability model, distinct from the Tier 2 house pregame number in
+// api.game_elo_history/api.game_predictions). Authoritative definition:
+// cfb-database src/schemas/api/033_game_win_probability.sql.
+//
+// Ordering: the view has no confirmed play-sequence column (no "play_number"
+// equivalent in the /metrics/wp payload per that view's header) -- play_id
+// ascending is the documented ordering key, matching the view's own
+// `ORDER BY wp.game_id, wp.play_id` and PostgREST usage example.
+//
+// period/clock_minutes/clock_seconds come from a defensive LEFT JOIN to
+// core.plays on play_id and may be null -- either for every row in a game
+// (if play_id doesn't correspond 1:1 with core.plays.id) or per-row (e.g.
+// untimed OT downs carry a period but no clock).
+// TODO: regenerate supabase types to include `api` schema views/tables
+interface GameWinProbabilityRow {
+  play_id: string
+  home_win_probability: number | null
+  period: number | null
+  clock_minutes: number | null
+  clock_seconds: number | null
+}
+
+// Row volume is ~150-190 plays/game -- well under this cap, but also well
+// above the smaller row caps used elsewhere in this codebase (e.g. mcp.ts's
+// DEFAULT_ROW_CAP=100). Set explicitly rather than relying on PostgREST's
+// own default max-rows, which would silently truncate a full game's plays.
+const WIN_PROBABILITY_ROW_LIMIT = 500
+
+// Get per-play win probability for a game from the contracted
+// api.game_win_probability view. Coverage is 2014+ and only for backfilled
+// games -- an empty array means "not available for this game", not an error.
+export const getGameWinProbability = cache(async (gameId: number): Promise<GameWinProbability[]> => {
+  const supabase = await createClient()
+
+  const { data, error } = await supabase
+    .schema('api')
+    .from('game_win_probability')
+    .select('play_id, home_win_probability, period, clock_minutes, clock_seconds')
+    .eq('game_id', gameId)
+    .order('play_id')
+    .limit(WIN_PROBABILITY_ROW_LIMIT)
+
+  if (error || !data) return []
+
+  return data as GameWinProbabilityRow[]
 })
 

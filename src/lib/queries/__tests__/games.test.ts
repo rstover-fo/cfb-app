@@ -2,8 +2,9 @@
  * Unit tests for the transform/merge/pivot logic in src/lib/queries/games.ts:
  * getGameBoxScore (EAV pivot), getGamePlayerLeaders (group/merge stat_type
  * rows per player, descending parseFloat sort), getGameLineScores (pivoted
- * quarters + conditional OT column), getGameDrives, and getGamePlays
- * (row mapping + EXCLUDED_PLAY_TYPES filter).
+ * quarters + conditional OT column), getGameDrives, getGamePlays
+ * (row mapping + EXCLUDED_PLAY_TYPES filter), and getGameWinProbability
+ * (row pass-through, empty-on-no-data/error).
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
@@ -12,7 +13,7 @@ vi.mock('@/lib/supabase/server', () => ({
 }))
 
 import { createClient } from '@/lib/supabase/server'
-import { getGameBoxScore, getGamePlayerLeaders, getGameLineScores, getGameDrives, getGamePlays } from '../games'
+import { getGameBoxScore, getGamePlayerLeaders, getGameLineScores, getGameDrives, getGamePlays, getGameWinProbability } from '../games'
 import { createSupabaseMock, dbError, ok, type SupabaseMockConfig } from './helpers'
 import {
   createGameBoxScoreRows,
@@ -20,6 +21,7 @@ import {
   createGameLineScoresRow,
   createGameDriveRows,
   createGamePlayRowsWithExcludedTypes,
+  createGameWinProbabilityRows,
 } from './fixtures/games'
 
 function mockClient(config: SupabaseMockConfig) {
@@ -297,5 +299,33 @@ describe('getGamePlays', () => {
     mockClient({ apiTables: { game_plays: dbError() } })
 
     expect(await getGamePlays(1001)).toEqual([])
+  })
+})
+
+describe('getGameWinProbability', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('passes through play-id-ordered win probability rows', async () => {
+    mockClient({ apiTables: { game_win_probability: ok(createGameWinProbabilityRows()) } })
+
+    const result = await getGameWinProbability(1001)
+
+    expect(result).toHaveLength(5)
+    expect(result[0]).toMatchObject({ play_id: '1', home_win_probability: 0.5, period: 1 })
+    expect(result[4]).toMatchObject({ play_id: '5', home_win_probability: 0.83, period: 4 })
+  })
+
+  it('returns [] on empty data (game not backfilled -- not an error)', async () => {
+    mockClient({ apiTables: { game_win_probability: ok([]) } })
+
+    expect(await getGameWinProbability(1001)).toEqual([])
+  })
+
+  it('returns [] (not a throw) on PostgREST error', async () => {
+    mockClient({ apiTables: { game_win_probability: dbError() } })
+
+    expect(await getGameWinProbability(1001)).toEqual([])
   })
 })

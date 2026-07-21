@@ -1,6 +1,6 @@
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
-import { getGameById, getGameBoxScore, getGamePlayerLeaders, getGameLineScores, getGameDrives, getGamePlays } from '@/lib/queries/games'
+import { getGameById, getGameBoxScore, getGamePlayerLeaders, getGameLineScores, getGameDrives, getGamePlays, getGameWinProbability } from '@/lib/queries/games'
 import { GameScoreHeader } from '@/components/game/GameScoreHeader'
 import { QuarterScores } from '@/components/game/QuarterScores'
 import { GameBoxScore } from '@/components/game/GameBoxScore'
@@ -22,13 +22,14 @@ export default async function GamePage({ params }: GamePageProps) {
     notFound()
   }
 
-  const [game, boxScore, playerLeaders, lineScores, drives, plays] = await Promise.all([
+  const [game, boxScore, playerLeaders, lineScores, drives, plays, winProbability] = await Promise.all([
     getGameById(gameId),
     getGameBoxScore(gameId),
     getGamePlayerLeaders(gameId),
     getGameLineScores(gameId),
     getGameDrives(gameId),
     getGamePlays(gameId),
+    getGameWinProbability(gameId),
   ])
 
   if (!game) {
@@ -82,7 +83,7 @@ export default async function GamePage({ params }: GamePageProps) {
             <h2 className="text-lg font-semibold text-[var(--text-primary)] mb-4">
               Scoring Timeline
             </h2>
-            <ScoringTimeline drives={drives} lineScores={lineScores} game={game} />
+            <ScoringTimeline drives={drives} lineScores={lineScores} game={game} serverWP={winProbability} />
           </div>
         )}
 

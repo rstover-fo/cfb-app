@@ -5,7 +5,7 @@ import { GameTabSelector } from './GameTabSelector'
 import { ScoreStepLine } from './ScoreStepLine'
 import { WinProbabilityChart } from './WinProbabilityChart'
 import { MomentumChart } from './MomentumChart'
-import type { GameDrive } from '@/lib/types/database'
+import type { GameDrive, GameWinProbability } from '@/lib/types/database'
 import type { GameWithTeams } from '@/lib/queries/games'
 import type { LineScores } from '@/lib/types/database'
 
@@ -19,9 +19,13 @@ interface ScoringTimelineProps {
   drives: GameDrive[]
   lineScores: LineScores
   game: GameWithTeams
+  /** Per-play win probability from api.game_win_probability (CFBD's in-game
+   *  model). Optional -- WinProbabilityChart falls back to its own
+   *  score-based heuristic when this is missing or has fewer than 2 rows. */
+  serverWP?: GameWinProbability[]
 }
 
-export function ScoringTimeline({ drives, lineScores, game }: ScoringTimelineProps) {
+export function ScoringTimeline({ drives, lineScores, game, serverWP }: ScoringTimelineProps) {
   const [activeTab, setActiveTab] = useState('score-flow')
 
   return (
@@ -42,7 +46,7 @@ export function ScoringTimeline({ drives, lineScores, game }: ScoringTimelinePro
           <ScoreStepLine drives={drives} lineScores={lineScores} game={game} />
         )}
         {activeTab === 'win-prob' && (
-          <WinProbabilityChart drives={drives} lineScores={lineScores} game={game} />
+          <WinProbabilityChart drives={drives} lineScores={lineScores} game={game} serverWP={serverWP} />
         )}
         {activeTab === 'momentum' && (
           <MomentumChart drives={drives} lineScores={lineScores} game={game} />

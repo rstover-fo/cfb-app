@@ -252,3 +252,49 @@ export function createGamePlayRowsWithExcludedTypes(): GamePlayRow[] {
     createGamePlayRow({ drive_number: 2, play_number: 4, play_type: null }),
   ]
 }
+
+// ---------------------------------------------------------------------------
+// api.game_win_probability — one row per play, CFBD's in-game WP model
+// Authoritative definition: /workspace/cfb-database/src/schemas/api/033_game_win_probability.sql
+// ---------------------------------------------------------------------------
+
+export interface GameWinProbabilityRow {
+  play_id: string
+  home_win_probability: number | null
+  period: number | null
+  clock_minutes: number | null
+  clock_seconds: number | null
+}
+
+export function createGameWinProbabilityRow(
+  overrides: Partial<GameWinProbabilityRow> = {}
+): GameWinProbabilityRow {
+  return {
+    play_id: '401628455101',
+    home_win_probability: 0.5,
+    period: 1,
+    clock_minutes: 15,
+    clock_seconds: 0,
+    ...overrides,
+  }
+}
+
+/** A handful of plays across all four quarters, play_id-ascending (the query's ordering). */
+export function createGameWinProbabilityRows(): GameWinProbabilityRow[] {
+  return [
+    createGameWinProbabilityRow({ play_id: '1', home_win_probability: 0.5, period: 1, clock_minutes: 15, clock_seconds: 0 }),
+    createGameWinProbabilityRow({ play_id: '2', home_win_probability: 0.58, period: 1, clock_minutes: 10, clock_seconds: 30 }),
+    createGameWinProbabilityRow({ play_id: '3', home_win_probability: 0.62, period: 2, clock_minutes: 5, clock_seconds: 0 }),
+    createGameWinProbabilityRow({ play_id: '4', home_win_probability: 0.71, period: 3, clock_minutes: 8, clock_seconds: 15 }),
+    createGameWinProbabilityRow({ play_id: '5', home_win_probability: 0.83, period: 4, clock_minutes: 2, clock_seconds: 0 }),
+  ]
+}
+
+/** period/clock_minutes/clock_seconds all null -- the defensive core.plays LEFT JOIN found no id match. */
+export function createGameWinProbabilityRowsNoClockJoin(): GameWinProbabilityRow[] {
+  return [
+    createGameWinProbabilityRow({ play_id: '1', home_win_probability: 0.5, period: null, clock_minutes: null, clock_seconds: null }),
+    createGameWinProbabilityRow({ play_id: '2', home_win_probability: 0.55, period: null, clock_minutes: null, clock_seconds: null }),
+    createGameWinProbabilityRow({ play_id: '3', home_win_probability: 0.6, period: null, clock_minutes: null, clock_seconds: null }),
+  ]
+}

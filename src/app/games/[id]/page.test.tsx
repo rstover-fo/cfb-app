@@ -38,6 +38,7 @@ vi.mock('@/lib/queries/games', () => ({
   getGameLineScores: vi.fn().mockResolvedValue(null),
   getGameDrives: vi.fn().mockResolvedValue([]),
   getGamePlays: vi.fn().mockResolvedValue([]),
+  getGameWinProbability: vi.fn().mockResolvedValue([]),
 }))
 
 vi.mock('@/components/game/GameScoreHeader', () => ({
