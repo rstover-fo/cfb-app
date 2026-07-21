@@ -49,6 +49,23 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000) to view the dashboard.
 
+## Deployment
+
+Production runs on **Vercel** (project `v0-production-data-application`) and auto-deploys
+the `main` branch; pull requests get preview deployments with a bot comment linking the URL.
+
+- **Production:** https://v0-production-data-application.vercel.app
+- **Required env vars** (Vercel → Project → Settings → Environment Variables):
+  `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` — the same two values
+  as `.env.local`. No other configuration is needed; all routes are dynamic
+  (server-rendered), so no build-time data access occurs.
+- **Data dependency:** the app reads only the contracted `api.*` views, `public.*`
+  convenience views, and RPCs from the cfb-database Supabase warehouse (see that repo's
+  `docs/SCHEMA_CONTRACT.md`). New warehouse views must be deployed there before app
+  code that consumes them ships — until then the affected pages render empty states.
+- **CI:** `.github/workflows/ci.yml` runs lint, typecheck, tests, and a production build
+  on every push and PR to `main` using placeholder Supabase env values.
+
 ## Scripts
 
 | Command | Description |
