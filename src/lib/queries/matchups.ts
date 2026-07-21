@@ -230,6 +230,8 @@ export const getMatchupGames = cache(
   async (teamA: string, teamB: string): Promise<MatchupGame[]> => {
     const supabase = await createClient()
 
+    const qa = teamA.replace(/"/g, '""')
+    const qb = teamB.replace(/"/g, '""')
     const { data, error } = await supabase
       .schema('api')
       .from('game_detail')
@@ -239,7 +241,8 @@ export const getMatchupGames = cache(
       .or(
         // Double-quote values: ( ) , are structural in PostgREST filter syntax,
         // and team names like "Miami (OH)" would otherwise corrupt the filter.
-        `and(home_team.eq."${teamA}",away_team.eq."${teamB}"),and(home_team.eq."${teamB}",away_team.eq."${teamA}")`
+        // Embedded double quotes are doubled per PostgREST escaping rules.
+        `and(home_team.eq."${qa}",away_team.eq."${qb}"),and(home_team.eq."${qb}",away_team.eq."${qa}")`
       )
       .order('season', { ascending: false })
       .order('week', { ascending: false })

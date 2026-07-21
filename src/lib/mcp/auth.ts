@@ -50,7 +50,8 @@ export function checkAuth(request: Request): AuthResult {
   }
 
   const header = request.headers.get('authorization')
-  if (!header || !header.startsWith(BEARER_PREFIX)) {
+  // RFC 6750: the auth scheme token is case-insensitive ("Bearer"/"bearer").
+  if (!header || !header.slice(0, BEARER_PREFIX.length).toLowerCase().startsWith(BEARER_PREFIX.toLowerCase())) {
     return {
       ok: false,
       status: 401,

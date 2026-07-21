@@ -145,7 +145,9 @@ export async function queryMatchupTool(args: QueryMatchupArgs): Promise<string> 
     )
   }
 
-  const games = await getMatchupGames(teamA, teamB)
+  // Cap at the tool boundary: getMatchupGames is shared with the /rivals
+  // page, which intentionally shows the full rivalry history.
+  const games = (await getMatchupGames(teamA, teamB)).slice(0, DEFAULT_ROW_CAP)
 
   return dump({
     matchup: wrap('api.matchup', [matchup]),
