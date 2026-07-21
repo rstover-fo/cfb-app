@@ -71,13 +71,13 @@ describe('checkAuth', () => {
       const result = checkAuth(req())
       expect(result.ok).toBe(false)
       expect(result.status).toBe(401)
-      expect(result.message).toMatch(/Missing or malformed/)
+      expect(result.message).toMatch(/Missing credential/)
     })
 
     it('rejects a header without the Bearer prefix', () => {
       const result = checkAuth(req({ Authorization: 'correct-horse-battery-staple' }))
       expect(result.ok).toBe(false)
-      expect(result.message).toMatch(/Missing or malformed/)
+      expect(result.message).toMatch(/Missing credential/)
     })
 
     it('rejects the wrong token', () => {

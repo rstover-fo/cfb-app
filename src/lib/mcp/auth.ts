@@ -28,12 +28,17 @@ export interface AuthResult {
 }
 
 /**
- * Checks the request's Authorization header against process.env.MCP_AUTH_TOKEN.
+ * Checks the request's credential against process.env.MCP_AUTH_TOKEN.
+ *
+ * Two equivalent ways to present the token:
+ * - `Authorization: Bearer <token>` header (Claude Code / Desktop / curl).
+ * - `?token=<token>` query parameter (claude.ai's custom-connector UI has no
+ *   custom-header field -- only OAuth -- so the URL carries the token there).
  *
  * - MCP_AUTH_TOKEN unset -> fail closed (401, all requests refused).
- * - Missing/malformed header -> 401.
+ * - No credential either way -> 401.
  * - Wrong token -> 401 (constant-time comparison).
- * - Correct token -> { ok: true }.
+ * - Correct token (either mechanism) -> { ok: true }.
  */
 export function checkAuth(request: Request): AuthResult {
   const expected = process.env.MCP_AUTH_TOKEN
@@ -49,22 +54,43 @@ export function checkAuth(request: Request): AuthResult {
     }
   }
 
-  const header = request.headers.get('authorization')
-  // RFC 6750: the auth scheme token is case-insensitive ("Bearer"/"bearer").
-  if (!header || !header.slice(0, BEARER_PREFIX.length).toLowerCase().startsWith(BEARER_PREFIX.toLowerCase())) {
+  const provided = extractToken(request)
+  if (!provided) {
     return {
       ok: false,
       status: 401,
-      message: 'Missing or malformed Authorization header. Expected "Authorization: Bearer <token>".',
+      message:
+        'Missing credential. Send "Authorization: Bearer <token>" or append ?token=<token> to the URL.',
     }
   }
 
-  const provided = header.slice(BEARER_PREFIX.length).trim()
-  if (!provided || !tokensMatch(provided, expected)) {
+  if (!tokensMatch(provided, expected)) {
     return { ok: false, status: 401, message: 'Invalid bearer token.' }
   }
 
   return { ok: true, status: 200 }
+}
+
+// Pull the token from the Authorization header (preferred) or the ?token=
+// query parameter (claude.ai custom-connector compatibility). Returns null
+// when neither carries a non-empty value.
+function extractToken(request: Request): string | null {
+  const header = request.headers.get('authorization')
+  // RFC 6750: the auth scheme token is case-insensitive ("Bearer"/"bearer").
+  if (header && header.slice(0, BEARER_PREFIX.length).toLowerCase() === BEARER_PREFIX.toLowerCase()) {
+    const value = header.slice(BEARER_PREFIX.length).trim()
+    if (value) return value
+  }
+
+  try {
+    const url = new URL(request.url)
+    const param = url.searchParams.get('token')?.trim()
+    if (param) return param
+  } catch {
+    // Unparseable URL -> no query credential.
+  }
+
+  return null
 }
 
 /** Build the 401 (or other failure-status) Response for a failed AuthResult. */
