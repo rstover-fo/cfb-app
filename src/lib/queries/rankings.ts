@@ -5,6 +5,12 @@ import { getTeamLookup } from './shared'
 
 const FBS_POLLS = ['AP Top 25', 'Coaches Poll', 'Playoff Committee Rankings'] as const
 
+// Per the warehouse contract (2026-07-20): api.poll_rankings now exposes season_type,
+// and the postseason final poll is stored as season_type='postseason', week 1. Weekly
+// poll queries must filter season_type='regular' or the final poll pollutes week 1.
+// Tied teams share a rank (next rank skipped) — the dedupe/sort logic tolerates this.
+const REGULAR_SEASON = 'regular'
+
 // Get all seasons that have ranking data
 export const getAvailableRankingSeasons = cache(async (): Promise<number[]> => {
   const supabase = await createClient()
@@ -13,6 +19,7 @@ export const getAvailableRankingSeasons = cache(async (): Promise<number[]> => {
     .schema('api')
     .from('poll_rankings')
     .select('season')
+    .eq('season_type', REGULAR_SEASON)
     .in('poll', FBS_POLLS as unknown as string[])
 
   if (error || !data) {
@@ -33,6 +40,7 @@ export const getAvailablePolls = cache(async (season: number): Promise<string[]>
     .schema('api')
     .from('poll_rankings')
     .select('poll')
+    .eq('season_type', REGULAR_SEASON)
     .eq('season', season)
     .in('poll', FBS_POLLS as unknown as string[])
 
@@ -53,6 +61,7 @@ export const getLatestRankingWeek = cache(async (season: number, poll: string): 
     .schema('api')
     .from('poll_rankings')
     .select('week')
+    .eq('season_type', REGULAR_SEASON)
     .eq('season', season)
     .eq('poll', poll)
     .order('week', { ascending: false })
@@ -81,6 +90,7 @@ export const getRankingsForWeek = cache(async (
       .schema('api')
       .from('poll_rankings')
       .select('rank, school, conference, first_place_votes, points, season, week, poll')
+      .eq('season_type', REGULAR_SEASON)
       .eq('season', season)
       .eq('week', week)
       .eq('poll', poll)
@@ -89,6 +99,7 @@ export const getRankingsForWeek = cache(async (
       .schema('api')
       .from('poll_rankings')
       .select('rank, school')
+      .eq('season_type', REGULAR_SEASON)
       .eq('season', season)
       .eq('week', week - 1)
       .eq('poll', poll),
@@ -165,6 +176,7 @@ export const getRankingsAllWeeks = cache(async (
     .schema('api')
     .from('poll_rankings')
     .select('rank, school, conference, first_place_votes, points, season, week, poll')
+    .eq('season_type', REGULAR_SEASON)
     .eq('season', season)
     .eq('poll', poll)
     .order('week', { ascending: true })
