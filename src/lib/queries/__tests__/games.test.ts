@@ -13,7 +13,7 @@ vi.mock('@/lib/supabase/server', () => ({
 }))
 
 import { createClient } from '@/lib/supabase/server'
-import { getGameBoxScore, getGamePlayerLeaders, getGameLineScores, getGameDrives, getGamePlays, getGameWinProbability } from '../games'
+import { getGameBoxScore, getGamePlayerLeaders, getGameLineScores, getGameDrives, getGamePlays, getGameWinProbability, getGameRecap } from '../games'
 import { createSupabaseMock, dbError, ok, type SupabaseMockConfig } from './helpers'
 import {
   createGameBoxScoreRows,
@@ -22,6 +22,7 @@ import {
   createGameDriveRows,
   createGamePlayRowsWithExcludedTypes,
   createGameWinProbabilityRows,
+  createGameRecapRow,
 } from './fixtures/games'
 
 function mockClient(config: SupabaseMockConfig) {
@@ -327,5 +328,37 @@ describe('getGameWinProbability', () => {
     mockClient({ apiTables: { game_win_probability: dbError() } })
 
     expect(await getGameWinProbability(1001)).toEqual([])
+  })
+})
+
+describe('getGameRecap', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('shapes a present row into a GameRecap object', async () => {
+    mockClient({ apiTables: { game_recaps: ok(createGameRecapRow()) } })
+
+    const result = await getGameRecap(1001)
+
+    expect(result).toEqual({
+      headline: 'Sooners Rally Late to Stun Houston',
+      recap: 'Oklahoma trailed by 10 entering the fourth quarter before a late surge sealed the win.\n\nThe defense forced two turnovers in the final five minutes to close it out.',
+      wp_available: true,
+      model: 'claude-sonnet-4',
+      generated_at: '2026-07-20T04:00:00Z',
+    })
+  })
+
+  it('returns null when the row is absent (not yet generated -- not an error)', async () => {
+    mockClient({ apiTables: { game_recaps: ok(null) } })
+
+    expect(await getGameRecap(1001)).toBeNull()
+  })
+
+  it('returns null (not a throw) on PostgREST error', async () => {
+    mockClient({ apiTables: { game_recaps: dbError() } })
+
+    expect(await getGameRecap(1001)).toBeNull()
   })
 })

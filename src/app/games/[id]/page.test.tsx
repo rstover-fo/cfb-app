@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import GamePage from './page'
+import { getGameRecap } from '@/lib/queries/games'
 
 const mockNotFound = vi.fn()
 vi.mock('next/navigation', () => ({
@@ -39,6 +40,7 @@ vi.mock('@/lib/queries/games', () => ({
   getGameDrives: vi.fn().mockResolvedValue([]),
   getGamePlays: vi.fn().mockResolvedValue([]),
   getGameWinProbability: vi.fn().mockResolvedValue([]),
+  getGameRecap: vi.fn().mockResolvedValue(null),
 }))
 
 vi.mock('@/components/game/GameScoreHeader', () => ({
@@ -54,6 +56,11 @@ vi.mock('@/components/game/PlayerLeaders', () => ({
 }))
 vi.mock('@/components/game/QuarterScores', () => ({
   QuarterScores: () => <div data-testid="quarter-scores">Quarter Scores</div>,
+}))
+vi.mock('@/components/game/GameRecap', () => ({
+  GameRecap: ({ recap }: { recap: { headline: string } }) => (
+    <div data-testid="game-recap">{recap.headline}</div>
+  ),
 }))
 
 describe('Game detail page', () => {
@@ -76,5 +83,26 @@ describe('Game detail page', () => {
       GamePage({ params: Promise.resolve({ id: 'abc' }) })
     ).rejects.toThrow('NEXT_NOT_FOUND')
     expect(mockNotFound).toHaveBeenCalled()
+  })
+
+  it('renders nothing for the recap when getGameRecap resolves null (not yet generated)', async () => {
+    const jsx = await GamePage({ params: Promise.resolve({ id: '1' }) })
+    render(jsx)
+    expect(screen.queryByTestId('game-recap')).not.toBeInTheDocument()
+  })
+
+  it('renders the GameRecap component when a recap row exists', async () => {
+    vi.mocked(getGameRecap).mockResolvedValueOnce({
+      headline: 'Sooners Rally Late to Stun Ohio State',
+      recap: 'Oklahoma overcame a 14-point deficit in the fourth quarter.',
+      wp_available: true,
+      model: 'claude-sonnet',
+      generated_at: '2026-07-20T04:00:00Z',
+    })
+
+    const jsx = await GamePage({ params: Promise.resolve({ id: '1' }) })
+    render(jsx)
+
+    expect(screen.getByTestId('game-recap')).toHaveTextContent('Sooners Rally Late to Stun Ohio State')
   })
 })

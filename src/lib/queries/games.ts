@@ -2,7 +2,7 @@ import { cache } from 'react'
 import { createClient } from '@/lib/supabase/server'
 import { getTeamLookup } from './shared'
 import { REGULAR_SEASON_MAX_WEEK, POSTSEASON_MIN_WEEK } from './constants'
-import type { GameBoxScore, BoxScoreTeam, PlayerLeaders, TeamLeaders, LineScores, GameDrive, GamePlay, GameWinProbability } from '@/lib/types/database'
+import type { GameBoxScore, BoxScoreTeam, PlayerLeaders, TeamLeaders, LineScores, GameDrive, GamePlay, GameWinProbability, GameRecap } from '@/lib/types/database'
 
 // Season phase type
 export type SeasonPhase = 'all' | 'regular' | 'postseason'
@@ -497,5 +497,35 @@ export const getGameWinProbability = cache(async (gameId: number): Promise<GameW
   if (error || !data) return []
 
   return data as GameWinProbabilityRow[]
+})
+
+// Row shape for api.game_recaps (one row per game, nightly LLM-generated).
+// Authoritative definition: cfb-database src/schemas/api/034_game_recaps.sql.
+// TODO: regenerate supabase types to include `api` schema views/tables
+interface GameRecapRow {
+  headline: string
+  recap: string
+  wp_available: boolean
+  model: string
+  generated_at: string
+}
+
+// Get the AI-generated recap for a game from the contracted api.game_recaps
+// view. The view fills nightly and is near-empty right after deploy -- a
+// null return means "not generated yet for this game", not an error, and
+// callers should render nothing (no placeholder card).
+export const getGameRecap = cache(async (gameId: number): Promise<GameRecap | null> => {
+  const supabase = await createClient()
+
+  const { data, error } = await supabase
+    .schema('api')
+    .from('game_recaps')
+    .select('headline, recap, wp_available, model, generated_at')
+    .eq('game_id', gameId)
+    .maybeSingle()
+
+  if (error || !data) return null
+
+  return data as GameRecapRow
 })
 
