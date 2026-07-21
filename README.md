@@ -10,6 +10,7 @@ College football analytics dashboard for FBS teams -- stats, rankings, game anal
 - **Defensive Havoc Metrics** -- TFL rates, sack rates, and forced turnovers aggregated by team
 - **Recruiting Analysis** -- class rankings and talent distribution
 - **Editorial Design** -- newspaper-inspired layout with paper textures and hand-drawn roughjs chart strokes
+- **MCP Server** -- read-only [MCP](https://modelcontextprotocol.io) tools for teams, games, rankings, and more at `/api/mcp`; see [docs/MCP.md](docs/MCP.md)
 
 ## Tech Stack
 
@@ -59,6 +60,8 @@ the `main` branch; pull requests get preview deployments with a bot comment link
   `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` — the same two values
   as `.env.local`. No other configuration is needed; all routes are dynamic
   (server-rendered), so no build-time data access occurs.
+- **MCP server:** the `/api/mcp` endpoint (see [docs/MCP.md](docs/MCP.md)) additionally
+  requires `MCP_AUTH_TOKEN` — it fails closed (refuses all requests) without it.
 - **Data dependency:** the app reads only the contracted `api.*` views, `public.*`
   convenience views, and RPCs from the cfb-database Supabase warehouse (see that repo's
   `docs/SCHEMA_CONTRACT.md`). New warehouse views must be deployed there before app
