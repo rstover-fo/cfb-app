@@ -93,6 +93,13 @@ Streamable HTTP servers need a local stdio-to-HTTP bridge
 }
 ```
 
+### Consumers
+
+The Discord bot in `bot/` consumes this endpoint two ways: deterministic slash commands hit it
+directly via an MCP client (`bot/src/mcp-client.ts`), and `/ask` plus `@`-mention chat hit it
+conversationally through the Anthropic MCP connector (`mcp_servers` pointing at this URL, same
+bearer token as `MCP_AUTH_TOKEN`). See `bot/README.md` for the full setup.
+
 ## Tool catalog
 
 All eight tools are read-only, non-destructive, idempotent, and return a compact JSON string
@@ -118,6 +125,11 @@ row caps) are ported faithfully from the Python reference server -- see
 `cfb-database/mcp/src/cfb_mcp/server.py` and `cfb-database/mcp/README.md` for the full
 rationale behind each one, and the per-tool `description`/argument docs registered in
 `src/lib/mcp/tools.ts` for the exact wording exposed to MCP clients.
+
+The table above documents the original 8 tools ported from the Python reference server. 11
+further app-native tools (predictions, Elo, matchup edges, playcalling profiles, adjusted EPA,
+live scoreboard, model accuracy, player leaders, player comparison, conference comparison, coach
+history) have been added since -- see `src/lib/mcp/tools.ts` for the full current set.
 
 ## Implementation notes
 
