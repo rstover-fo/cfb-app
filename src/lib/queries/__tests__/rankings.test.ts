@@ -18,6 +18,7 @@ import {
   getRankingsForWeek,
   getRankingsAllWeeks,
 } from '../rankings'
+import { CURRENT_SEASON } from '../constants'
 import { createSupabaseMock, dbError, ok, type SupabaseMockConfig } from './helpers'
 import { createTeamsWithLogosRows } from './fixtures/shared'
 import {
@@ -28,9 +29,9 @@ import {
 } from './fixtures/rankings'
 
 function mockClient(config: SupabaseMockConfig) {
-  vi.mocked(createClient).mockResolvedValue(
-    createSupabaseMock(config) as unknown as Awaited<ReturnType<typeof createClient>>
-  )
+  const mock = createSupabaseMock(config)
+  vi.mocked(createClient).mockResolvedValue(mock as unknown as Awaited<ReturnType<typeof createClient>>)
+  return mock
 }
 
 describe('getAvailableRankingSeasons', () => {
@@ -38,26 +39,59 @@ describe('getAvailableRankingSeasons', () => {
     vi.clearAllMocks()
   })
 
-  it('dedupes and sorts seasons descending', async () => {
+  // getAvailableRankingSeasons issues two bounded (limit=1) queries in
+  // Promise.all source order: [max season (order desc), min season (order
+  // asc)]. Both hit api:poll_rankings, so the response queue is consumed
+  // FIFO: index 0 -> max query, index 1 -> min query.
+  it('generates a contiguous descending range from two bounded max/min queries', async () => {
     mockClient({
       apiTables: {
-        poll_rankings: ok([{ season: 2023 }, { season: 2025 }, { season: 2024 }, { season: 2025 }]),
+        poll_rankings: [ok([{ season: 2025 }]), ok([{ season: 2003 }])],
       },
     })
 
-    expect(await getAvailableRankingSeasons()).toEqual([2025, 2024, 2023])
+    const result = await getAvailableRankingSeasons()
+
+    expect(result).toHaveLength(23)
+    expect(result[0]).toBe(2025)
+    expect(result[result.length - 1]).toBe(2003)
+    expect(result).toEqual(Array.from({ length: 23 }, (_, i) => 2025 - i))
   })
 
-  it('returns [] on empty data', async () => {
-    mockClient({ apiTables: { poll_rankings: ok([]) } })
+  it('issues both queries with limit(1) and opposite season orderings', async () => {
+    const mock = mockClient({
+      apiTables: {
+        poll_rankings: [ok([{ season: 2025 }]), ok([{ season: 2003 }])],
+      },
+    })
+    await getAvailableRankingSeasons()
 
-    expect(await getAvailableRankingSeasons()).toEqual([])
+    expect(mock.schema).toHaveBeenCalledTimes(2)
+    const maxChain = mock.schema.mock.results[0].value.from.mock.results[0].value
+    const minChain = mock.schema.mock.results[1].value.from.mock.results[0].value
+
+    expect(maxChain.limit).toHaveBeenCalledWith(1)
+    expect(minChain.limit).toHaveBeenCalledWith(1)
+    expect(maxChain.order).toHaveBeenCalledWith('season', { ascending: false })
+    expect(minChain.order).toHaveBeenCalledWith('season', { ascending: true })
   })
 
-  it('returns [] (not a throw) on PostgREST error', async () => {
-    mockClient({ apiTables: { poll_rankings: dbError() } })
+  it('falls back to [CURRENT_SEASON] (not []) on empty data, so the dropdown is never empty', async () => {
+    mockClient({ apiTables: { poll_rankings: [ok([]), ok([])] } })
 
-    expect(await getAvailableRankingSeasons()).toEqual([])
+    expect(await getAvailableRankingSeasons()).toEqual([CURRENT_SEASON])
+  })
+
+  it('falls back to [CURRENT_SEASON] (not a throw) on PostgREST error', async () => {
+    mockClient({ apiTables: { poll_rankings: [dbError(), dbError()] } })
+
+    expect(await getAvailableRankingSeasons()).toEqual([CURRENT_SEASON])
+  })
+
+  it('falls back to [CURRENT_SEASON] if only one side of the query errors', async () => {
+    mockClient({ apiTables: { poll_rankings: [ok([{ season: 2025 }]), dbError()] } })
+
+    expect(await getAvailableRankingSeasons()).toEqual([CURRENT_SEASON])
   })
 })
 

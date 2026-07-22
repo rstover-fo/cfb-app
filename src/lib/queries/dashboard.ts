@@ -54,10 +54,12 @@ export interface StatLeader {
 
 export interface StatLeadersData {
   epa: StatLeader[]
+  defEpa: StatLeader[]
   havoc: StatLeader[]
   successRate: StatLeader[]
   explosiveness: StatLeader[]
 }
+
 
 // Get top movers (EPA delta vs prior season)
 export const getTopMovers = cache(async (season: number): Promise<{ risers: Mover[], fallers: Mover[] }> => {
@@ -231,12 +233,21 @@ export const getStatLeaders = cache(async (season: number): Promise<StatLeadersD
   const teamLookup = await getTeamLookup()
 
   // Fetch all data in parallel
+  // opp_epa_per_play (the defensive-EPA leaders metric) lives on
+  // defensive_havoc, NOT on team_epa_season -- selecting it there makes
+  // PostgREST reject the whole metrics query, blanking every offense tab.
   const [metricsResult, havocResult] = await Promise.all([
-    supabase.from('team_epa_season').select('team, epa_per_play, success_rate, explosiveness').eq('season', season),
-    supabase.from('defensive_havoc').select('team, havoc_rate').eq('season', season)
+    supabase
+      .from('team_epa_season')
+      .select('team, epa_per_play, success_rate, explosiveness')
+      .eq('season', season),
+    supabase
+      .from('defensive_havoc')
+      .select('team, havoc_rate, opp_epa_per_play')
+      .eq('season', season)
   ])
 
-  const metrics = (metricsResult.data as TeamSeasonEpa[]) || []
+  const metrics = metricsResult.data || []
   const havoc = (havocResult.data as DefensiveHavoc[]) || []
 
   // Filter to FBS teams (skip nulls)
@@ -251,10 +262,17 @@ export const getStatLeaders = cache(async (season: number): Promise<StatLeadersD
       value: d.value
     }))
 
-  // EPA leaders (highest EPA per play)
+  // EPA leaders (highest offensive EPA per play)
   const epaLeaders = fbsMetrics
     .sort((a, b) => (b.epa_per_play ?? 0) - (a.epa_per_play ?? 0))
     .map(m => ({ team: m.team!, value: m.epa_per_play ?? 0 }))
+
+  // Defensive EPA leaders (lowest opponent EPA per play allowed is best --
+  // ascending sort, unlike every other leaderboard here).
+  const defEpaLeaders = fbsHavoc
+    .filter(h => h.opp_epa_per_play != null)
+    .sort((a, b) => (a.opp_epa_per_play ?? 0) - (b.opp_epa_per_play ?? 0))
+    .map(h => ({ team: h.team!, value: h.opp_epa_per_play ?? 0 }))
 
   // Havoc leaders (highest havoc rate)
   const havocLeaders = fbsHavoc
@@ -273,6 +291,7 @@ export const getStatLeaders = cache(async (season: number): Promise<StatLeadersD
 
   return {
     epa: mapToLeader(epaLeaders),
+    defEpa: mapToLeader(defEpaLeaders),
     havoc: mapToLeader(havocLeaders),
     successRate: mapToLeader(successRateLeaders),
     explosiveness: mapToLeader(explosivenessLeaders)

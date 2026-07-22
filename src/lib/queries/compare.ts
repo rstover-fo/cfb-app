@@ -3,13 +3,22 @@ import { createClient } from '@/lib/supabase/server'
 import type { Team, TeamSeasonEpa, TeamStyleProfile } from '@/lib/types/database'
 import { teamNameToSlug } from '@/lib/utils'
 
-// Fetch all teams (FBS + FCS) for the /compare route's team pickers. Mirrors
-// the unfiltered `teams_with_logos` fetch already used by the team detail
-// page's Compare tab (src/app/teams/[slug]/page.tsx) so both entry points
-// offer the same pool of teams.
+// Fetch all FBS teams for the /compare route's team pickers. Filtered via
+// `classification` (not conference-name matching -- see FBS_CONFERENCES in
+// shared.ts for why that approach leaks FCS schools, e.g. "Ohio State
+// Newark" turning up as a compare-able team). NOTE: the team detail page's
+// own inline Compare tab (src/app/teams/[slug]/page.tsx) still fetches
+// `teams_with_logos` unfiltered -- that query doubles as the source for
+// schedule-opponent logos (which legitimately include FCS opponents), so
+// it wasn't narrowed here; splitting it into two queries is out of scope
+// for this fix.
 export const getAllTeams = cache(async (): Promise<Team[]> => {
   const supabase = await createClient()
-  const { data } = await supabase.from('teams_with_logos').select('*').order('school')
+  const { data } = await supabase
+    .from('teams_with_logos')
+    .select('*')
+    .eq('classification', 'fbs')
+    .order('school')
   return (data as Team[]) || []
 })
 

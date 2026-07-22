@@ -104,10 +104,20 @@ describe('queryLeaderboardTeams', () => {
     expect(result.rows).toEqual([{ team: 'Oklahoma', epa_rank: 1 }])
   })
 
-  it('propagates a friendly error string on failure', async () => {
+  it('filters on classification=fbs so ranks are FBS-scoped', async () => {
+    const mock = mockClient({ apiTables: { leaderboard_teams: ok([{ team: 'Oklahoma', epa_rank: 1 }]) } })
+    await queryLeaderboardTeams(2024, 'epa')
+
+    const chain = mock.schema.mock.results[0].value.from.mock.results[0].value
+    expect(chain.eq).toHaveBeenCalledWith('classification', 'fbs')
+    expect(chain.eq).toHaveBeenCalledWith('season', 2024)
+  })
+
+  it('propagates a friendly error string on failure (e.g. before the warehouse adds `classification`)', async () => {
     mockClient({ apiTables: { leaderboard_teams: dbError('nope') } })
     const result = await queryLeaderboardTeams(2024, 'wins')
     expect(result.error).toMatch(/^Error: api\.leaderboard_teams request failed: nope$/)
+    expect(result.rows).toEqual([])
   })
 })
 

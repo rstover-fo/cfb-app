@@ -1,7 +1,6 @@
 'use client'
 
 import { TeamSeasonEpa } from '@/lib/types/database'
-import { formatRank } from '@/lib/utils'
 import { useCountUp } from '@/hooks/useCountUp'
 import { Info, TrendDown, TrendUp } from '@phosphor-icons/react'
 
@@ -54,7 +53,7 @@ function MetricCard({ label, value, decimals = 3, suffix = '', rank, tooltip, tr
           ) : rank > 100 ? (
             <TrendDown size={14} weight="thin" className="text-[var(--color-negative)]" />
           ) : null}
-          <span>{formatRank(rank)} nationally</span>
+          <span>#{Math.round(rank)} in FBS</span>
         </div>
       )}
     </div>

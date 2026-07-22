@@ -25,6 +25,25 @@ interface CompareViewProps {
   onSelectionChange?: (team1Id: number | null, team2Id: number | null) => void
 }
 
+// Smallest field size used to normalize rank bars. Ranks are (or, pre-
+// warehouse-migration, may temporarily not yet be) FBS-scoped, so this is
+// effectively "number of FBS teams" -- kept slightly above the current
+// ~134-136 team count so a bar never visually maxes out just because both
+// ranks happen to be mediocre.
+const RANK_FIELD_FLOOR = 136
+
+// Normalize a lower-is-better rank (1 = best) to a 0-100 bar width where the
+// *better* (lower) rank draws the *longer* bar. Plain `value / max` (used for
+// raw metrics below) does the opposite for ranks -- a worse rank is a bigger
+// number, so it would draw the longer bar, which is backwards. Null/missing
+// ranks render a zero-width bar rather than being dropped, since the sibling
+// value may still be present.
+function rankBarWidth(rank: number | null | undefined, field: number): number {
+  if (rank == null) return 0
+  const raw = ((field + 1 - rank) / field) * 100
+  return Math.min(100, Math.max(0, raw))
+}
+
 function MetricBar({
   label,
   value1,
@@ -32,7 +51,8 @@ function MetricBar({
   format,
   color1,
   color2,
-  higherIsBetter
+  higherIsBetter,
+  isRank = false
 }: {
   label: string
   value1: number | null
@@ -41,12 +61,26 @@ function MetricBar({
   color1: string
   color2: string
   higherIsBetter: boolean
+  /** Lower-is-better rank metric (e.g. Offensive/Defensive Rank): normalizes bar
+   *  width so the better (lower) rank draws the longer bar. Keep `higherIsBetter`
+   *  as the separate "which value gets the positive-color text" switch -- it stays
+   *  false for ranks even though this prop changes how the bar width is computed. */
+  isRank?: boolean
 }) {
   if (value1 === null || value2 === null) return null
 
-  const max = Math.max(Math.abs(value1), Math.abs(value2))
-  const width1 = max > 0 ? (Math.abs(value1) / max) * 100 : 0
-  const width2 = max > 0 ? (Math.abs(value2) / max) * 100 : 0
+  let width1: number
+  let width2: number
+
+  if (isRank) {
+    const field = Math.max(RANK_FIELD_FLOOR, value1, value2)
+    width1 = rankBarWidth(value1, field)
+    width2 = rankBarWidth(value2, field)
+  } else {
+    const max = Math.max(Math.abs(value1), Math.abs(value2))
+    width1 = max > 0 ? (Math.abs(value1) / max) * 100 : 0
+    width2 = max > 0 ? (Math.abs(value2) / max) * 100 : 0
+  }
 
   const better1 = higherIsBetter ? value1 > value2 : value1 < value2
   const better2 = higherIsBetter ? value2 > value1 : value2 < value1
@@ -56,11 +90,11 @@ function MetricBar({
       <div className="text-sm text-[var(--text-muted)] mb-2">{label}</div>
       <div className="flex items-center gap-4">
         {/* Team 1 bar (right aligned) */}
-        <div className="flex-1 flex items-center justify-end gap-2">
+        <div className="flex-1 min-w-0 flex items-center justify-end gap-2">
           <span className={`text-sm font-medium ${better1 ? 'text-[var(--color-positive)]' : 'text-[var(--text-secondary)]'}`}>
             {format(value1)}
           </span>
-          <div className="w-32 h-4 bg-[var(--bg-surface-alt)] rounded-sm overflow-hidden">
+          <div className="w-32 max-w-full shrink h-4 bg-[var(--bg-surface-alt)] rounded-sm overflow-hidden">
             <div
               className="h-full rounded-sm transition-all duration-300"
               style={{
@@ -73,8 +107,8 @@ function MetricBar({
         </div>
 
         {/* Team 2 bar (left aligned) */}
-        <div className="flex-1 flex items-center gap-2">
-          <div className="w-32 h-4 bg-[var(--bg-surface-alt)] rounded-sm overflow-hidden">
+        <div className="flex-1 min-w-0 flex items-center gap-2">
+          <div className="w-32 max-w-full shrink h-4 bg-[var(--bg-surface-alt)] rounded-sm overflow-hidden">
             <div
               className="h-full rounded-sm transition-all duration-300"
               style={{
@@ -292,6 +326,7 @@ export function CompareView({
               color1={team1?.color || 'var(--color-run)'}
               color2={team2?.color || 'var(--color-pass)'}
               higherIsBetter={false}
+              isRank
             />
             <MetricBar
               label="Defensive Rank"
@@ -301,6 +336,7 @@ export function CompareView({
               color1={team1?.color || 'var(--color-run)'}
               color2={team2?.color || 'var(--color-pass)'}
               higherIsBetter={false}
+              isRank
             />
             {team1Style && slot2.style && (
               <>

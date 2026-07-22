@@ -9,6 +9,7 @@ export async function StatLeadersWidget() {
 
   const hasData =
     data.epa.length > 0 ||
+    data.defEpa.length > 0 ||
     data.havoc.length > 0 ||
     data.successRate.length > 0 ||
     data.explosiveness.length > 0

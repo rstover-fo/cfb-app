@@ -6,13 +6,16 @@ import Image from 'next/image'
 import type { StatLeadersData, StatLeader } from '@/lib/queries/dashboard'
 import { teamNameToSlug } from '@/lib/utils'
 
-type TabKey = 'epa' | 'havoc' | 'successRate' | 'explosiveness'
+type TabKey = 'epa' | 'defEpa' | 'havoc' | 'successRate' | 'explosiveness'
 
+// Labels name the side of the ball (Off/Def) -- previously just "EPA",
+// "Havoc", etc, which beta testers couldn't tell apart at a glance.
 const TABS: { key: TabKey; label: string; format: (v: number) => string }[] = [
-  { key: 'epa', label: 'EPA', format: (v) => (v > 0 ? '+' : '') + v.toFixed(2) },
-  { key: 'havoc', label: 'Havoc', format: (v) => (v * 100).toFixed(1) + '%' },
-  { key: 'successRate', label: 'Success', format: (v) => (v * 100).toFixed(1) + '%' },
-  { key: 'explosiveness', label: 'Explosive', format: (v) => v.toFixed(2) },
+  { key: 'epa', label: 'EPA · Off', format: (v) => (v > 0 ? '+' : '') + v.toFixed(2) },
+  { key: 'defEpa', label: 'EPA · Def', format: (v) => (v > 0 ? '+' : '') + v.toFixed(2) },
+  { key: 'havoc', label: 'Havoc · Def', format: (v) => (v * 100).toFixed(1) + '%' },
+  { key: 'successRate', label: 'Success · Off', format: (v) => (v * 100).toFixed(1) + '%' },
+  { key: 'explosiveness', label: 'Explosive · Off', format: (v) => v.toFixed(2) },
 ]
 
 function LeaderRow({
