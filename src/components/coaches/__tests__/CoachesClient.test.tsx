@@ -69,7 +69,7 @@ describe('CoachesClient', () => {
   })
 
   it('opens the coaching history dialog with the coach name when a row is clicked', async () => {
-    render(<CoachesClient byWinPct={BY_WIN_PCT} byAtsWinPct={BY_ATS_WIN_PCT} />)
+    renderClient()
 
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
 
@@ -82,7 +82,7 @@ describe('CoachesClient', () => {
 
   it('does not open the dialog when a coach row has no first/last name', () => {
     const noName = coach({ coach_name: 'Interim Coach', first_name: null, last_name: null })
-    render(<CoachesClient byWinPct={[noName]} byAtsWinPct={[noName]} />)
+    renderClient({ byWinPct: [noName], byAtsWinPct: [noName], activeByWinPct: [noName], activeByAtsWinPct: [noName] })
 
     fireEvent.click(getBodyRows()[0])
 
