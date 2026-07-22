@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { DownDistanceSplit } from '@/lib/types/database'
 import { heatLevelForRate, type HeatThreshold } from '@/lib/charts/theme'
+import { ChartFrame } from '@/lib/charts/ChartFrame'
 import { ChartTooltip, type ChartTooltipRow } from '@/lib/charts/ChartTooltip'
 
 interface DownDistanceHeatmapProps {
@@ -64,10 +65,11 @@ export function DownDistanceHeatmap({ data, side, title }: DownDistanceHeatmapPr
     : []
 
   return (
-    <div className="relative">
-      <h3 className="font-headline text-lg text-[var(--text-primary)] mb-3">{title}</h3>
-
-      <div className="bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg overflow-hidden p-4">
+    // The one chart shell (spec §2) -- no hand-rolled frame. Plain-children
+    // form: this is an interactive HTML grid, so a11y lives on the cell
+    // buttons, not an SVG role.
+    <ChartFrame title={title}>
+      <div>
         {/* Column Headers */}
         <div className="grid grid-cols-5 gap-1 mb-1">
           <div /> {/* Empty corner cell */}
@@ -158,6 +160,6 @@ export function DownDistanceHeatmap({ data, side, title }: DownDistanceHeatmapPr
         prompt="Hover or focus a cell for details"
         minRows={4}
       />
-    </div>
+    </ChartFrame>
   )
 }

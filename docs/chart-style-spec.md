@@ -277,6 +277,18 @@ may not fork or wrap them with per-chart styling.
   rings), so flipping e.g. `[data-team-theme="ou"]` triggers the same
   requestAnimationFrame redraw as a light/dark flip.
 
+### Gate D4 note (2026-07-22) — final sweep sign-off
+
+The nine founding divergences are closed; no new rulings. Two instances the
+phase gates missed were fixed at this gate, both already mandated above (no
+spec change): PercentileBars (§4 in-SVG name legend → `ChartLegend` above the
+SVG, §5 frameless `EmptyState` → framed, §9 `pairedBarOptions` + seed + 700
+width) and DownDistanceHeatmap (§2 hand-rolled 1px-border wrapper →
+`ChartFrame`, tooltip moved inside the frame). Its hand-rolled heat-ramp key
+(square `var(--heat-N)` chips) is ratified as-is: §4 governs *series* legends;
+a heat-level key is not a series legend and `ChartLegend` has no square-chip
+swatch.
+
 ---
 
 ## Proposed DESIGN.md Charts section

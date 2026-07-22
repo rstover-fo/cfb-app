@@ -104,8 +104,8 @@ Rules:
   `var(--token)` refs), one `<g ref={roughGroupRef}>` rough layer, and a `drawChart`
   `useCallback` that clears the group and draws with `rough.svg` — wired via
   `useEffect(drawChart)` + `useChartTheme(drawChart)`. No default-styled SVG data marks
-  (plain `<rect>` bars, un-rough `<path>` series). `useRoughSvg` is deprecated — no new
-  imports; it is deleted in the sweep's final task and never reintroduced.
+  (plain `<rect>` bars, un-rough `<path>` series). `useRoughSvg` is deleted — never
+  reintroduce it.
 - **Color resolution:** roughjs bakes concrete colors at draw time, so all rough ink goes
   through `resolveColor` in `src/lib/charts/theme.ts` (semantic roles via `inkFor` in
   `src/lib/charts/series.ts`) and charts redraw on theme flips via `useChartTheme` —
@@ -118,13 +118,18 @@ Rules:
   (surface + 1.5px border + 3px radius + p-4, title slot, `role="img"`/`ariaLabel`/
   `decorative` props, built-in `EmptyState` slot); details render in `ChartTooltip` — the
   reserved-height panel below the SVG with an in-SVG crosshair/row-highlight/accent-ring
-  indicator (floating, cursor-following, and SVG-drawn tooltips are defects); series keys
+  indicator (floating, cursor-following, and SVG-drawn tooltips are defects). On dense
+  surfaces (scatter points, heat cells) hover *and* keyboard focus select one point/cell —
+  a rough `var(--accent)` ring around a point or a `2px var(--accent)` outline on a cell —
+  and details render in that same panel, never near the cursor. Series keys
   render in the HTML `ChartLegend` (opt-in `aria-pressed` toggle variant), never inside
   the SVG. `ChartTooltip` accepts an optional `headerAdornment` (a small raster/icon,
   e.g. a team logo, inline before the header text). Radial profiles use the shared
   `RoughRadar` primitive (≤ 2 series, values normalized to `0..domainMax`, default 100)
-  — never a hand-rolled radar. Migrations may not fork or wrap the primitives with
-  per-chart styling.
+  — never a hand-rolled radar. CSS track/fill micro-bars are the shared `StatBar`
+  (`src/lib/charts/StatBar.tsx`) — card chrome, never rough-drawn; callers pre-normalize
+  the fill to a 0–100 percentage and own the null-row decision (house `—` placeholder).
+  Migrations may not fork or wrap the primitives with per-chart styling.
 - **Series semantics:** run = `--color-run`, pass = `--color-pass`, good/bad deltas =
   `--color-positive`/`--color-negative`. Paired/mirrored series always use the ±41°
   hachure rule (`pairedBarOptions`) so hue is never the only separating channel.
@@ -133,7 +138,11 @@ Rules:
   `resolveHeatColor(level)`. Never raw Tailwind color classes or `dark:` variants.
 - **Stable wobble:** every chart passes a fixed `seed` in all rough options
   (default hierarchy: primary 3px/1.0 roughness, secondary 2px/0.7, tertiary 1.5px/0.5).
-  Default canvas 700×350, `PADDING {30, 30, 50, 60}`, SVG `w-full h-auto`.
+  Default canvas 700×350, `PADDING {30, 30, 50, 60}`, SVG `w-full h-auto`. 700×350 is a
+  default, not a mandate (Gate B): heights vary with information density, and padding or
+  rough-value deviations carry a code comment naming the reason. Dense multi-series
+  surfaces (~25 peers, e.g. BumpsChart) may run idle series at tertiary weights with
+  hover promoting the emphasized series to primary (Gate C).
 - **Raster exemption:** team logos stay native `<image>`/`next/image`, never roughified;
   emphasis near raster is a rough `rc.circle` accent ring — no glow filters, no pulse
   animations. Transparent hit-target layers are likewise not rough-drawn.

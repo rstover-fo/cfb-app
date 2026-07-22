@@ -3,8 +3,10 @@
 import { useRef, useEffect, useCallback, useMemo } from 'react'
 import rough from 'roughjs'
 import { ChartBarHorizontal } from '@phosphor-icons/react'
-import { EmptyState } from '@/components/EmptyState'
+import { ChartFrame } from '@/lib/charts/ChartFrame'
+import { ChartLegend } from '@/lib/charts/ChartLegend'
 import { resolveColor, useChartTheme } from '@/lib/charts/theme'
+import { pairedBarOptions } from '@/lib/charts/series'
 import { formatOrdinal, formatPercent } from '@/lib/utils'
 import type { PlayerComparisonRow } from '@/app/players/actions'
 
@@ -130,10 +132,15 @@ function buildRows(player1: PlayerComparisonRow, player2: PlayerComparisonRow): 
 // Layout
 // ---------------------------------------------------------------------------
 
-const WIDTH = 800
-const LEGEND_H = 36
+// Spec §9: row-count charts keep the 700 canvas width; height derives from
+// the surviving row count. The player-name legend is HTML (ChartLegend)
+// above the SVG, so the canvas needs only a small top pad.
+const WIDTH = 700
+const TOP_PAD = 12
 const ROW_H = 48
 const FOOTER_H = 26
+// Stable wobble (spec §9): fixed seed so theme flips redraw identical strokes.
+const ROUGH_SEED = 47
 const CENTER = WIDTH / 2
 const GUTTER_HALF = 64 // half-width of the center stat-label gutter
 const EDGE_PAD = 96 // room outside the bars for tip labels
@@ -159,7 +166,7 @@ export function PercentileBars({ player1, player2 }: PercentileBarsProps) {
 
   const rows = useMemo(() => buildRows(player1, player2), [player1, player2])
 
-  const height = LEGEND_H + rows.length * ROW_H + FOOTER_H
+  const height = TOP_PAD + rows.length * ROW_H + FOOTER_H
 
   const drawChart = useCallback(() => {
     const svg = svgRef.current
@@ -172,35 +179,20 @@ export function PercentileBars({ player1, player2 }: PercentileBarsProps) {
     const p1Color = resolveColor('var(--color-run)')
     const p2Color = resolveColor('var(--color-pass)')
 
-    const barOptions = (color: string, hachureAngle: number) => ({
-      stroke: color,
-      strokeWidth: 1.2,
-      fill: color,
-      fillStyle: 'hachure' as const,
-      hachureAngle,
-      hachureGap: 4,
-      roughness: 1.2,
-      bowing: 0.6,
-    })
-
-    // Legend swatches beside the player names.
-    group.appendChild(rc.rectangle(8, 10, 12, 12, barOptions(p1Color, -41)))
-    group.appendChild(rc.rectangle(WIDTH - 20, 10, 12, 12, barOptions(p2Color, 41)))
-
     rows.forEach((row, i) => {
-      const midY = LEGEND_H + i * ROW_H + ROW_H / 2
+      const midY = TOP_PAD + i * ROW_H + ROW_H / 2
       const barY = midY - BAR_H / 2
 
       if (row.p1Pctl != null) {
         const len = barLength(row.p1Pctl)
         group.appendChild(
-          rc.rectangle(LEFT_EDGE - len, barY, len, BAR_H, barOptions(p1Color, -41))
+          rc.rectangle(LEFT_EDGE - len, barY, len, BAR_H, pairedBarOptions(p1Color, 'left', ROUGH_SEED))
         )
       }
       if (row.p2Pctl != null) {
         const len = barLength(row.p2Pctl)
         group.appendChild(
-          rc.rectangle(RIGHT_EDGE, barY, len, BAR_H, barOptions(p2Color, 41))
+          rc.rectangle(RIGHT_EDGE, barY, len, BAR_H, pairedBarOptions(p2Color, 'right', ROUGH_SEED))
         )
       }
     })
@@ -212,53 +204,39 @@ export function PercentileBars({ player1, player2 }: PercentileBarsProps) {
 
   useChartTheme(drawChart)
 
-  if (rows.length === 0) {
-    return (
-      <EmptyState
-        icon={ChartBarHorizontal}
-        title="No percentile data for this pairing"
-        description="Percentiles publish once a player has a charted stat season — try another season or pairing."
-      />
-    )
-  }
-
   const ordinal = (pctl: number) => `${formatOrdinal(Math.round(pctl * 100))} pctl`
 
   return (
-    <svg
-      ref={svgRef}
-      viewBox={`0 0 ${WIDTH} ${height}`}
-      className="w-full"
-      role="img"
-      aria-label={`Mirrored percentile bars comparing ${player1.name} (left) and ${player2.name} (right) across ${rows.length} stats, relative to their position groups`}
+    <ChartFrame
+      ariaLabel={`Mirrored percentile bars comparing ${player1.name} (left) and ${player2.name} (right) across ${rows.length} stats, relative to their position groups`}
+      empty={rows.length === 0}
+      emptyState={{
+        icon: ChartBarHorizontal,
+        title: 'No percentile data for this pairing',
+        description:
+          'Percentiles publish once a player has a charted stat season — try another season or pairing.',
+      }}
     >
-      {/* Legend: player names beside the rough swatches drawn at the top corners */}
-      <text
-        x={26}
-        y={20}
-        fill="var(--color-run)"
-        fontSize={12}
-        fontWeight={500}
-        fontFamily="var(--font-body)"
-      >
-        {player1.name}
-      </text>
-      <text
-        x={WIDTH - 26}
-        y={20}
-        fill="var(--color-pass)"
-        fontSize={12}
-        fontWeight={500}
-        fontFamily="var(--font-body)"
-        textAnchor="end"
-      >
-        {player2.name}
-      </text>
-
+      {a11y => (
+        <>
+          {/* Player names live in the HTML legend (spec §4), left = player 1. */}
+          <ChartLegend
+            position="above"
+            items={[
+              { key: 'p1', label: player1.name, swatch: 'hachure', color: 'var(--color-run)' },
+              { key: 'p2', label: player2.name, swatch: 'hachure', color: 'var(--color-pass)' },
+            ]}
+          />
+          <svg
+            ref={svgRef}
+            viewBox={`0 0 ${WIDTH} ${height}`}
+            className="w-full h-auto"
+            {...a11y}
+          >
       {/* Center gutter rules */}
       <line
         x1={LEFT_EDGE}
-        y1={LEGEND_H}
+        y1={TOP_PAD}
         x2={LEFT_EDGE}
         y2={height - FOOTER_H}
         stroke="var(--border)"
@@ -266,7 +244,7 @@ export function PercentileBars({ player1, player2 }: PercentileBarsProps) {
       />
       <line
         x1={RIGHT_EDGE}
-        y1={LEGEND_H}
+        y1={TOP_PAD}
         x2={RIGHT_EDGE}
         y2={height - FOOTER_H}
         stroke="var(--border)"
@@ -274,7 +252,7 @@ export function PercentileBars({ player1, player2 }: PercentileBarsProps) {
       />
 
       {rows.map((row, i) => {
-        const midY = LEGEND_H + i * ROW_H + ROW_H / 2
+        const midY = TOP_PAD + i * ROW_H + ROW_H / 2
         const tickHalf = BAR_H / 2 + 5
 
         return (
@@ -414,8 +392,11 @@ export function PercentileBars({ player1, player2 }: PercentileBarsProps) {
         50th pctl
       </text>
 
-      {/* roughjs bars render into this group */}
-      <g ref={roughGroupRef} data-testid="rough-layer" />
-    </svg>
+            {/* roughjs bars render into this group */}
+            <g ref={roughGroupRef} data-testid="rough-layer" />
+          </svg>
+        </>
+      )}
+    </ChartFrame>
   )
 }
