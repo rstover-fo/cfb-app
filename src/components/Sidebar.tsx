@@ -17,6 +17,7 @@ import {
   Sword,
   ArrowsLeftRight,
   Megaphone,
+  Target,
   List,
   X,
 } from '@phosphor-icons/react'
@@ -32,6 +33,7 @@ const navItems = [
   { href: '/coaches', label: 'Coaches', icon: Megaphone },
   { href: '/rankings', label: 'Rankings', icon: Trophy },
   { href: '/analytics', label: 'Analytics', icon: ChartScatter },
+  { href: '/models', label: 'Models', icon: Target },
 ]
 
 export function Sidebar() {
