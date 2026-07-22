@@ -16,6 +16,7 @@ import {
   UserCircle,
   Sword,
   ArrowsLeftRight,
+  Megaphone,
   List,
   X,
 } from '@phosphor-icons/react'
@@ -28,6 +29,7 @@ const navItems = [
   { href: '/games', label: 'Games', icon: CalendarBlank },
   { href: '/rivals', label: 'Rivals', icon: Sword },
   { href: '/players', label: 'Players', icon: UserCircle },
+  { href: '/coaches', label: 'Coaches', icon: Megaphone },
   { href: '/rankings', label: 'Rankings', icon: Trophy },
   { href: '/analytics', label: 'Analytics', icon: ChartScatter },
 ]

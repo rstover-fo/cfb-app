@@ -8,7 +8,7 @@ import type { PlayerGameLogEntry } from '@/app/players/[id]/actions'
 // Sort helpers
 // ---------------------------------------------------------------------------
 
-type SortKey = 'week' | 'opponent' | 'plays' | 'total_yards' | 'total_epa' | 'epa_per_play' | 'success_rate' | 'explosive_plays'
+type SortKey = 'week' | 'opponent' | 'plays' | 'total_yards' | 'total_epa' | 'epa_per_play' | 'success_rate' | 'explosive_plays' | 'over_under'
 type SortDirection = 'asc' | 'desc'
 
 interface ColumnDef {
@@ -26,7 +26,19 @@ const COLUMNS: ColumnDef[] = [
   { key: 'epa_per_play', label: 'EPA/Play', align: 'right' },
   { key: 'success_rate', label: 'Success%', align: 'right' },
   { key: 'explosive_plays', label: 'Explosive', align: 'right' },
+  { key: 'over_under', label: 'O/U', align: 'right' },
 ]
+
+// Renders "Ov 61.5" / "Un 48.5" / "Push" from the line + result; an em-dash
+// when either half is missing (game_detail's O/U columns are nullable).
+function formatOverUnder(overUnder: number | null | undefined, ouResult: string | null | undefined): string {
+  if (overUnder == null || !ouResult) return '—'
+  const normalized = ouResult.toLowerCase()
+  if (normalized.startsWith('push')) return 'Push'
+  if (normalized.startsWith('over')) return `Ov ${overUnder}`
+  if (normalized.startsWith('under')) return `Un ${overUnder}`
+  return `${ouResult} ${overUnder}`
+}
 
 // ---------------------------------------------------------------------------
 // Component
@@ -126,7 +138,10 @@ export function PlayerGameLog({ gameLog }: PlayerGameLogProps) {
       )}
 
       <div className="overflow-x-auto">
-        <table className="w-full text-sm" aria-label="Game-by-game log">
+        {/* min-w keeps 10 columns from crushing on mobile -- overflow-x-auto
+            engages instead of columns colliding (same fix as the rivals
+            matchup table). */}
+        <table className="w-full min-w-[720px] text-sm" aria-label="Game-by-game log">
           <thead>
             <tr>
               {COLUMNS.map((col) => (
@@ -214,6 +229,11 @@ export function PlayerGameLog({ gameLog }: PlayerGameLogProps) {
                 {/* Explosive */}
                 <td className="py-2 px-2 tabular-nums text-right">
                   {entry.explosive_plays}
+                </td>
+
+                {/* O/U */}
+                <td className="py-2 px-2 tabular-nums text-right text-[var(--text-muted)]">
+                  {formatOverUnder(entry.over_under, entry.ou_result)}
                 </td>
 
                 {/* Result */}

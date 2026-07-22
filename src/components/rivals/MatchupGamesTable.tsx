@@ -47,7 +47,13 @@ export function MatchupGamesTable({ games, teamAMeta, teamBMeta }: MatchupGamesT
 
   return (
     <div className="overflow-x-auto">
-      <table className="w-full text-sm" aria-label={`All meetings between ${teamAMeta.name} and ${teamBMeta.name}`}>
+      {/* min-w keeps columns from crushing into each other on phones -- once
+          the viewport is narrower than this, overflow-x-auto kicks in and the
+          table scrolls horizontally instead of wrapping/colliding. */}
+      <table
+        className="w-full min-w-[480px] text-sm"
+        aria-label={`All meetings between ${teamAMeta.name} and ${teamBMeta.name}`}
+      >
         <thead>
           <tr className="text-left text-xs uppercase tracking-wider text-[var(--text-muted)] border-b border-[var(--border)]">
             <th scope="col" className="py-2 pr-4 font-medium">Season</th>
@@ -82,7 +88,7 @@ export function MatchupGamesTable({ games, teamAMeta, teamBMeta }: MatchupGamesT
                   <div className="text-xs text-[var(--text-muted)]">{formatDate(game.startDate)}</div>
                 </td>
                 <td className="py-3 pr-4">
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 min-w-0">
                     {teamAMeta.logo && (
                       <Image
                         src={teamAMeta.logo}
@@ -116,7 +122,12 @@ export function MatchupGamesTable({ games, teamAMeta, teamBMeta }: MatchupGamesT
                     )}
                   </div>
                 </td>
-                <td className="py-3 pr-4 text-[var(--text-muted)] whitespace-nowrap">{site}</td>
+                <td className="py-3 pr-4 text-[var(--text-muted)] whitespace-nowrap">
+                  {site}
+                  {game.venue && (
+                    <div className="text-xs text-[var(--text-muted)]">{game.venue}</div>
+                  )}
+                </td>
                 <td className="py-3 pr-2 text-right">
                   <span
                     className={`inline-flex items-center justify-center w-6 h-6 rounded-sm border text-xs font-semibold ${badge.className}`}
