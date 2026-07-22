@@ -56,12 +56,16 @@ describe('Coaches page', () => {
 
     expect(getCoachRecords).toHaveBeenCalledWith({ sortBy: 'win_pct' })
     expect(getCoachRecords).toHaveBeenCalledWith({ sortBy: 'ats_win_pct' })
+    expect(getCoachRecords).toHaveBeenCalledWith({ sortBy: 'win_pct', activeOnly: true })
+    expect(getCoachRecords).toHaveBeenCalledWith({ sortBy: 'ats_win_pct', activeOnly: true })
   })
 
   it('renders coaches by SU win% rank order by default, and switches on the ATS toggle', async () => {
     getCoachRecords.mockImplementation(({ sortBy }: { sortBy: string }) =>
       Promise.resolve(sortBy === 'win_pct' ? [STOOPS, SABAN] : [SABAN, STOOPS])
     )
+    // Page renders the Active scope by default; this mock returns the same
+    // lists for both scopes, so ordering assertions below are unaffected.
 
     const jsx = await CoachesPage()
     render(jsx)
