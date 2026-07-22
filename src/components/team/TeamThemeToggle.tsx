@@ -47,7 +47,7 @@ export function TeamThemeToggle({ themeKey, label, active: initialActive }: Team
       aria-pressed={active}
       className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-sm border-[1.5px] text-xs font-medium uppercase tracking-wide transition-colors ${
         active
-          ? 'border-[var(--accent)] bg-[var(--accent)] text-[var(--accent-foreground,_#FFFFFF)]'
+          ? 'border-[var(--accent)] bg-[var(--accent)] text-[var(--accent-foreground)]'
           : 'border-[var(--border)] text-[var(--text-secondary)] hover:border-[var(--accent)] hover:text-[var(--accent)]'
       }`}
     >
