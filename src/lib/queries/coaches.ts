@@ -1,6 +1,7 @@
 import { cache } from 'react'
 import { createClient } from '@/lib/supabase/server'
 import { getTeamLookup } from './shared'
+import { CURRENT_SEASON } from './constants'
 
 // ---------------------------------------------------------------------------
 // Row shape for the contracted api.coach_records view (career-at-school
@@ -42,6 +43,11 @@ export type CoachSortKey = 'win_pct' | 'ats_win_pct'
 export interface GetCoachRecordsParams {
   sortBy: CoachSortKey
   minGames?: number
+  /** Only coaches whose most recent season at the school is the current
+   *  season. Like the FBS restriction, this must be applied server-side
+   *  (before .limit) -- filtering the top-100 all-time list client-side
+   *  would drop active coaches ranked below the all-time cutoff. */
+  activeOnly?: boolean
 }
 
 // Tiny samples (a coach who went 1-0 in an interim game) would otherwise
@@ -58,20 +64,27 @@ const COACH_RECORDS_LIMIT = 100
 export const getCoachRecords = cache(async ({
   sortBy,
   minGames,
+  activeOnly,
 }: GetCoachRecordsParams): Promise<CoachRecord[]> => {
   const supabase = await createClient()
   const teamLookup = await getTeamLookup()
   const fbsTeams = Array.from(teamLookup.keys())
 
-  const { data, error } = await supabase
+  let query = supabase
     .schema('api')
     .from('coach_records')
     .select(
       'coach_name, first_name, last_name, team, first_season, last_season, seasons_count, games, wins, losses, ties, win_pct, ats_games, ats_wins, ats_losses, ats_pushes, ats_win_pct, seasons_with_ats_data'
     )
     .in('team', fbsTeams)
-    .order(sortBy, { ascending: false, nullsFirst: false })
     .gte('games', minGames ?? DEFAULT_MIN_GAMES)
+
+  if (activeOnly) {
+    query = query.gte('last_season', CURRENT_SEASON)
+  }
+
+  const { data, error } = await query
+    .order(sortBy, { ascending: false, nullsFirst: false })
     .limit(COACH_RECORDS_LIMIT)
 
   if (error || !data) return []

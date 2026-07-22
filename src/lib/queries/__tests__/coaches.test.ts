@@ -89,6 +89,27 @@ describe('getCoachRecords', () => {
     expect(builder.limit).toHaveBeenCalledWith(100)
   })
 
+  it('applies the active-coach filter server-side, before the limit', async () => {
+    const builder = chainable({ data: [], error: null })
+    fromMock.mockImplementation(() => builder)
+
+    await getCoachRecords({ sortBy: 'win_pct', activeOnly: true })
+
+    // last_season >= CURRENT_SEASON must be part of the query -- filtering
+    // the capped all-time list client-side would drop active coaches ranked
+    // below the all-time top-100 cutoff.
+    expect(builder.gte).toHaveBeenCalledWith('last_season', 2025)
+  })
+
+  it('omits the active-coach filter by default', async () => {
+    const builder = chainable({ data: [], error: null })
+    fromMock.mockImplementation(() => builder)
+
+    await getCoachRecords({ sortBy: 'win_pct' })
+
+    expect(builder.gte).not.toHaveBeenCalledWith('last_season', 2025)
+  })
+
   it('honors a custom minGames floor and the ats_win_pct sort key', async () => {
     const builder = chainable({ data: [], error: null })
     fromMock.mockImplementation((table: string) => {

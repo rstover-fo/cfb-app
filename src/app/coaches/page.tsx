@@ -8,11 +8,16 @@ export const metadata: Metadata = {
 }
 
 export default async function CoachesPage() {
-  // Both orderings are fetched up front so the SU/ATS toggle in CoachesClient
-  // is a pure client-side swap -- no refetch on toggle.
-  const [byWinPct, byAtsWinPct] = await Promise.all([
+  // All four sort x scope combinations are fetched up front so both toggles
+  // in CoachesClient are pure client-side swaps -- no refetch. Each list is
+  // independently capped server-side; the active lists cannot be derived by
+  // filtering the all-time lists (active coaches below the all-time top-100
+  // cutoff would be missing).
+  const [byWinPct, byAtsWinPct, activeByWinPct, activeByAtsWinPct] = await Promise.all([
     getCoachRecords({ sortBy: 'win_pct' }),
     getCoachRecords({ sortBy: 'ats_win_pct' }),
+    getCoachRecords({ sortBy: 'win_pct', activeOnly: true }),
+    getCoachRecords({ sortBy: 'ats_win_pct', activeOnly: true }),
   ])
 
   return (
@@ -26,7 +31,12 @@ export default async function CoachesPage() {
         </p>
       </header>
 
-      <CoachesClient byWinPct={byWinPct} byAtsWinPct={byAtsWinPct} />
+      <CoachesClient
+        byWinPct={byWinPct}
+        byAtsWinPct={byAtsWinPct}
+        activeByWinPct={activeByWinPct}
+        activeByAtsWinPct={activeByAtsWinPct}
+      />
     </div>
   )
 }
