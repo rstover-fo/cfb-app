@@ -218,3 +218,215 @@ export function createTeamEloHistoryRows(): GameEloHistoryRow[] {
 }
 
 // ===== Lot B: team/model-scoped (append below; do not edit above this line) =====
+
+// ---------------------------------------------------------------------------
+// api.team_elo -- one row per (team, season): season-end Elo rating/rank.
+// ---------------------------------------------------------------------------
+
+export interface TeamEloRow {
+  team: string
+  season: number
+  season_end_elo: number
+  elo_rank: number
+  games_played: number
+  low_confidence: boolean
+  cfbd_elo: number | null
+}
+
+export function createTeamEloRow(overrides: Partial<TeamEloRow> = {}): TeamEloRow {
+  return {
+    team: 'Ohio State',
+    season: 2025,
+    season_end_elo: 1901.7,
+    elo_rank: 2,
+    games_played: 13,
+    low_confidence: false,
+    cfbd_elo: 1955,
+    ...overrides,
+  }
+}
+
+// ---------------------------------------------------------------------------
+// api.team_ats -- one row per (team, season): against-the-spread record.
+// ---------------------------------------------------------------------------
+
+export interface TeamAtsRow {
+  team: string
+  season: number
+  conference: string | null
+  games: number
+  ats_wins: number
+  ats_losses: number
+  ats_pushes: number
+  avg_cover_margin: number | null
+  ats_win_pct: number | null
+}
+
+export function createTeamAtsRow(overrides: Partial<TeamAtsRow> = {}): TeamAtsRow {
+  return {
+    team: 'Ohio State',
+    season: 2025,
+    conference: 'Big Ten',
+    games: 13,
+    ats_wins: 8,
+    ats_losses: 4,
+    ats_pushes: 1,
+    avg_cover_margin: 2.3,
+    ats_win_pct: 0.667,
+    ...overrides,
+  }
+}
+
+// ---------------------------------------------------------------------------
+// api.prediction_accuracy -- grain (model_version, season, edge_threshold).
+// One row per model_version at edge_threshold 0 and 6.
+// ---------------------------------------------------------------------------
+
+export interface PredictionAccuracyRow {
+  model_version: string
+  season: number
+  edge_threshold: number
+  n_games: number
+  n_with_market: number | null
+  margin_mae: number | null
+  margin_rmse: number | null
+  ats_wins: number | null
+  ats_losses: number | null
+  ats_pushes: number | null
+  ats_hit_rate: number | null
+  brier: number | null
+  cfbd_brier: number | null
+  n_scored_win_prob: number | null
+}
+
+export function createPredictionAccuracyRow(overrides: Partial<PredictionAccuracyRow> = {}): PredictionAccuracyRow {
+  return {
+    model_version: 'elo_epa_blend_v1',
+    season: 2025,
+    edge_threshold: 0,
+    n_games: 780,
+    n_with_market: 742,
+    margin_mae: 10.8,
+    margin_rmse: 13.9,
+    ats_wins: 380,
+    ats_losses: 350,
+    ats_pushes: 12,
+    ats_hit_rate: 0.5205,
+    brier: 0.201,
+    cfbd_brier: 0.198,
+    n_scored_win_prob: 780,
+    ...overrides,
+  }
+}
+
+/** One row per model_version at edge_threshold 0 and 6 (4 rows total). */
+export function createPredictionAccuracyRows(): PredictionAccuracyRow[] {
+  return [
+    createPredictionAccuracyRow({ model_version: 'elo_epa_blend_v1', edge_threshold: 0 }),
+    createPredictionAccuracyRow({
+      model_version: 'elo_epa_blend_v1', edge_threshold: 6,
+      n_games: 210, n_with_market: 205, ats_wins: 128, ats_losses: 74, ats_pushes: 3, ats_hit_rate: 0.6337,
+    }),
+    createPredictionAccuracyRow({
+      model_version: 'elo_v1', edge_threshold: 0,
+      margin_mae: 11.4, margin_rmse: 14.6, ats_wins: 365, ats_losses: 365, ats_pushes: 12, ats_hit_rate: 0.5,
+      brier: 0.209,
+    }),
+    createPredictionAccuracyRow({
+      model_version: 'elo_v1', edge_threshold: 6,
+      n_games: 195, n_with_market: 190, ats_wins: 112, ats_losses: 81, ats_pushes: 2, ats_hit_rate: 0.5803,
+    }),
+  ]
+}
+
+// ---------------------------------------------------------------------------
+// api.scored_matchup_edges -- upcoming-games-only. Reuses game_predictions
+// values (edge = 1.5) plus abs_edge, and a null-market row (market_*/edge/
+// edge_pick/abs_edge all null, expected margin still present).
+// ---------------------------------------------------------------------------
+
+export interface ScoredMatchupEdgeRow {
+  game_id: number
+  season: number
+  week: number
+  season_type: string
+  start_date: string
+  home_team: string
+  away_team: string
+  neutral_site: boolean
+  model_version: string
+  prediction_date: string
+  home_elo_pregame: number | null
+  away_elo_pregame: number | null
+  elo_margin: number | null
+  epa_margin: number | null
+  expected_home_margin: number
+  home_win_prob: number
+  market_provider: string | null
+  market_spread: number | null
+  market_home_margin: number | null
+  market_captured_at: string | null
+  edge: number | null
+  edge_pick: 'home' | 'away' | null
+  abs_edge: number | null
+}
+
+export function createScoredMatchupEdgeRow(overrides: Partial<ScoredMatchupEdgeRow> = {}): ScoredMatchupEdgeRow {
+  return {
+    game_id: 401752873,
+    season: 2025,
+    week: 14,
+    season_type: 'regular',
+    start_date: '2025-11-28T09:10:00+00:00',
+    home_team: 'Ohio State',
+    away_team: 'Michigan',
+    neutral_site: false,
+    model_version: 'elo_epa_blend_v1',
+    prediction_date: '2025-11-28',
+    home_elo_pregame: 1892.4,
+    away_elo_pregame: 1875.1,
+    elo_margin: 3.2,
+    epa_margin: 5.1,
+    expected_home_margin: 4.0,
+    home_win_prob: 0.62,
+    market_provider: 'DraftKings',
+    market_spread: -2.5,
+    market_home_margin: 2.5,
+    market_captured_at: '2025-11-28T08:00:00+00:00',
+    edge: 1.5,
+    edge_pick: 'home',
+    abs_edge: 1.5,
+    ...overrides,
+  }
+}
+
+/** A game with no posted line: market fields/edge/edge_pick/abs_edge all null. */
+export function createScoredMatchupEdgeRowNoMarket(overrides: Partial<ScoredMatchupEdgeRow> = {}): ScoredMatchupEdgeRow {
+  return createScoredMatchupEdgeRow({
+    game_id: 401752900,
+    home_team: 'Boise State',
+    away_team: 'Air Force',
+    home_elo_pregame: 1620.0,
+    away_elo_pregame: 1540.5,
+    elo_margin: 6.1,
+    epa_margin: 4.4,
+    expected_home_margin: 5.2,
+    home_win_prob: 0.71,
+    market_provider: null,
+    market_spread: null,
+    market_home_margin: null,
+    market_captured_at: null,
+    edge: null,
+    edge_pick: null,
+    abs_edge: null,
+    ...overrides,
+  })
+}
+
+/** A 2-game slate: one scored edge row + one null-market row, abs_edge desc (null last). */
+export function createScoredMatchupEdgeRows(): ScoredMatchupEdgeRow[] {
+  return [
+    createScoredMatchupEdgeRow(),
+    createScoredMatchupEdgeRowNoMarket(),
+  ]
+}

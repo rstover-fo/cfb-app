@@ -211,3 +211,180 @@ export const getTeamEloHistory = cache(async (team: string, season: number): Pro
 })
 
 // ===== Lot B: team/model-scoped (append below; do not edit above this line) =====
+
+// ---------------------------------------------------------------------------
+// api.team_elo -- one row per (team, season): season-end Elo rating/rank.
+// ---------------------------------------------------------------------------
+export interface TeamElo {
+  team: string
+  season: number
+  season_end_elo: number
+  elo_rank: number
+  games_played: number
+  low_confidence: boolean
+  cfbd_elo: number | null
+}
+
+// Get a team's season-end Elo rating/rank from the contracted api.team_elo
+// view. Returns null on error/no row (team not covered this season).
+export const getTeamElo = cache(async (team: string, season: number): Promise<TeamElo | null> => {
+  const supabase = await createClient()
+
+  const { data, error } = await supabase
+    .schema('api')
+    .from('team_elo')
+    .select('team, season, season_end_elo, elo_rank, games_played, low_confidence, cfbd_elo')
+    .eq('team', team)
+    .eq('season', season)
+    .maybeSingle()
+
+  if (error || !data) return null
+
+  const row = data as TeamElo
+
+  return {
+    ...row,
+    low_confidence: row.low_confidence ?? false,
+  }
+})
+
+// ---------------------------------------------------------------------------
+// api.team_ats -- one row per (team, season): against-the-spread record.
+// ---------------------------------------------------------------------------
+export interface TeamAts {
+  team: string
+  season: number
+  conference: string | null
+  games: number
+  ats_wins: number
+  ats_losses: number
+  ats_pushes: number
+  avg_cover_margin: number | null
+  ats_win_pct: number | null
+}
+
+// Get a team's season against-the-spread record from the contracted
+// api.team_ats view. Returns null on error/no row (pre-lines-coverage seasons).
+export const getTeamAts = cache(async (team: string, season: number): Promise<TeamAts | null> => {
+  const supabase = await createClient()
+
+  const { data, error } = await supabase
+    .schema('api')
+    .from('team_ats')
+    .select('team, season, conference, games, ats_wins, ats_losses, ats_pushes, avg_cover_margin, ats_win_pct')
+    .eq('team', team)
+    .eq('season', season)
+    .maybeSingle()
+
+  if (error || !data) return null
+
+  return data as TeamAts
+})
+
+// ---------------------------------------------------------------------------
+// api.prediction_accuracy -- grain (model_version, season, edge_threshold),
+// ~90 rows total. UI groups/filters client-side (model + threshold selectors).
+// ---------------------------------------------------------------------------
+export interface PredictionAccuracyRow {
+  model_version: string
+  season: number
+  edge_threshold: number
+  n_games: number
+  n_with_market: number | null
+  margin_mae: number | null
+  margin_rmse: number | null
+  ats_wins: number | null
+  ats_losses: number | null
+  ats_pushes: number | null
+  ats_hit_rate: number | null
+  brier: number | null
+  cfbd_brier: number | null
+  n_scored_win_prob: number | null
+}
+
+const PREDICTION_ACCURACY_ROW_LIMIT = 500
+
+// Get model accuracy/calibration rows (one per model_version/season/edge_threshold)
+// from the contracted api.prediction_accuracy view. Returns [] on error/empty.
+export const getPredictionAccuracy = cache(async (): Promise<PredictionAccuracyRow[]> => {
+  const supabase = await createClient()
+
+  const { data, error } = await supabase
+    .schema('api')
+    .from('prediction_accuracy')
+    .select('model_version, season, edge_threshold, n_games, n_with_market, margin_mae, margin_rmse, ats_wins, ats_losses, ats_pushes, ats_hit_rate, brier, cfbd_brier, n_scored_win_prob')
+    .order('season', { ascending: false })
+    .order('model_version', { ascending: true })
+    .order('edge_threshold', { ascending: true })
+    .limit(PREDICTION_ACCURACY_ROW_LIMIT)
+
+  if (error || !data) return []
+
+  return data as PredictionAccuracyRow[]
+})
+
+// ---------------------------------------------------------------------------
+// api.scored_matchup_edges -- upcoming-games-only; legitimately empty out of
+// season (no empty-guard by design). Two model versions are written per game
+// (see EdgePick/getGamePrediction header above), so model_version filtering
+// is mandatory here too -- otherwise every game appears twice.
+// ---------------------------------------------------------------------------
+export interface ScoredMatchupEdge {
+  game_id: number
+  season: number
+  week: number
+  season_type: string
+  start_date: string
+  home_team: string
+  away_team: string
+  neutral_site: boolean
+  model_version: string
+  prediction_date: string
+  home_elo_pregame: number | null
+  away_elo_pregame: number | null
+  elo_margin: number | null
+  epa_margin: number | null
+  expected_home_margin: number
+  home_win_prob: number
+  market_provider: string | null
+  market_spread: number | null
+  market_home_margin: number | null
+  market_captured_at: string | null
+  edge: number | null
+  edge_pick: EdgePick | null
+  abs_edge: number | null
+}
+
+const SCORED_MATCHUP_EDGES_ROW_LIMIT = 200
+
+// Get the scored matchup-edge slate for a season (optionally a single week)
+// from the contracted api.scored_matchup_edges view, sorted by conviction
+// (abs_edge descending, nulls last -- null-market rows sort last and stay
+// included). Off-season/empty is a valid state: returns [], never an error
+// -- the UI renders an explicit "No upcoming games on the board" empty state.
+export const getScoredMatchupEdges = cache(async (
+  season: number,
+  week?: number,
+  modelVersion: string = DEFAULT_PREDICTION_MODEL
+): Promise<ScoredMatchupEdge[]> => {
+  const supabase = await createClient()
+
+  let query = supabase
+    .schema('api')
+    .from('scored_matchup_edges')
+    .select('game_id, season, week, season_type, start_date, home_team, away_team, neutral_site, model_version, prediction_date, home_elo_pregame, away_elo_pregame, elo_margin, epa_margin, expected_home_margin, home_win_prob, market_provider, market_spread, market_home_margin, market_captured_at, edge, edge_pick, abs_edge')
+    .eq('season', season)
+    .eq('model_version', modelVersion)
+
+  if (week && week > 0) {
+    query = query.eq('week', week)
+  }
+
+  const { data, error } = await query
+    .order('abs_edge', { ascending: false, nullsFirst: false })
+    .limit(SCORED_MATCHUP_EDGES_ROW_LIMIT)
+
+  if (error || !data) return []
+
+  return data as ScoredMatchupEdge[]
+})

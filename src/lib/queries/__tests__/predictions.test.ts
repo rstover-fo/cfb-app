@@ -13,7 +13,10 @@ vi.mock('@/lib/supabase/server', () => ({
 }))
 
 import { createClient } from '@/lib/supabase/server'
-import { getGamePrediction, getLineMovement, getTeamEloHistory } from '../predictions'
+import {
+  getGamePrediction, getLineMovement, getTeamEloHistory,
+  getTeamElo, getTeamAts, getPredictionAccuracy, getScoredMatchupEdges,
+} from '../predictions'
 import { createSupabaseMock, dbError, ok, type SupabaseMockConfig } from './helpers'
 import {
   createGamePredictionRow,
@@ -21,6 +24,12 @@ import {
   createGamePredictionRowNoMarket,
   createLineMovementRows,
   createTeamEloHistoryRows,
+  createTeamEloRow,
+  createTeamAtsRow,
+  createPredictionAccuracyRows,
+  createScoredMatchupEdgeRow,
+  createScoredMatchupEdgeRowNoMarket,
+  createScoredMatchupEdgeRows,
 } from './fixtures/predictions'
 
 function mockClient(config: SupabaseMockConfig) {
@@ -177,3 +186,156 @@ describe('getTeamEloHistory', () => {
 })
 
 // ===== Lot B: team/model-scoped (append below; do not edit above this line) =====
+
+describe('getTeamElo', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('returns the season-end Elo row for the given team + season', async () => {
+    mockClient({ apiTables: { team_elo: ok(createTeamEloRow()) } })
+
+    const result = await getTeamElo('Ohio State', 2025)
+
+    expect(result).toEqual(createTeamEloRow())
+    expect(result!.season_end_elo).toBe(1901.7)
+    expect(result!.elo_rank).toBe(2)
+    expect(result!.cfbd_elo).toBe(1955)
+  })
+
+  it('defaults low_confidence to false when the row omits it', async () => {
+    mockClient({ apiTables: { team_elo: ok(createTeamEloRow({ low_confidence: undefined as unknown as boolean })) } })
+
+    const result = await getTeamElo('Ohio State', 2025)
+
+    expect(result!.low_confidence).toBe(false)
+  })
+
+  it('returns null when no row is found (team not covered this season -- not an error)', async () => {
+    mockClient({ apiTables: { team_elo: ok(null) } })
+
+    expect(await getTeamElo('Directional State', 2025)).toBeNull()
+  })
+
+  it('returns null (not a throw) on PostgREST error', async () => {
+    mockClient({ apiTables: { team_elo: dbError() } })
+
+    expect(await getTeamElo('Ohio State', 2025)).toBeNull()
+  })
+})
+
+describe('getTeamAts', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('returns the season ATS record for the given team + season', async () => {
+    mockClient({ apiTables: { team_ats: ok(createTeamAtsRow()) } })
+
+    const result = await getTeamAts('Ohio State', 2025)
+
+    expect(result).toEqual(createTeamAtsRow())
+    expect(result!.ats_wins).toBe(8)
+    expect(result!.ats_losses).toBe(4)
+    expect(result!.ats_pushes).toBe(1)
+    expect(result!.avg_cover_margin).toBe(2.3)
+    expect(result!.ats_win_pct).toBe(0.667)
+  })
+
+  it('returns null when no row is found (pre-lines-coverage season -- not an error)', async () => {
+    mockClient({ apiTables: { team_ats: ok(null) } })
+
+    expect(await getTeamAts('Ohio State', 2005)).toBeNull()
+  })
+
+  it('returns null (not a throw) on PostgREST error', async () => {
+    mockClient({ apiTables: { team_ats: dbError() } })
+
+    expect(await getTeamAts('Ohio State', 2025)).toBeNull()
+  })
+})
+
+describe('getPredictionAccuracy', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('returns all accuracy rows (no filters) sorted season desc, model_version asc, edge_threshold asc', async () => {
+    mockClient({ apiTables: { prediction_accuracy: ok(createPredictionAccuracyRows()) } })
+
+    const result = await getPredictionAccuracy()
+
+    expect(result).toHaveLength(4)
+    expect(result.map(r => `${r.model_version}:${r.edge_threshold}`)).toEqual([
+      'elo_epa_blend_v1:0', 'elo_epa_blend_v1:6', 'elo_v1:0', 'elo_v1:6',
+    ])
+  })
+
+  it('returns [] on empty data (no accuracy rows computed yet -- not an error)', async () => {
+    mockClient({ apiTables: { prediction_accuracy: ok([]) } })
+
+    expect(await getPredictionAccuracy()).toEqual([])
+  })
+
+  it('returns [] (not a throw) on PostgREST error', async () => {
+    mockClient({ apiTables: { prediction_accuracy: dbError() } })
+
+    expect(await getPredictionAccuracy()).toEqual([])
+  })
+})
+
+describe('getScoredMatchupEdges', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('returns the slate for a season, defaulting to DEFAULT_PREDICTION_MODEL (elo_epa_blend_v1)', async () => {
+    mockClient({ apiTables: { scored_matchup_edges: ok(createScoredMatchupEdgeRows()) } })
+
+    const result = await getScoredMatchupEdges(2025)
+
+    expect(result).toHaveLength(2)
+    expect(result.every(r => r.model_version === 'elo_epa_blend_v1')).toBe(true)
+  })
+
+  it('includes a null-market row (edge/edge_pick/abs_edge null, expected margin still present)', async () => {
+    mockClient({ apiTables: { scored_matchup_edges: ok([createScoredMatchupEdgeRowNoMarket()]) } })
+
+    const result = await getScoredMatchupEdges(2025)
+
+    expect(result).toHaveLength(1)
+    expect(result[0].market_provider).toBeNull()
+    expect(result[0].edge).toBeNull()
+    expect(result[0].edge_pick).toBeNull()
+    expect(result[0].abs_edge).toBeNull()
+    expect(result[0].expected_home_margin).toBe(5.2)
+  })
+
+  it('filters by model_version when explicitly requested', async () => {
+    mockClient({ apiTables: { scored_matchup_edges: ok([createScoredMatchupEdgeRow({ model_version: 'elo_v1' })]) } })
+
+    const result = await getScoredMatchupEdges(2025, undefined, 'elo_v1')
+
+    expect(result[0].model_version).toBe('elo_v1')
+  })
+
+  it('applies the week filter only when week is a positive number', async () => {
+    mockClient({ apiTables: { scored_matchup_edges: ok([createScoredMatchupEdgeRow({ week: 14 })]) } })
+
+    const result = await getScoredMatchupEdges(2025, 14)
+
+    expect(result[0].week).toBe(14)
+  })
+
+  it('returns [] off-season/empty -- a documented valid state, not an error', async () => {
+    mockClient({ apiTables: { scored_matchup_edges: ok([]) } })
+
+    expect(await getScoredMatchupEdges(2026)).toEqual([])
+  })
+
+  it('returns [] (not a throw) on PostgREST error', async () => {
+    mockClient({ apiTables: { scored_matchup_edges: dbError() } })
+
+    expect(await getScoredMatchupEdges(2025)).toEqual([])
+  })
+})
