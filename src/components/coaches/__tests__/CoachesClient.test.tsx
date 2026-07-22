@@ -1,7 +1,13 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, within, fireEvent } from '@testing-library/react'
 import { CoachesClient } from '../CoachesClient'
 import type { CoachRecord } from '@/lib/queries/coaches'
+
+const fetchCoachingHistory = vi.fn()
+
+vi.mock('@/app/coaches/actions', () => ({
+  fetchCoachingHistory: (...args: unknown[]) => fetchCoachingHistory(...args),
+}))
 
 function coach(overrides: Partial<CoachRecord> = {}): CoachRecord {
   return {
@@ -43,6 +49,33 @@ function getBodyRows() {
 }
 
 describe('CoachesClient', () => {
+  beforeEach(() => {
+    fetchCoachingHistory.mockReset()
+    fetchCoachingHistory.mockResolvedValue([])
+  })
+
+  it('opens the coaching history dialog with the coach name when a row is clicked', async () => {
+    render(<CoachesClient byWinPct={BY_WIN_PCT} byAtsWinPct={BY_ATS_WIN_PCT} />)
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+
+    fireEvent.click(getBodyRows()[0]) // Bob Stoops row
+
+    expect(await screen.findByRole('dialog')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Bob Stoops' })).toBeInTheDocument()
+    expect(fetchCoachingHistory).toHaveBeenCalledWith('Bob', 'Stoops')
+  })
+
+  it('does not open the dialog when a coach row has no first/last name', () => {
+    const noName = coach({ coach_name: 'Interim Coach', first_name: null, last_name: null })
+    render(<CoachesClient byWinPct={[noName]} byAtsWinPct={[noName]} />)
+
+    fireEvent.click(getBodyRows()[0])
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(fetchCoachingHistory).not.toHaveBeenCalled()
+  })
+
   it('renders coaches ranked by SU win% by default', () => {
     render(<CoachesClient byWinPct={BY_WIN_PCT} byAtsWinPct={BY_ATS_WIN_PCT} />)
 
