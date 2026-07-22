@@ -41,17 +41,21 @@ describe('AdjustedEpaChart', () => {
     expect(screen.getByText('-0.093')).toBeInTheDocument() // adj_epa_def tooltip extra
   })
 
-  it('renders null when features are empty', () => {
-    const { container } = render(<AdjustedEpaChart features={[]} teamName="Ohio State" />)
-    expect(container).toBeEmptyDOMElement()
+  it('renders the framed empty state when features are empty', () => {
+    render(<AdjustedEpaChart features={[]} teamName="Ohio State" />)
+
+    expect(screen.getByRole('status')).toHaveTextContent('No adjusted EPA data yet')
+    expect(screen.queryByRole('img')).not.toBeInTheDocument()
   })
 
-  it('renders null when no week has either EPA series', () => {
+  it('renders the framed empty state when no week has either EPA series', () => {
     const features = [
       createTeamWeekFeatureRow({ week_index: 1, adj_epa_off: null, off_epa_per_play: null }),
       createTeamWeekFeatureRow({ week_index: 2, adj_epa_off: null, off_epa_per_play: null }),
     ]
-    const { container } = render(<AdjustedEpaChart features={features} teamName="Ohio State" />)
-    expect(container).toBeEmptyDOMElement()
+    render(<AdjustedEpaChart features={features} teamName="Ohio State" />)
+
+    expect(screen.getByRole('status')).toHaveTextContent('No adjusted EPA data yet')
+    expect(screen.queryByRole('img')).not.toBeInTheDocument()
   })
 })

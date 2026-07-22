@@ -4,7 +4,9 @@ import { useRef, useCallback, useEffect } from 'react'
 import rough from 'roughjs'
 import { TeamStyleProfile as StyleData } from '@/lib/types/database'
 import { useCountUp } from '@/hooks/useCountUp'
-import { resolveColor, useChartTheme } from '@/lib/charts/theme'
+import { useChartTheme } from '@/lib/charts/theme'
+import { inkFor } from '@/lib/charts/series'
+import { ChartFrame } from '@/lib/charts/ChartFrame'
 
 interface StyleProfileProps {
   style: StyleData
@@ -13,6 +15,9 @@ interface StyleProfileProps {
 const BAR_WIDTH = 400
 const BAR_HEIGHT = 14
 const BAR_SVG_HEIGHT = 18
+
+/** Stable wobble (spec §9): identical strokes across re-renders and theme flips. */
+const ROUGH_SEED = 46
 
 function IdentityBadge({ identity }: { identity: string }) {
   const labels: Record<string, string> = {
@@ -73,8 +78,8 @@ export function StyleProfile({ style }: StyleProfileProps) {
     while (group.firstChild) group.removeChild(group.firstChild)
 
     const rc = rough.svg(svg)
-    const runColor = resolveColor('var(--color-run)')
-    const passColor = resolveColor('var(--color-pass)')
+    const runColor = inkFor('run')
+    const passColor = inkFor('pass')
 
     const runWidth = (runPercent / 100) * BAR_WIDTH
     const passWidth = BAR_WIDTH - runWidth
@@ -87,6 +92,7 @@ export function StyleProfile({ style }: StyleProfileProps) {
         strokeWidth: 1,
         roughness: 1.0,
         bowing: 0.5,
+        seed: ROUGH_SEED,
       }))
     }
 
@@ -98,6 +104,7 @@ export function StyleProfile({ style }: StyleProfileProps) {
         strokeWidth: 1,
         roughness: 1.0,
         bowing: 0.5,
+        seed: ROUGH_SEED,
       }))
     }
   }, [runPercent])
@@ -110,7 +117,7 @@ export function StyleProfile({ style }: StyleProfileProps) {
   useChartTheme(drawBar)
 
   return (
-    <div className="bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg p-4">
+    <ChartFrame>
       {/* Badges Row */}
       <div className="flex flex-wrap items-center gap-3 mb-4">
         <IdentityBadge identity={style.offensive_identity ?? 'balanced'} />
@@ -133,7 +140,7 @@ export function StyleProfile({ style }: StyleProfileProps) {
           role="img"
           aria-label={`Run ${runPercent}%, Pass ${passPercent}%`}
         >
-          <g ref={barGroupRef} />
+          <g ref={barGroupRef} data-testid="rough-layer" />
         </svg>
       </div>
 
@@ -177,6 +184,6 @@ export function StyleProfile({ style }: StyleProfileProps) {
           </div>
         </div>
       </div>
-    </div>
+    </ChartFrame>
   )
 }

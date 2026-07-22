@@ -70,6 +70,17 @@ afterEach(() => {
   document.documentElement.removeAttribute('data-theme')
 })
 
+// Radix's Select opens on pointerdown, not click -- @testing-library/user-event
+// isn't installed in this project (see AdvancedLeaders.test.tsx's precedent).
+function openSelect(trigger: HTMLElement) {
+  fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false, pointerType: 'mouse' })
+}
+
+function chooseOption(name: string) {
+  const option = screen.getByRole('option', { name })
+  fireEvent.click(option)
+}
+
 describe('TrajectoryChart', () => {
   it('renders an accessible svg inside the frame with a rough layer', () => {
     const { container } = renderChart()
@@ -145,6 +156,22 @@ describe('TrajectoryChart', () => {
       screen.getByText("Historical data publishes after a team's first FBS season."),
     ).toBeInTheDocument()
     expect(screen.queryByRole('img')).not.toBeInTheDocument()
+  })
+
+  it('switches metrics via the shadcn Select', () => {
+    renderChart()
+
+    expect(screen.getByText('Total wins for the season')).toBeInTheDocument()
+
+    openSelect(screen.getByLabelText('Select metric'))
+    chooseOption('EPA/Play')
+
+    expect(
+      screen.getByText('Expected points added per play — measures offensive efficiency'),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('img', { name: /EPA\/Play by season for Ohio State/ }),
+    ).toBeInTheDocument()
   })
 
   it('redraws the rough layer with re-resolved ink when the theme flips', async () => {

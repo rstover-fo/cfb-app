@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useRef, useMemo, useCallback, useEffect } from 'react'
-import { CaretDown, ChartLine } from '@phosphor-icons/react'
+import { ChartLine } from '@phosphor-icons/react'
 import rough from 'roughjs'
 import { TeamSeasonTrajectory, TrajectoryAverages } from '@/lib/types/database'
 import { CHART_INK, resolveColor, useChartTheme } from '@/lib/charts/theme'
@@ -13,6 +13,13 @@ import { ChartLegend } from '@/lib/charts/ChartLegend'
 import type { ChartLegendItem } from '@/lib/charts/ChartLegend'
 import { gridLinesY, axisLabelsY, axisLabelsX } from '@/lib/charts/axes'
 import type { ChartLayout } from '@/lib/charts/axes'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 
 interface TrajectoryChartProps {
   trajectory: TeamSeasonTrajectory[]
@@ -127,7 +134,6 @@ type LineKey = 'team' | 'conf' | 'fbs'
 
 export function TrajectoryChart({ trajectory, averages, conference, teamName }: TrajectoryChartProps) {
   const [selectedMetric, setSelectedMetric] = useState<MetricKey>('wins')
-  const [dropdownOpen, setDropdownOpen] = useState(false)
   const [hoveredSeason, setHoveredSeason] = useState<number | null>(null)
   const [visibleLines, setVisibleLines] = useState({ team: true, conf: true, fbs: true })
   const svgRef = useRef<SVGSVGElement>(null)
@@ -365,33 +371,19 @@ export function TrajectoryChart({ trajectory, averages, conference, teamName }: 
         return (
           <>
             {/* Metric Dropdown */}
-            <div className="relative mb-2">
-              <button
-                onClick={() => setDropdownOpen(!dropdownOpen)}
-                className="flex items-center gap-2 px-3 py-2 border border-[var(--border)] rounded text-sm text-[var(--text-primary)] hover:border-[var(--text-muted)] transition-colors"
-              >
-                {metric.label}
-                <CaretDown size={14} weight="bold" className={`transition-transform ${dropdownOpen ? 'rotate-180' : ''}`} />
-              </button>
-
-              {dropdownOpen && (
-                <div className="absolute top-full left-0 mt-1 bg-[var(--bg-surface)] border-[1.5px] border-[var(--border)] rounded shadow-[var(--shadow-soft)] z-10 min-w-[200px]">
+            <div className="mb-2">
+              <Select value={selectedMetric} onValueChange={v => setSelectedMetric(v as MetricKey)}>
+                <SelectTrigger className="text-sm" aria-label="Select metric">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
                   {METRICS.map(m => (
-                    <button
-                      key={m.key}
-                      onClick={() => {
-                        setSelectedMetric(m.key)
-                        setDropdownOpen(false)
-                      }}
-                      className={`w-full text-left px-3 py-2 text-sm hover:bg-[var(--bg-surface-alt)] transition-colors ${
-                        selectedMetric === m.key ? 'text-[var(--color-run)] font-medium' : 'text-[var(--text-secondary)]'
-                      }`}
-                    >
+                    <SelectItem key={m.key} value={m.key}>
                       {m.label}
-                    </button>
+                    </SelectItem>
                   ))}
-                </div>
-              )}
+                </SelectContent>
+              </Select>
             </div>
 
             <p className="text-xs text-[var(--text-muted)] mb-3">{metric.definition}</p>

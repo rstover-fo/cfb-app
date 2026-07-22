@@ -37,9 +37,14 @@ describe('EloHistoryChart', () => {
     expect(svg.tagName.toLowerCase()).toBe('svg')
   })
 
-  it('renders null when history is empty', () => {
-    const { container } = render(<EloHistoryChart history={[]} teamName="Ohio State" />)
-    expect(container).toBeEmptyDOMElement()
+  it('renders the framed empty state when history is empty', () => {
+    render(<EloHistoryChart history={[]} teamName="Ohio State" />)
+
+    expect(screen.getByRole('status')).toHaveTextContent('No Elo history for this team')
+    expect(
+      screen.getByText("Game-by-game ratings publish after the team's first tracked matchup this season."),
+    ).toBeInTheDocument()
+    expect(screen.queryByRole('img')).not.toBeInTheDocument()
   })
 
   it('shows an opponent tooltip on hover', () => {

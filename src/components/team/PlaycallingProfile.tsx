@@ -3,8 +3,13 @@
 import { useState, useRef, useMemo, useCallback, useEffect } from 'react'
 import { Strategy } from '@phosphor-icons/react'
 import rough from 'roughjs'
-import { resolveColor, useChartTheme } from '@/lib/charts/theme'
-import { EmptyState } from '@/components/EmptyState'
+import { useChartTheme } from '@/lib/charts/theme'
+import { inkFor, pairedBarOptions } from '@/lib/charts/series'
+import { ChartFrame } from '@/lib/charts/ChartFrame'
+import { ChartTooltip } from '@/lib/charts/ChartTooltip'
+import type { ChartTooltipRow } from '@/lib/charts/ChartTooltip'
+import { ChartLegend } from '@/lib/charts/ChartLegend'
+import type { ChartLegendItem } from '@/lib/charts/ChartLegend'
 import { formatOrdinal } from '@/lib/utils'
 import type { PlaycallingProfile as PlaycallingProfileData } from '@/lib/queries/playcalling'
 
@@ -22,6 +27,11 @@ const LABEL_GUTTER = 36
 const PLOT_WIDTH = WIDTH - MARGIN.left - MARGIN.right
 const CENTER_X = MARGIN.left + PLOT_WIDTH / 2
 const HALF_WIDTH = PLOT_WIDTH / 2 - LABEL_GUTTER
+
+/** Stable wobble (spec §9): identical strokes across re-renders and theme flips. */
+const ROUGH_SEED = 38
+/** Reserves height for the densest row (Overall: run + pass + 2 extras + percentile). */
+const TOOLTIP_MIN_ROWS = 5
 
 function sharePct(rate: number): string {
   return `${Math.round(rate * 100)}%`
@@ -124,43 +134,28 @@ export function PlaycallingProfile({ profile }: PlaycallingProfileProps) {
     while (group.firstChild) group.removeChild(group.firstChild)
 
     const rc = rough.svg(svg)
-    const runColor = resolveColor('var(--color-run)')
-    const passColor = resolveColor('var(--color-pass)')
+    const runColor = inkFor('run')
+    const passColor = inkFor('pass')
 
     rows.forEach((row, i) => {
       const y = rowTop(i) + (ROW_HEIGHT - BAR_HEIGHT) / 2
       const runWidth = row.runRate * HALF_WIDTH
       const passWidth = (1 - row.runRate) * HALF_WIDTH
 
-      // Run share, extending left from the center axis. Opposing hachure
-      // angles give the two series a non-color distinction (CVD/print).
+      // Run share, extending left from the center axis; pass share,
+      // extending right. Paired ±41° hachure so the sides read apart from
+      // color alone (spec §10 pairedBarOptions).
       if (runWidth > 0) {
-        group.appendChild(rc.rectangle(CENTER_X - runWidth, y, runWidth, BAR_HEIGHT, {
-          fill: runColor,
-          fillStyle: 'hachure',
-          hachureAngle: -41,
-          hachureGap: 5,
-          fillWeight: 1,
-          stroke: runColor,
-          strokeWidth: 1.5,
-          roughness: 1.1,
-          bowing: 0.5,
-        }))
+        group.appendChild(rc.rectangle(
+          CENTER_X - runWidth, y, runWidth, BAR_HEIGHT,
+          pairedBarOptions(runColor, 'left', ROUGH_SEED),
+        ))
       }
-
-      // Pass share, extending right.
       if (passWidth > 0) {
-        group.appendChild(rc.rectangle(CENTER_X, y, passWidth, BAR_HEIGHT, {
-          fill: passColor,
-          fillStyle: 'hachure',
-          hachureAngle: 41,
-          hachureGap: 5,
-          fillWeight: 1,
-          stroke: passColor,
-          strokeWidth: 1.5,
-          roughness: 1.1,
-          bowing: 0.5,
-        }))
+        group.appendChild(rc.rectangle(
+          CENTER_X, y, passWidth, BAR_HEIGHT,
+          pairedBarOptions(passColor, 'right', ROUGH_SEED),
+        ))
       }
     })
   }, [rows, rowTop])
@@ -172,196 +167,186 @@ export function PlaycallingProfile({ profile }: PlaycallingProfileProps) {
   // Redraw on theme change
   useChartTheme(drawChart)
 
-  if (!profile) {
-    return (
-      <div className="bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg">
-        <EmptyState
-          icon={Strategy}
-          title="No playcalling profile yet"
-          description="Playcalling profile publishes after enough plays are charted."
-        />
-      </div>
-    )
-  }
-
   const hoveredRow = hoveredIndex !== null ? rows[hoveredIndex] : null
 
+  const tooltipRows: ChartTooltipRow[] = hoveredRow
+    ? [
+        { swatch: 'solid', color: 'var(--color-run)', label: 'Run:', value: sharePct(hoveredRow.runRate) },
+        { swatch: 'solid', color: 'var(--color-pass)', label: 'Pass:', value: sharePct(1 - hoveredRow.runRate) },
+        ...hoveredRow.extras.map(extra => ({
+          swatch: 'none' as const, label: `${extra.label}:`, value: extra.value,
+        })),
+        ...(hoveredRow.pctl
+          ? [{
+              swatch: 'none' as const,
+              muted: true,
+              label: `${formatOrdinal(Math.round(hoveredRow.pctl.value * 100))} percentile ${hoveredRow.pctl.lean} in FBS`,
+            }]
+          : []),
+      ]
+    : []
+
+  const legendItems: ChartLegendItem[] = [
+    { key: 'run', label: 'Run', swatch: 'hachure', color: 'var(--color-run)' },
+    { key: 'pass', label: 'Pass', swatch: 'hachure', color: 'var(--color-pass)' },
+  ]
+
   return (
-    <div className="bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg p-4">
-      <svg
-        ref={svgRef}
-        viewBox={`0 0 ${WIDTH} ${height}`}
-        className="w-full h-auto"
-        role="img"
-        aria-label={`Run versus pass share by situation for ${profile.team}, ${profile.season} season`}
-        onMouseLeave={() => setHoveredIndex(null)}
-      >
-        {/* Column headers with series swatches */}
-        <text x={CENTER_X - 32} y={16} textAnchor="end" className="fill-[var(--text-muted)] text-[10px] uppercase tracking-wider">
-          Run
-        </text>
-        <rect x={CENTER_X - 28} y={10} width={12} height={4} fill="var(--color-run)" />
-        <rect x={CENTER_X + 16} y={10} width={12} height={4} fill="var(--color-pass)" />
-        <text x={CENTER_X + 32} y={16} textAnchor="start" className="fill-[var(--text-muted)] text-[10px] uppercase tracking-wider">
-          Pass
-        </text>
+    <ChartFrame
+      ariaLabel={profile ? `Run versus pass share by situation for ${profile.team}, ${profile.season} season` : undefined}
+      empty={!profile}
+      emptyState={{
+        icon: Strategy,
+        title: 'No playcalling profile yet',
+        description: 'Playcalling profile publishes after enough plays are charted.',
+      }}
+    >
+      {a11y => {
+        const activeProfile = profile!
 
-        {/* Hover row highlight (behind the rough-drawn bars) */}
-        {hoveredIndex !== null && (
-          <rect
-            x={8}
-            y={rowTop(hoveredIndex)}
-            width={WIDTH - 16}
-            height={ROW_HEIGHT}
-            fill="var(--bg-surface-alt)"
-            rx={2}
-          />
-        )}
+        return (
+          <>
+            <ChartLegend items={legendItems} position="above" />
 
-        {/* Center axis: the even run–pass split */}
-        <line
-          x1={CENTER_X}
-          y1={MARGIN.top - 6}
-          x2={CENTER_X}
-          y2={height - MARGIN.bottom}
-          stroke="var(--border)"
-          strokeWidth={1.5}
-        />
-
-        {/* Per-row labels and direct % labels */}
-        {rows.map((row, i) => {
-          const barY = rowTop(i) + (ROW_HEIGHT - BAR_HEIGHT) / 2
-          const barMidY = barY + BAR_HEIGHT / 2
-          const runWidth = row.runRate * HALF_WIDTH
-          const passWidth = (1 - row.runRate) * HALF_WIDTH
-          return (
-            <g key={row.key}>
-              {/* Situation label (+ percentile caption when published) */}
-              <text
-                x={MARGIN.left - 12}
-                y={row.pctl ? barMidY - 2 : barMidY}
-                textAnchor="end"
-                dominantBaseline={row.pctl ? 'auto' : 'middle'}
-                className="fill-[var(--text-secondary)] text-xs"
-              >
-                {row.label}
-              </text>
-              {row.pctl && (
-                <text
-                  x={MARGIN.left - 12}
-                  y={barMidY + 12}
-                  textAnchor="end"
-                  className="fill-[var(--text-muted)] text-[10px]"
-                >
-                  {`${formatOrdinal(Math.round(row.pctl.value * 100))} pctl ${row.pctl.lean}`}
-                </text>
+            <svg
+              ref={svgRef}
+              viewBox={`0 0 ${WIDTH} ${height}`}
+              className="w-full h-auto"
+              {...a11y}
+              onMouseLeave={() => setHoveredIndex(null)}
+            >
+              {/* Hover row highlight (behind the rough-drawn bars) */}
+              {hoveredIndex !== null && (
+                <rect
+                  x={8}
+                  y={rowTop(hoveredIndex)}
+                  width={WIDTH - 16}
+                  height={ROW_HEIGHT}
+                  fill="var(--bg-surface-alt)"
+                  rx={2}
+                />
               )}
-              {/* Direct labels at the bar ends */}
-              <text
-                x={CENTER_X - runWidth - 6}
-                y={barMidY}
-                textAnchor="end"
-                dominantBaseline="middle"
-                className="fill-[var(--text-secondary)] text-xs tabular-nums"
-              >
-                {sharePct(row.runRate)}
-              </text>
-              <text
-                x={CENTER_X + passWidth + 6}
-                y={barMidY}
-                textAnchor="start"
-                dominantBaseline="middle"
-                className="fill-[var(--text-secondary)] text-xs tabular-nums"
-              >
-                {sharePct(1 - row.runRate)}
-              </text>
-            </g>
-          )
-        })}
 
-        {/* Rough-drawn chart elements */}
-        <g ref={roughGroupRef} />
+              {/* Center axis: the even run–pass split */}
+              <line
+                x1={CENTER_X}
+                y1={MARGIN.top - 6}
+                x2={CENTER_X}
+                y2={height - MARGIN.bottom}
+                stroke="var(--border)"
+                strokeWidth={1.5}
+              />
 
-        {/* Interactive hover areas */}
-        {rows.map((row, i) => (
-          <rect
-            key={row.key}
-            x={0}
-            y={rowTop(i)}
-            width={WIDTH}
-            height={ROW_HEIGHT}
-            fill="transparent"
-            onMouseEnter={() => setHoveredIndex(i)}
-          />
-        ))}
-      </svg>
+              {/* Per-row labels and direct % labels */}
+              {rows.map((row, i) => {
+                const barY = rowTop(i) + (ROW_HEIGHT - BAR_HEIGHT) / 2
+                const barMidY = barY + BAR_HEIGHT / 2
+                const runWidth = row.runRate * HALF_WIDTH
+                const passWidth = (1 - row.runRate) * HALF_WIDTH
+                return (
+                  <g key={row.key}>
+                    {/* Situation label (+ percentile caption when published) */}
+                    <text
+                      x={MARGIN.left - 12}
+                      y={row.pctl ? barMidY - 2 : barMidY}
+                      textAnchor="end"
+                      dominantBaseline={row.pctl ? 'auto' : 'middle'}
+                      className="fill-[var(--text-secondary)] text-xs"
+                    >
+                      {row.label}
+                    </text>
+                    {row.pctl && (
+                      <text
+                        x={MARGIN.left - 12}
+                        y={barMidY + 12}
+                        textAnchor="end"
+                        className="fill-[var(--text-muted)] text-[10px]"
+                      >
+                        {`${formatOrdinal(Math.round(row.pctl.value * 100))} pctl ${row.pctl.lean}`}
+                      </text>
+                    )}
+                    {/* Direct labels at the bar ends */}
+                    <text
+                      x={CENTER_X - runWidth - 6}
+                      y={barMidY}
+                      textAnchor="end"
+                      dominantBaseline="middle"
+                      className="fill-[var(--text-secondary)] text-xs tabular-nums"
+                    >
+                      {sharePct(row.runRate)}
+                    </text>
+                    <text
+                      x={CENTER_X + passWidth + 6}
+                      y={barMidY}
+                      textAnchor="start"
+                      dominantBaseline="middle"
+                      className="fill-[var(--text-secondary)] text-xs tabular-nums"
+                    >
+                      {sharePct(1 - row.runRate)}
+                    </text>
+                  </g>
+                )
+              })}
 
-      <p className="text-xs text-[var(--text-muted)] mt-2">
-        Bars diverge from an even run–pass split. Percentile captions rank the tendency against all FBS teams.
-      </p>
+              {/* Rough-drawn chart elements */}
+              <g ref={roughGroupRef} data-testid="rough-layer" />
 
-      {/* Tooltip */}
-      {hoveredRow && (
-        <div className="mt-2 p-3 bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg text-sm">
-          <p className="font-headline text-base text-[var(--text-primary)] mb-2">{hoveredRow.label}</p>
-          <div className="space-y-1">
-            <p className="flex items-center gap-2">
-              <span className="w-3 h-0.5 bg-[var(--color-run)]" />
-              <span className="text-[var(--text-secondary)]">Run:</span>
-              <span className="text-[var(--text-primary)] font-medium tabular-nums">{sharePct(hoveredRow.runRate)}</span>
+              {/* Interactive hover areas */}
+              {rows.map((row, i) => (
+                <rect
+                  key={row.key}
+                  x={0}
+                  y={rowTop(i)}
+                  width={WIDTH}
+                  height={ROW_HEIGHT}
+                  fill="transparent"
+                  onMouseEnter={() => setHoveredIndex(i)}
+                />
+              ))}
+            </svg>
+
+            <p className="text-xs text-[var(--text-muted)] mt-2">
+              Bars diverge from an even run–pass split. Percentile captions rank the tendency against all FBS teams.
             </p>
-            <p className="flex items-center gap-2">
-              <span className="w-3 h-0.5 bg-[var(--color-pass)]" />
-              <span className="text-[var(--text-secondary)]">Pass:</span>
-              <span className="text-[var(--text-primary)] font-medium tabular-nums">{sharePct(1 - hoveredRow.runRate)}</span>
-            </p>
-            {hoveredRow.extras.map(extra => (
-              <p key={extra.label} className="flex items-center gap-2">
-                <span className="w-3" />
-                <span className="text-[var(--text-secondary)]">{extra.label}:</span>
-                <span className="text-[var(--text-primary)] tabular-nums">{extra.value}</span>
-              </p>
-            ))}
-            {hoveredRow.pctl && (
-              <p className="flex items-center gap-2">
-                <span className="w-3" />
-                <span className="text-[var(--text-muted)]">
-                  {`${formatOrdinal(Math.round(hoveredRow.pctl.value * 100))} percentile ${hoveredRow.pctl.lean} in FBS`}
+
+            <ChartTooltip
+              header={hoveredRow?.label}
+              rows={tooltipRows}
+              prompt="Hover a situation for details"
+              minRows={TOOLTIP_MIN_ROWS}
+            />
+
+            {/* Compact identity stat lines */}
+            <div className="mt-4 pt-3 border-t border-[var(--border)] grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2 text-sm">
+              <p className="flex items-baseline gap-2">
+                <span className="text-[var(--text-secondary)]">Run-rate delta (leading − trailing):</span>
+                <span className="text-[var(--text-primary)] font-medium tabular-nums">
+                  {activeProfile.run_rate_delta !== null
+                    ? `${activeProfile.run_rate_delta >= 0 ? '+' : ''}${(activeProfile.run_rate_delta * 100).toFixed(1)} pts`
+                    : '—'}
                 </span>
+                {activeProfile.run_rate_delta_pctl !== null && (
+                  <span className="text-xs text-[var(--text-muted)]">
+                    {`${formatOrdinal(Math.round(activeProfile.run_rate_delta_pctl * 100))} pctl`}
+                  </span>
+                )}
               </p>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Compact identity stat lines */}
-      <div className="mt-4 pt-3 border-t border-[var(--border)] grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2 text-sm">
-        <p className="flex items-baseline gap-2">
-          <span className="text-[var(--text-secondary)]">Run-rate delta (leading − trailing):</span>
-          <span className="text-[var(--text-primary)] font-medium tabular-nums">
-            {profile.run_rate_delta !== null
-              ? `${profile.run_rate_delta >= 0 ? '+' : ''}${(profile.run_rate_delta * 100).toFixed(1)} pts`
-              : '—'}
-          </span>
-          {profile.run_rate_delta_pctl !== null && (
-            <span className="text-xs text-[var(--text-muted)]">
-              {`${formatOrdinal(Math.round(profile.run_rate_delta_pctl * 100))} pctl`}
-            </span>
-          )}
-        </p>
-        <p className="flex items-baseline gap-2">
-          <span className="text-[var(--text-secondary)]">Pace:</span>
-          <span className="text-[var(--text-primary)] font-medium tabular-nums">
-            {profile.pace_plays_per_game !== null ? profile.pace_plays_per_game.toFixed(1) : '—'}
-          </span>
-          <span className="text-[var(--text-secondary)]">plays/game</span>
-          {profile.pace_pctl !== null && (
-            <span className="text-xs text-[var(--text-muted)]">
-              {`${formatOrdinal(Math.round(profile.pace_pctl * 100))} pctl`}
-            </span>
-          )}
-        </p>
-      </div>
-    </div>
+              <p className="flex items-baseline gap-2">
+                <span className="text-[var(--text-secondary)]">Pace:</span>
+                <span className="text-[var(--text-primary)] font-medium tabular-nums">
+                  {activeProfile.pace_plays_per_game !== null ? activeProfile.pace_plays_per_game.toFixed(1) : '—'}
+                </span>
+                <span className="text-[var(--text-secondary)]">plays/game</span>
+                {activeProfile.pace_pctl !== null && (
+                  <span className="text-xs text-[var(--text-muted)]">
+                    {`${formatOrdinal(Math.round(activeProfile.pace_pctl * 100))} pctl`}
+                  </span>
+                )}
+              </p>
+            </div>
+          </>
+        )
+      }}
+    </ChartFrame>
   )
 }
