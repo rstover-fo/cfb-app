@@ -163,8 +163,11 @@ export const getStandings = cache(async (season: number, limit: number = 10): Pr
   const teamLookup = await getTeamLookup()
 
   // Fetch all required data in parallel
+  // classification on team_epa_season is season-accurate (derived from that
+  // season's games) -- filtering here keeps realignment move-ups (e.g. NDSU
+  // joining FBS in 2026) from ranking their FCS seasons among FBS teams.
   const [metricsResult, specialTeamsResult, recordsResult] = await Promise.all([
-    supabase.from('team_epa_season').select('team, off_epa_rank, def_epa_rank').eq('season', season),
+    supabase.from('team_epa_season').select('team, off_epa_rank, def_epa_rank').eq('season', season).eq('classification', 'fbs'),
     supabase.from('team_special_teams_sos').select('team, sp_st_rating').eq('season', season),
     supabase.schema('api').from('team_history').select('team, wins, losses').eq('season', season)
   ])
@@ -240,7 +243,11 @@ export const getStatLeaders = cache(async (season: number): Promise<StatLeadersD
     supabase
       .from('team_epa_season')
       .select('team, epa_per_play, success_rate, explosiveness')
-      .eq('season', season),
+      .eq('season', season)
+      // Season-accurate FBS scope (see getStandings) -- the team lookup alone
+      // reflects CURRENT membership, so realignment move-ups would leak their
+      // pre-FBS seasons onto these boards.
+      .eq('classification', 'fbs'),
     supabase
       .from('defensive_havoc')
       .select('team, havoc_rate, opp_epa_per_play')
@@ -250,9 +257,15 @@ export const getStatLeaders = cache(async (season: number): Promise<StatLeadersD
   const metrics = metricsResult.data || []
   const havoc = (havocResult.data as DefensiveHavoc[]) || []
 
-  // Filter to FBS teams (skip nulls)
+  // Filter to FBS teams (skip nulls). defensive_havoc has no classification
+  // column, so its season-accurate FBS membership is derived from the already
+  // FBS-filtered metrics result; fall back to the (current-membership) team
+  // lookup only if the metrics query returned nothing.
   const fbsMetrics = metrics.filter(m => m.team && teamLookup.has(m.team))
-  const fbsHavoc = havoc.filter(h => h.team && teamLookup.has(h.team))
+  const seasonFbsTeams = new Set(fbsMetrics.map(m => m.team))
+  const fbsHavoc = havoc.filter(h =>
+    h.team && teamLookup.has(h.team) && (seasonFbsTeams.size === 0 || seasonFbsTeams.has(h.team))
+  )
 
   const mapToLeader = (data: { team: string, value: number }[]): StatLeader[] =>
     data.slice(0, 5).map(d => ({

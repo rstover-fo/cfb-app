@@ -308,6 +308,31 @@ describe('getStatLeaders', () => {
     expect(result.havoc).toHaveLength(1)
   })
 
+  it('excludes current-FBS members from havoc boards when the season metrics (season-accurate FBS) omit them', async () => {
+    // Realignment case: a team that is FBS *now* (in the team lookup) but
+    // whose season row was filtered out by the season-accurate classification
+    // filter must not appear on the defensive boards either.
+    mockClient({
+      tables: {
+        teams_with_logos: ok(createTeamsWithLogosRows()), // includes Alabama (current FBS)
+        team_epa_season: ok([
+          { team: 'Oklahoma', epa_per_play: 0.25, success_rate: 0.48, explosiveness: 1.3 },
+          { team: 'Texas', epa_per_play: 0.32, success_rate: 0.52, explosiveness: 1.5 },
+        ]),
+        defensive_havoc: ok([
+          { team: 'Oklahoma', havoc_rate: 0.18, opp_epa_per_play: -0.05 },
+          { team: 'Alabama', havoc_rate: 0.5, opp_epa_per_play: -0.9 }, // no season metrics row
+        ]),
+      },
+    })
+
+    const result = await getStatLeaders(2025)
+
+    expect(result.havoc.some(l => l.team === 'Alabama')).toBe(false)
+    expect(result.defEpa.some(l => l.team === 'Alabama')).toBe(false)
+    expect(result.havoc.some(l => l.team === 'Oklahoma')).toBe(true)
+  })
+
   it('returns empty leaderboards, not a throw, when a query errors', async () => {
     mockClient({
       tables: {
