@@ -199,15 +199,18 @@ describe('getStatLeaders', () => {
   // State" is not in the team lookup at all -- simulates an FCS/unlisted
   // school slipping into team_epa_season.
   const epaRows = [
-    { team: 'Oklahoma', epa_per_play: 0.25, opp_epa_per_play: -0.05, success_rate: 0.48, explosiveness: 1.3 },
-    { team: 'Texas', epa_per_play: 0.32, opp_epa_per_play: -0.18, success_rate: 0.52, explosiveness: 1.5 },
-    { team: 'Alabama', epa_per_play: 0.1, opp_epa_per_play: 0.02, success_rate: 0.4, explosiveness: 1.1 },
-    { team: 'Nobody State', epa_per_play: 0.9, opp_epa_per_play: -0.9, success_rate: 0.9, explosiveness: 3.0 },
+    { team: 'Oklahoma', epa_per_play: 0.25, success_rate: 0.48, explosiveness: 1.3 },
+    { team: 'Texas', epa_per_play: 0.32, success_rate: 0.52, explosiveness: 1.5 },
+    { team: 'Alabama', epa_per_play: 0.1, success_rate: 0.4, explosiveness: 1.1 },
+    { team: 'Nobody State', epa_per_play: 0.9, success_rate: 0.9, explosiveness: 3.0 },
   ]
+  // opp_epa_per_play rides on defensive_havoc, NOT team_epa_season -- see
+  // getStatLeaders: selecting it from team_epa_season would 400 the query.
   const havocRows = [
-    { team: 'Oklahoma', havoc_rate: 0.18 },
-    { team: 'Texas', havoc_rate: 0.22 },
-    { team: 'Nobody State', havoc_rate: 0.5 },
+    { team: 'Oklahoma', havoc_rate: 0.18, opp_epa_per_play: -0.05 },
+    { team: 'Texas', havoc_rate: 0.22, opp_epa_per_play: -0.18 },
+    { team: 'Alabama', havoc_rate: 0.1, opp_epa_per_play: 0.02 },
+    { team: 'Nobody State', havoc_rate: 0.5, opp_epa_per_play: -0.9 },
   ]
 
   it('excludes teams absent from the FBS team lookup', async () => {
@@ -289,9 +292,11 @@ describe('getStatLeaders', () => {
       tables: {
         teams_with_logos: ok(createTeamsWithLogosRows()),
         team_epa_season: ok([
-          { team: 'Oklahoma', epa_per_play: 0.25, opp_epa_per_play: null, success_rate: 0.48, explosiveness: 1.3 },
+          { team: 'Oklahoma', epa_per_play: 0.25, success_rate: 0.48, explosiveness: 1.3 },
         ]),
-        defensive_havoc: ok([]),
+        defensive_havoc: ok([
+          { team: 'Oklahoma', havoc_rate: 0.18, opp_epa_per_play: null },
+        ]),
       },
     })
 
@@ -300,6 +305,7 @@ describe('getStatLeaders', () => {
     expect(result.defEpa).toEqual([])
     // Other leaderboards are unaffected by the missing opp_epa_per_play.
     expect(result.epa).toHaveLength(1)
+    expect(result.havoc).toHaveLength(1)
   })
 
   it('returns empty leaderboards, not a throw, when a query errors', async () => {
