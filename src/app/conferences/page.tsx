@@ -50,7 +50,7 @@ export default async function ConferencesPage() {
         </p>
         {rows.length > 0 && season !== CURRENT_SEASON && (
           <p className="text-xs text-[var(--text-muted)] mt-1">
-            Showing {season} -- {CURRENT_SEASON} data isn&apos;t available yet.
+            Showing {season} — {CURRENT_SEASON} data isn&apos;t available yet.
           </p>
         )}
       </header>

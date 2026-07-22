@@ -32,11 +32,11 @@ const WEPA_CATEGORIES: { key: WepaCategory; label: string }[] = [
 ]
 
 function formatStat(value: number | null, digits = 1): string {
-  return value != null ? value.toFixed(digits) : '–'
+  return value != null ? value.toFixed(digits) : '—'
 }
 
 function formatPct(value: number | null): string {
-  return value != null ? formatPercent(value) : '–'
+  return value != null ? formatPercent(value) : '—'
 }
 
 interface AdvancedLeadersProps {
@@ -162,14 +162,14 @@ export function AdvancedLeaders({
                             </Link>
                           </TableCell>
                           <TableCell className="text-[var(--text-muted)]">
-                            {row.position ?? '–'}
+                            {row.position ?? '—'}
                           </TableCell>
                           <TableCell className="capitalize text-[var(--text-muted)]">
                             {row.category}
                           </TableCell>
                           <TableCell className="text-right">{formatStat(row.wepa)}</TableCell>
                           <TableCell className="text-right">{formatStat(row.paar)}</TableCell>
-                          <TableCell className="text-right">{row.plays ?? '–'}</TableCell>
+                          <TableCell className="text-right">{row.plays ?? '—'}</TableCell>
                         </TableRow>
                       ))}
                     </TableBody>
@@ -218,7 +218,7 @@ export function AdvancedLeaders({
                           </Link>
                         </TableCell>
                         <TableCell className="text-[var(--text-muted)]">
-                          {row.position ?? '–'}
+                          {row.position ?? '—'}
                         </TableCell>
                         <TableCell className="text-right">{formatPct(row.usage_overall)}</TableCell>
                         <TableCell className="text-right">{formatPct(row.usage_pass)}</TableCell>

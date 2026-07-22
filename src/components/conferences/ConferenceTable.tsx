@@ -40,7 +40,7 @@ export function ConferenceTable({ rows }: ConferenceTableProps) {
   const bestNonConf = bestValue(rows, 'non_conf_win_pct')
 
   return (
-    <div className="border border-[var(--border)] rounded-lg overflow-hidden">
+    <div className="bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg overflow-hidden">
       <Table>
         <TableHeader>
           <TableRow>

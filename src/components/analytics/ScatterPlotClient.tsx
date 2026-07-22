@@ -163,11 +163,14 @@ const PLOT_OPTIONS: PlotOption[] = [
     label: 'Overall vs Split Havoc',
     xLabel: 'Overall Havoc Rate',
     yLabel: 'Front-7 Havoc Rate',
+    // x = overall havoc, y = front-7 havoc: a high-y/low-x team gets its
+    // (limited) havoc from the front seven; a high-x/low-y team's havoc is
+    // supplied by the secondary.
     quadrantLabels: {
-      topLeft: 'DB-Driven Havoc',
+      topLeft: 'Front-7 Reliant',
       topRight: 'Front-7 Dominant',
       bottomLeft: 'Limited Havoc',
-      bottomRight: 'Balanced Havoc'
+      bottomRight: 'DB-Driven Havoc'
     }
   },
 ]

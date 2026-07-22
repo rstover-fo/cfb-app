@@ -110,6 +110,9 @@ Rules:
   passed in as data (already-resolved hex is passed through `resolveColor` unchanged).
 - **Chart internals never use shadcn components or bridge utilities** — they consume
   editorial tokens directly. shadcn is chrome (controls, tables, dialogs), not data ink.
+- **Paired-series fills mirror their hachure angle** (e.g. ±41° in PercentileBars'
+  tornado layout) so the two sides stay distinguishable beyond hue alone — color is
+  never the only channel separating mirrored series.
 
 ## Component conventions
 
@@ -139,6 +142,12 @@ Rules:
   `WidgetSkeleton.tsx` (title bar + logo-circle/text/value rows for dashboard widgets).
 - **Errors:** widgets fail independently — `WidgetErrorBoundary` + `WidgetError` inside a
   card shell, never a blank hole or a full-page crash (global fallback: `src/app/error.tsx`).
+- **Clickable table rows** (CoachesClient) get `tabIndex={0}` + Enter/Space `onKeyDown` +
+  a descriptive `aria-label`, keeping the implicit `row` role (no `role="button"` override);
+  nested links `stopPropagation` so team links don't trigger the row action.
+- **Superlative emphasis in comparison tables** (best value per column, ConferenceTable) is
+  `font-semibold` + `--text-primary` only — never semantic color, which stays reserved for
+  signed good/bad deltas.
 
 ## Odds & records (prediction surfaces)
 
@@ -161,9 +170,10 @@ EdgeBoardWidget, predictions page) share one formatting vocabulary:
   decimal with a `pts` unit; probability scores (Brier, CFBD Brier) are three decimals;
   EPA/play values are three decimals and signed (`+0.187`). ATS hit rates use
   `formatPercent` like any other rate stat.
-- **Null market values** on prediction/model surfaces render as an em dash `—` in muted
-  text (never a bare hyphen or `--`; the older `--` placeholder survives only in legacy
-  roster/recruiting tables).
+- **Null values render as an em dash `—`** — on prediction/model surfaces in muted text,
+  and as the house null placeholder in every new table/dialog cell (coaches, conferences,
+  advanced leaders). Never a bare hyphen, en dash, or `--`; the older `--` placeholder
+  survives only in legacy roster/recruiting tables.
 
 ## Percentiles & ranks
 

@@ -5,7 +5,7 @@ import rough from 'roughjs'
 import { ChartBarHorizontal } from '@phosphor-icons/react'
 import { EmptyState } from '@/components/EmptyState'
 import { resolveColor, useChartTheme } from '@/lib/charts/theme'
-import { formatOrdinal } from '@/lib/utils'
+import { formatOrdinal, formatPercent } from '@/lib/utils'
 import type { PlayerComparisonRow } from '@/app/players/actions'
 
 // ---------------------------------------------------------------------------
@@ -37,7 +37,8 @@ interface StatDef {
 
 const count = (v: number) => Math.round(v).toLocaleString('en-US')
 const oneDecimal = (v: number) => v.toFixed(1)
-const percent = (v: number) => `${(v * 100).toFixed(1)}%`
+// House rate-stat precision: one decimal via the canonical formatter.
+const percent = (v: number) => formatPercent(v)
 // PPA/play follows the house EPA-per-play precision: signed, three decimals.
 const signedPpa = (v: number) => `${v >= 0 ? '+' : ''}${v.toFixed(3)}`
 
