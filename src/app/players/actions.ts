@@ -6,7 +6,7 @@ import type { WepaCategory } from '@/lib/queries/players'
 
 // Re-export types for client components
 export type { PlayerLeaderRow, LeaderCategory, PlayerSearchResult } from '@/lib/types/database'
-export type { WepaCategory, WepaLeader, UsageLeader } from '@/lib/queries/players'
+export type { WepaCategory, WepaLeader, UsageLeader, PlayerComparisonRow } from '@/lib/queries/players'
 
 export async function fetchPlayerSeasonLeaders(
   season: number,

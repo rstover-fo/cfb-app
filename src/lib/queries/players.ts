@@ -461,6 +461,139 @@ export const getUsageLeaders = cache(async (
 })
 
 // ---------------------------------------------------------------------------
+// api.player_comparison -- one row per (player_id, season): the full
+// player_detail column set plus position_group and position-group-relative
+// percentiles (*_pctl, 0-1 fractions) for the 12 comparable stats. See
+// src/lib/types/api.generated.ts's `player_comparison` Row for the full
+// generated shape (every column nullable there) -- kept hand-typed here
+// narrowing the grain/identity columns (player_id, name, team, season)
+// non-null, since a row can't exist without them; everything else stays
+// nullable to match the generated shape (a QB has null receiving stats, a
+// linebacker null passing percentiles, etc.).
+//
+// Season IS part of the grain -- a multi-year player has one row per season
+// -- so getPlayerComparison always orders season-descending and takes one
+// row: with an explicit season that's a no-op on the single matching row,
+// without one it resolves "latest available season" from the view's own
+// data rather than assuming CURRENT_SEASON has rows yet.
+// ---------------------------------------------------------------------------
+
+export interface PlayerComparisonRow {
+  player_id: string
+  name: string
+  team: string
+  position: string | null
+  position_group: string | null
+  season: number
+  height: number | null
+  weight: number | null
+  jersey: number | null
+  home_city: string | null
+  home_state: string | null
+  stars: number | null
+  recruit_rating: number | null
+  national_ranking: number | null
+  recruit_class: number | null
+  pass_att: number | null
+  pass_cmp: number | null
+  pass_yds: number | null
+  pass_td: number | null
+  pass_int: number | null
+  pass_pct: number | null
+  rush_car: number | null
+  rush_yds: number | null
+  rush_td: number | null
+  rush_ypc: number | null
+  rec: number | null
+  rec_yds: number | null
+  rec_td: number | null
+  rec_ypr: number | null
+  tackles: number | null
+  sacks: number | null
+  tfl: number | null
+  pass_def: number | null
+  ppa_avg: number | null
+  ppa_total: number | null
+  // percentiles (0-1), relative to the player's position group in-season
+  pass_yds_pctl: number | null
+  pass_td_pctl: number | null
+  pass_pct_pctl: number | null
+  rush_yds_pctl: number | null
+  rush_td_pctl: number | null
+  rush_ypc_pctl: number | null
+  rec_yds_pctl: number | null
+  rec_td_pctl: number | null
+  tackles_pctl: number | null
+  sacks_pctl: number | null
+  tfl_pctl: number | null
+  ppa_avg_pctl: number | null
+}
+
+// Numeric columns of PlayerComparisonRow, converted via toNum because
+// PostgREST serializes NUMERIC columns as strings (see toNum above).
+const PLAYER_COMPARISON_NUMERIC_KEYS = [
+  'height', 'weight', 'jersey',
+  'stars', 'recruit_rating', 'national_ranking', 'recruit_class',
+  'pass_att', 'pass_cmp', 'pass_yds', 'pass_td', 'pass_int', 'pass_pct',
+  'rush_car', 'rush_yds', 'rush_td', 'rush_ypc',
+  'rec', 'rec_yds', 'rec_td', 'rec_ypr',
+  'tackles', 'sacks', 'tfl', 'pass_def',
+  'ppa_avg', 'ppa_total',
+  'pass_yds_pctl', 'pass_td_pctl', 'pass_pct_pctl',
+  'rush_yds_pctl', 'rush_td_pctl', 'rush_ypc_pctl',
+  'rec_yds_pctl', 'rec_td_pctl',
+  'tackles_pctl', 'sacks_pctl', 'tfl_pctl', 'ppa_avg_pctl',
+] as const
+
+export const getPlayerComparison = cache(async (
+  playerId: string,
+  season?: number
+): Promise<PlayerComparisonRow | null> => {
+  const supabase = await createClient()
+
+  let query = supabase
+    .schema('api')
+    .from('player_comparison')
+    .select('*')
+    .eq('player_id', playerId)
+
+  if (season != null) {
+    query = query.eq('season', season)
+  }
+
+  const { data, error } = await query
+    .order('season', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  if (error || !data) {
+    if (error) console.error('getPlayerComparison error:', error.message)
+    return null
+  }
+
+  const r = data as Record<string, unknown>
+  // Grain columns are non-null in practice; a row missing them is unusable.
+  if (r.player_id == null || r.season == null) return null
+
+  const numeric = {} as Record<(typeof PLAYER_COMPARISON_NUMERIC_KEYS)[number], number | null>
+  for (const key of PLAYER_COMPARISON_NUMERIC_KEYS) {
+    numeric[key] = toNum(r[key])
+  }
+
+  return {
+    player_id: String(r.player_id),
+    name: (r.name as string | null) ?? '',
+    team: (r.team as string | null) ?? '',
+    position: (r.position as string | null) ?? null,
+    position_group: (r.position_group as string | null) ?? null,
+    season: Number(r.season),
+    home_city: (r.home_city as string | null) ?? null,
+    home_state: (r.home_state as string | null) ?? null,
+    ...numeric,
+  }
+})
+
+// ---------------------------------------------------------------------------
 // Available seasons for leaderboard (from stats table)
 // ---------------------------------------------------------------------------
 
