@@ -37,6 +37,16 @@ export function formatRank(rank: number): string {
   return formatOrdinal(rank)
 }
 
+/** Fractional days (e.g. from get_data_freshness's days_since_activity) ->
+ *  short relative-time label ("just now", "3h ago", "2d ago"). Never negative. */
+export function formatRelativeDays(days: number): string {
+  const safeDays = Math.max(0, days)
+  const hours = safeDays * 24
+  if (hours < 0.5) return 'just now'
+  if (hours < 24) return `${Math.round(hours)}h ago`
+  return `${Math.round(safeDays)}d ago`
+}
+
 // Shared select dropdown styling
 export const selectClassName = `px-3 py-2 text-sm border-[1.5px] border-[var(--border)] rounded-sm
   bg-[var(--bg-surface)] text-[var(--text-primary)]

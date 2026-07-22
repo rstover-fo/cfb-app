@@ -37,6 +37,43 @@ export function createTeamHistoryRecordRow(
   return { team: 'Oklahoma', wins: 9, losses: 1, ...overrides }
 }
 
+/**
+ * Raw (snake_case) row shape returned by the public.get_data_freshness() RPC,
+ * consumed by getDataFreshness() in src/lib/queries/dashboard.ts.
+ */
+export interface RawDataFreshnessRow {
+  schema_name: string
+  table_name: string
+  row_count: number
+  expected_refresh_frequency: string
+  days_since_activity: number | null
+  is_stale: boolean
+}
+
+export function createRawDataFreshnessRow(
+  overrides: Partial<RawDataFreshnessRow> = {}
+): RawDataFreshnessRow {
+  return {
+    schema_name: 'marts',
+    table_name: 'team_epa_season',
+    row_count: 134,
+    expected_refresh_frequency: 'daily',
+    days_since_activity: 0.5,
+    is_stale: false,
+    ...overrides,
+  }
+}
+
+/** Two fresh tables and one stale, null-activity table -- exercises both the
+ *  "pick the minimum" and "ignore nulls" branches of getFreshestUpdateDays(). */
+export function createDataFreshnessScenario(): RawDataFreshnessRow[] {
+  return [
+    createRawDataFreshnessRow({ table_name: 'team_epa_season', days_since_activity: 0.125, is_stale: false }),
+    createRawDataFreshnessRow({ table_name: 'games', days_since_activity: 2, is_stale: false }),
+    createRawDataFreshnessRow({ table_name: 'recruiting', days_since_activity: null, expected_refresh_frequency: 'yearly', is_stale: true }),
+  ]
+}
+
 /** Two FBS teams with full metrics + records, matching the shared team lookup fixture. */
 export function createStandingsScenario() {
   return {

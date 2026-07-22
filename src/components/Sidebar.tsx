@@ -40,7 +40,14 @@ const navItems = [
   { href: '/predictions', label: 'Edge Board', icon: TrendUp },
 ]
 
-export function Sidebar() {
+interface SidebarProps {
+  /** Relative-time label ("3h ago") for the most recent marts update, or null
+   *  when freshness data is unavailable. See src/lib/queries/dashboard.ts's
+   *  getDataFreshness()/getFreshestUpdateDays(). */
+  dataUpdatedLabel?: string | null
+}
+
+export function Sidebar({ dataUpdatedLabel = null }: SidebarProps = {}) {
   const [collapsed, setCollapsed] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
   const pathname = usePathname()
@@ -172,6 +179,13 @@ export function Sidebar() {
             <GearSix size={20} weight="thin" />
             <span className={`text-sm ${collapsed ? 'md:hidden' : ''}`}>Settings</span>
           </button>
+          {dataUpdatedLabel && !collapsed && (
+            <p className="px-3 pt-1 text-[10px] text-[var(--text-muted)] leading-snug">
+              Data updated {dataUpdatedLabel}
+              <br />
+              Marts refresh on a schedule — not real-time.
+            </p>
+          )}
         </div>
       </aside>
     </>

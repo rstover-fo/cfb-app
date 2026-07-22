@@ -16,7 +16,7 @@ vi.mock('@/lib/supabase/server', () => ({
 }))
 
 import { createClient } from '@/lib/supabase/server'
-import { getStandings, getStatLeaders } from '../dashboard'
+import { getStandings, getStatLeaders, getDataFreshness, getFreshestUpdateDays } from '../dashboard'
 import { createSupabaseMock, dbError, ok, type SupabaseMockConfig } from './helpers'
 import { createTeamsWithLogosRows } from './fixtures/shared'
 import {
@@ -24,6 +24,8 @@ import {
   createTeamEpaRankRow,
   createTeamSpecialTeamsRow,
   createTeamHistoryRecordRow,
+  createRawDataFreshnessRow,
+  createDataFreshnessScenario,
 } from './fixtures/dashboard'
 
 function mockClient(config: SupabaseMockConfig) {
@@ -320,5 +322,66 @@ describe('getStatLeaders', () => {
     const result = await getStatLeaders(2025)
 
     expect(result).toEqual({ epa: [], defEpa: [], havoc: [], successRate: [], explosiveness: [] })
+  })
+})
+
+describe('getDataFreshness', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('camelCases the raw RPC rows', async () => {
+    mockClient({ rpc: { get_data_freshness: ok([createRawDataFreshnessRow()]) } })
+
+    const result = await getDataFreshness()
+
+    expect(result).toEqual([
+      {
+        schemaName: 'marts',
+        tableName: 'team_epa_season',
+        rowCount: 134,
+        expectedRefreshFrequency: 'daily',
+        daysSinceActivity: 0.5,
+        isStale: false,
+      },
+    ])
+  })
+
+  it('returns an empty list, not a throw, when the RPC errors', async () => {
+    mockClient({ rpc: { get_data_freshness: dbError('boom') } })
+
+    const result = await getDataFreshness()
+
+    expect(result).toEqual([])
+  })
+
+  it('returns an empty list when the RPC resolves with no data', async () => {
+    mockClient({ rpc: { get_data_freshness: ok(null) } })
+
+    const result = await getDataFreshness()
+
+    expect(result).toEqual([])
+  })
+})
+
+describe('getFreshestUpdateDays', () => {
+  it('returns the minimum days_since_activity across tracked tables, ignoring nulls', async () => {
+    mockClient({ rpc: { get_data_freshness: ok(createDataFreshnessScenario()) } })
+
+    const rows = await getDataFreshness()
+
+    expect(getFreshestUpdateDays(rows)).toBe(0.125)
+  })
+
+  it('returns null when every row has a null days_since_activity', () => {
+    const rows = [
+      { schemaName: 'marts', tableName: 'recruiting', rowCount: 1, expectedRefreshFrequency: 'yearly', daysSinceActivity: null, isStale: true },
+    ]
+
+    expect(getFreshestUpdateDays(rows)).toBeNull()
+  })
+
+  it('returns null for an empty row set', () => {
+    expect(getFreshestUpdateDays([])).toBeNull()
   })
 })

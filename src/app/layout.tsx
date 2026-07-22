@@ -5,6 +5,8 @@ import "./globals.css";
 import { Sidebar } from "@/components/Sidebar";
 import { PaperTexture } from "@/components/PaperTexture";
 import { TEAM_THEME_COOKIE, parseTeamThemeCookie } from "@/lib/theme/team-theme";
+import { getDataFreshness, getFreshestUpdateDays } from "@/lib/queries/dashboard";
+import { formatRelativeDays } from "@/lib/utils";
 
 const libreBaskerville = Libre_Baskerville({
   variable: "--font-headline",
@@ -33,6 +35,14 @@ export default async function RootLayout({
   const cookieStore = await cookies();
   const teamTheme = parseTeamThemeCookie(cookieStore.get(TEAM_THEME_COOKIE)?.value);
 
+  // Marts refresh on a schedule, not in real time -- surface the most recent
+  // update across tracked tables as a subtle relative-time note in the
+  // sidebar footer (see SystemStatusWidget, which is not mounted anywhere on
+  // the dashboard grid, so there is no widget slot to attach this to).
+  const freshnessRows = await getDataFreshness();
+  const freshestDays = getFreshestUpdateDays(freshnessRows);
+  const dataUpdatedLabel = freshestDays == null ? null : formatRelativeDays(freshestDays);
+
   return (
     <html lang="en" data-team-theme={teamTheme ?? undefined}>
       <body
@@ -45,7 +55,7 @@ export default async function RootLayout({
           Skip to main content
         </a>
         <PaperTexture />
-        <Sidebar />
+        <Sidebar dataUpdatedLabel={dataUpdatedLabel} />
         <main
           id="main-content"
           tabIndex={-1}

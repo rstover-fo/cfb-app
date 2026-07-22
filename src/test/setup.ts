@@ -18,4 +18,19 @@ if (typeof window !== 'undefined') {
   if (!window.HTMLElement.prototype.scrollIntoView) {
     window.HTMLElement.prototype.scrollIntoView = () => {}
   }
+  // jsdom doesn't implement matchMedia -- useTheme() (ThemeToggle) reads it
+  // on every render. Stub a minimal MediaQueryList so any component tree
+  // that mounts ThemeToggle (e.g. Sidebar) can render without a TypeError.
+  if (!window.matchMedia) {
+    window.matchMedia = ((query: string) => ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      addListener: () => {},
+      removeListener: () => {},
+      dispatchEvent: () => false,
+    })) as unknown as typeof window.matchMedia
+  }
 }
