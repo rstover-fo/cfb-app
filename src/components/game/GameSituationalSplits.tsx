@@ -5,6 +5,7 @@ import { GameTabSelector } from './GameTabSelector'
 import { GameDownDistance } from './GameDownDistance'
 import { GameRedZone } from './GameRedZone'
 import { GameFieldPosition } from './GameFieldPosition'
+import { TabsContent } from '@/components/ui/tabs'
 import type { GamePlay, GameDrive } from '@/lib/types/database'
 import type { GameWithTeams } from '@/lib/queries/games'
 
@@ -30,23 +31,17 @@ export function GameSituationalSplits({ plays, drives, game }: GameSituationalSp
         activeTab={activeTab}
         onTabChange={setActiveTab}
         ariaLabel="Situational splits"
-      />
-
-      <div
-        role="tabpanel"
-        id={`tabpanel-${activeTab}`}
-        aria-labelledby={activeTab}
       >
-        {activeTab === 'down-distance' && (
+        <TabsContent value="down-distance">
           <GameDownDistance plays={plays} game={game} />
-        )}
-        {activeTab === 'red-zone' && (
+        </TabsContent>
+        <TabsContent value="red-zone">
           <GameRedZone drives={drives} game={game} />
-        )}
-        {activeTab === 'field-position' && (
+        </TabsContent>
+        <TabsContent value="field-position">
           <GameFieldPosition plays={plays} game={game} />
-        )}
-      </div>
+        </TabsContent>
+      </GameTabSelector>
     </section>
   )
 }

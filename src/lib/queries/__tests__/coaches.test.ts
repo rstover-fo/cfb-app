@@ -1,8 +1,10 @@
 /**
- * Unit tests for src/lib/queries/coaches.ts's getCoachRecords: order/filter
- * params sent to api.coach_records, client-side FBS filtering against the
- * team lookup (the view has no classification column), and the error->[]
- * fallback.
+ * Unit tests for src/lib/queries/coaches.ts:
+ *  - getCoachRecords: order/filter params sent to api.coach_records,
+ *    client-side FBS filtering against the team lookup (the view has no
+ *    classification column), and the error->[] fallback.
+ *  - getCoachingHistory: order/filter params sent to api.coaching_history
+ *    (per-tenure grain), chronological ordering, and the error->[] fallback.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
@@ -14,56 +16,25 @@ vi.mock('react', async importOriginal => {
   return { ...actual, cache: <T>(fn: T): T => fn }
 })
 
-// Chainable Supabase query builder mock (house style, see compare.test.ts).
-function chainable(result: { data: unknown; error: unknown } = { data: [], error: null }) {
-  const builder: Record<string, unknown> = {}
-  const methods = ['select', 'eq', 'neq', 'in', 'not', 'or', 'order', 'limit', 'range', 'lte', 'gte', 'schema']
-  for (const m of methods) {
-    builder[m] = vi.fn().mockReturnValue(builder)
-  }
-  builder.single = vi.fn().mockResolvedValue(result)
-  builder.then = (resolve: (v: unknown) => void) => resolve(result)
-  return builder
-}
-
-const fromMock = vi.fn()
-
 vi.mock('@/lib/supabase/server', () => ({
-  createClient: vi.fn().mockResolvedValue({
-    from: (...args: unknown[]) => fromMock(...args),
-    schema: vi.fn().mockReturnValue({ from: (...args: unknown[]) => fromMock(...args) }),
-  }),
+  createClient: vi.fn(),
 }))
 
-import { getCoachRecords, type CoachRecordRow } from '../coaches'
+import { createClient } from '@/lib/supabase/server'
+import { getCoachRecords, getCoachingHistory } from '../coaches'
+import { createSupabaseMock, dbError, ok, type SupabaseMockConfig } from './helpers'
+import { createTeamsWithLogosRows } from './fixtures/shared'
+import { createCoachRecordRow, createCoachingTenureRow, createCoachingTenureRows } from './fixtures/coaches'
 
-const TEAM_LOOKUP_ROWS = [
-  { school: 'Oklahoma', logo: 'https://logos/ou.png', color: '#841617', conference: 'SEC' },
-  { school: 'Texas', logo: 'https://logos/tex.png', color: '#BF5700', conference: 'SEC' },
-]
+function mockClient(config: SupabaseMockConfig) {
+  const mock = createSupabaseMock(config)
+  vi.mocked(createClient).mockResolvedValue(mock as unknown as Awaited<ReturnType<typeof createClient>>)
+  return mock
+}
 
-function coachRow(overrides: Partial<CoachRecordRow> = {}): CoachRecordRow {
-  return {
-    coach_name: 'Bob Stoops',
-    first_name: 'Bob',
-    last_name: 'Stoops',
-    team: 'Oklahoma',
-    first_season: 1999,
-    last_season: 2016,
-    seasons_count: 18,
-    games: 200,
-    wins: 190,
-    losses: 48,
-    ties: 0,
-    win_pct: 0.798,
-    ats_games: 150,
-    ats_wins: 80,
-    ats_losses: 65,
-    ats_pushes: 5,
-    ats_win_pct: 0.552,
-    seasons_with_ats_data: 12,
-    ...overrides,
-  }
+/** The chain object returned by the Nth `.schema('api').from(...)` call this test made. */
+function apiChain(mock: ReturnType<typeof createSupabaseMock>, callIndex = 0) {
+  return mock.schema.mock.results[callIndex].value.from.mock.results[0].value
 }
 
 beforeEach(() => {
@@ -72,65 +43,72 @@ beforeEach(() => {
 
 describe('getCoachRecords', () => {
   it('queries api.coach_records with the requested sort, default min-games floor, and row cap', async () => {
-    const builder = chainable({ data: [coachRow()], error: null })
-    fromMock.mockImplementation((table: string) => {
-      if (table === 'teams_with_logos') return chainable({ data: TEAM_LOOKUP_ROWS, error: null })
-      return builder
+    const mock = mockClient({
+      apiTables: { coach_records: ok([createCoachRecordRow()]) },
+      tables: { teams_with_logos: ok(createTeamsWithLogosRows()) },
     })
 
     await getCoachRecords({ sortBy: 'win_pct' })
 
-    expect(fromMock).toHaveBeenCalledWith('coach_records')
+    expect(mock.schema).toHaveBeenCalledWith('api')
+    const chain = apiChain(mock)
     // FBS restriction must be server-side, BEFORE .limit() -- a client-only
     // filter would let non-FBS coaches consume the top-100 cap.
-    expect(builder.in).toHaveBeenCalledWith('team', expect.arrayContaining(['Oklahoma']))
-    expect(builder.order).toHaveBeenCalledWith('win_pct', { ascending: false, nullsFirst: false })
-    expect(builder.gte).toHaveBeenCalledWith('games', 24)
-    expect(builder.limit).toHaveBeenCalledWith(100)
+    expect(chain.in).toHaveBeenCalledWith('team', expect.arrayContaining(['Oklahoma']))
+    expect(chain.order).toHaveBeenCalledWith('win_pct', { ascending: false, nullsFirst: false })
+    expect(chain.gte).toHaveBeenCalledWith('games', 24)
+    expect(chain.limit).toHaveBeenCalledWith(100)
   })
 
   it('applies the active-coach filter server-side, before the limit', async () => {
-    const builder = chainable({ data: [], error: null })
-    fromMock.mockImplementation(() => builder)
+    const mock = mockClient({
+      apiTables: { coach_records: ok([]) },
+      tables: { teams_with_logos: ok(createTeamsWithLogosRows()) },
+    })
 
     await getCoachRecords({ sortBy: 'win_pct', activeOnly: true })
 
     // last_season >= CURRENT_SEASON must be part of the query -- filtering
     // the capped all-time list client-side would drop active coaches ranked
     // below the all-time top-100 cutoff.
-    expect(builder.gte).toHaveBeenCalledWith('last_season', 2025)
+    const chain = apiChain(mock)
+    expect(chain.gte).toHaveBeenCalledWith('last_season', 2025)
   })
 
   it('omits the active-coach filter by default', async () => {
-    const builder = chainable({ data: [], error: null })
-    fromMock.mockImplementation(() => builder)
+    const mock = mockClient({
+      apiTables: { coach_records: ok([]) },
+      tables: { teams_with_logos: ok(createTeamsWithLogosRows()) },
+    })
 
     await getCoachRecords({ sortBy: 'win_pct' })
 
-    expect(builder.gte).not.toHaveBeenCalledWith('last_season', 2025)
+    const chain = apiChain(mock)
+    expect(chain.gte).not.toHaveBeenCalledWith('last_season', 2025)
   })
 
   it('honors a custom minGames floor and the ats_win_pct sort key', async () => {
-    const builder = chainable({ data: [], error: null })
-    fromMock.mockImplementation((table: string) => {
-      if (table === 'teams_with_logos') return chainable({ data: TEAM_LOOKUP_ROWS, error: null })
-      return builder
+    const mock = mockClient({
+      apiTables: { coach_records: ok([]) },
+      tables: { teams_with_logos: ok(createTeamsWithLogosRows()) },
     })
 
     await getCoachRecords({ sortBy: 'ats_win_pct', minGames: 50 })
 
-    expect(builder.order).toHaveBeenCalledWith('ats_win_pct', { ascending: false, nullsFirst: false })
-    expect(builder.gte).toHaveBeenCalledWith('games', 50)
+    const chain = apiChain(mock)
+    expect(chain.order).toHaveBeenCalledWith('ats_win_pct', { ascending: false, nullsFirst: false })
+    expect(chain.gte).toHaveBeenCalledWith('games', 50)
   })
 
   it('filters out coaches whose team is not in the FBS team lookup', async () => {
-    const rows = [
-      coachRow({ coach_name: 'Bob Stoops', team: 'Oklahoma' }),
-      coachRow({ coach_name: 'FCS Coach', team: 'North Dakota State' }),
-    ]
-    fromMock.mockImplementation((table: string) => {
-      if (table === 'teams_with_logos') return chainable({ data: TEAM_LOOKUP_ROWS, error: null })
-      return chainable({ data: rows, error: null })
+    mockClient({
+      apiTables: {
+        coach_records: ok([
+          createCoachRecordRow({ coach_name: 'Bob Stoops', team: 'Oklahoma' }),
+          createCoachRecordRow({ coach_name: 'FCS Coach', team: 'North Dakota State' }),
+        ]),
+      },
+      tables: { teams_with_logos: ok(createTeamsWithLogosRows()) },
     })
 
     const result = await getCoachRecords({ sortBy: 'win_pct' })
@@ -139,9 +117,9 @@ describe('getCoachRecords', () => {
   })
 
   it('attaches logo/color from the team lookup', async () => {
-    fromMock.mockImplementation((table: string) => {
-      if (table === 'teams_with_logos') return chainable({ data: TEAM_LOOKUP_ROWS, error: null })
-      return chainable({ data: [coachRow({ team: 'Texas' })], error: null })
+    mockClient({
+      apiTables: { coach_records: ok([createCoachRecordRow({ team: 'Texas' })]) },
+      tables: { teams_with_logos: ok(createTeamsWithLogosRows()) },
     })
 
     const result = await getCoachRecords({ sortBy: 'win_pct' })
@@ -151,13 +129,63 @@ describe('getCoachRecords', () => {
   })
 
   it('returns an empty array when the query errors', async () => {
-    fromMock.mockImplementation((table: string) => {
-      if (table === 'teams_with_logos') return chainable({ data: TEAM_LOOKUP_ROWS, error: null })
-      return chainable({ data: null, error: { message: 'boom' } })
+    mockClient({
+      apiTables: { coach_records: dbError() },
+      tables: { teams_with_logos: ok(createTeamsWithLogosRows()) },
     })
 
     const result = await getCoachRecords({ sortBy: 'win_pct' })
 
     expect(result).toEqual([])
+  })
+})
+
+describe('getCoachingHistory', () => {
+  it('queries api.coaching_history filtered by first+last name, ordered tenure_start ascending', async () => {
+    const mock = mockClient({ apiTables: { coaching_history: ok(createCoachingTenureRows()) } })
+
+    const result = await getCoachingHistory('Bob', 'Stoops')
+
+    expect(mock.schema).toHaveBeenCalledWith('api')
+    const chain = apiChain(mock)
+    expect(chain.eq).toHaveBeenCalledWith('first_name', 'Bob')
+    expect(chain.eq).toHaveBeenCalledWith('last_name', 'Stoops')
+    expect(chain.order).toHaveBeenCalledWith('tenure_start', { ascending: true })
+    expect(result.map(r => r.team)).toEqual(['Florida', 'Oklahoma'])
+  })
+
+  it('passes through nullable talent-rank columns as-is (no coercion)', async () => {
+    mockClient({ apiTables: { coaching_history: ok(createCoachingTenureRows()) } })
+
+    const result = await getCoachingHistory('Bob', 'Stoops')
+
+    const florida = result.find(r => r.team === 'Florida')!
+    const oklahoma = result.find(r => r.team === 'Oklahoma')!
+    expect(florida.inherited_talent_rank).toBeNull()
+    expect(florida.year3_talent_rank).toBeNull()
+    expect(oklahoma.inherited_talent_rank).toBe(34)
+    expect(oklahoma.year3_talent_rank).toBe(12)
+    expect(oklahoma.talent_improvement).toBe(22)
+  })
+
+  it('returns [] on empty data (a coach with no history rows -- not an error)', async () => {
+    mockClient({ apiTables: { coaching_history: ok([]) } })
+
+    expect(await getCoachingHistory('Nobody', 'Coach')).toEqual([])
+  })
+
+  it('returns [] (not a throw) on PostgREST error', async () => {
+    mockClient({ apiTables: { coaching_history: dbError() } })
+
+    expect(await getCoachingHistory('Bob', 'Stoops')).toEqual([])
+  })
+
+  it('returns a single-tenure result unwrapped as an array', async () => {
+    mockClient({ apiTables: { coaching_history: ok([createCoachingTenureRow()]) } })
+
+    const result = await getCoachingHistory('Bob', 'Stoops')
+
+    expect(result).toHaveLength(1)
+    expect(result[0].team).toBe('Oklahoma')
   })
 })

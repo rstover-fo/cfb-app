@@ -3,6 +3,8 @@ import { TopMoversWidget } from '@/components/dashboard/TopMoversWidget'
 import { RecentGamesWidget } from '@/components/dashboard/RecentGamesWidget'
 import { StandingsWidget } from '@/components/dashboard/StandingsWidget'
 import { StatLeadersWidget } from '@/components/dashboard/StatLeadersWidget'
+import { EdgeBoardWidget } from '@/components/dashboard/EdgeBoardWidget'
+import { LiveScoreboardSection } from '@/components/dashboard/LiveScoreboardSection'
 import { WidgetSkeleton } from '@/components/dashboard/WidgetSkeleton'
 import { WidgetErrorBoundary } from '@/components/dashboard/WidgetErrorBoundary'
 
@@ -18,6 +20,16 @@ export default function Home() {
           College football analytics at a glance
         </p>
       </header>
+
+      {/* Live Scoreboard - full-width strip, gates itself off entirely
+          outside a gameday window (see LiveScoreboardWidget.isLiveWindow).
+          fallback={null} so there is no skeleton height to collapse when it
+          resolves to nothing -- the dashboard looks identical to today. */}
+      <WidgetErrorBoundary title="Live Scoreboard">
+        <Suspense fallback={null}>
+          <LiveScoreboardSection />
+        </Suspense>
+      </WidgetErrorBoundary>
 
       {/* Widget Grid - 2x2 responsive layout */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
@@ -46,6 +58,13 @@ export default function Home() {
         <WidgetErrorBoundary title="Stat Leaders">
           <Suspense fallback={<WidgetSkeleton title="Stat Leaders" rows={5} />}>
             <StatLeadersWidget />
+          </Suspense>
+        </WidgetErrorBoundary>
+
+        {/* Edge Board */}
+        <WidgetErrorBoundary title="Edge Board">
+          <Suspense fallback={<WidgetSkeleton title="Edge Board" rows={6} />}>
+            <EdgeBoardWidget />
           </Suspense>
         </WidgetErrorBoundary>
       </div>

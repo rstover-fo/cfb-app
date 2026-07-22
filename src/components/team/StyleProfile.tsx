@@ -4,6 +4,7 @@ import { useRef, useCallback, useEffect } from 'react'
 import rough from 'roughjs'
 import { TeamStyleProfile as StyleData } from '@/lib/types/database'
 import { useCountUp } from '@/hooks/useCountUp'
+import { resolveColor, useChartTheme } from '@/lib/charts/theme'
 
 interface StyleProfileProps {
   style: StyleData
@@ -12,13 +13,6 @@ interface StyleProfileProps {
 const BAR_WIDTH = 400
 const BAR_HEIGHT = 14
 const BAR_SVG_HEIGHT = 18
-
-function resolveColor(cssVar: string): string {
-  if (typeof document === 'undefined') return '#999'
-  const match = cssVar.match(/var\((.+)\)/)
-  if (!match) return cssVar
-  return getComputedStyle(document.documentElement).getPropertyValue(match[1]).trim() || '#999'
-}
 
 function IdentityBadge({ identity }: { identity: string }) {
   const labels: Record<string, string> = {
@@ -113,16 +107,7 @@ export function StyleProfile({ style }: StyleProfileProps) {
   }, [drawBar])
 
   // Redraw on theme change
-  useEffect(() => {
-    const observer = new MutationObserver(() => {
-      requestAnimationFrame(drawBar)
-    })
-    observer.observe(document.documentElement, {
-      attributes: true,
-      attributeFilter: ['class', 'data-theme'],
-    })
-    return () => observer.disconnect()
-  }, [drawBar])
+  useChartTheme(drawBar)
 
   return (
     <div className="bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg p-4">

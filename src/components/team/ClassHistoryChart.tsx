@@ -3,6 +3,7 @@
 import { useRef, useCallback, useEffect, useMemo, useState } from 'react'
 import rough from 'roughjs'
 import { RecruitingClassHistory } from '@/lib/types/database'
+import { resolveColor, useChartTheme } from '@/lib/charts/theme'
 
 interface ClassHistoryChartProps {
   data: RecruitingClassHistory[]
@@ -15,13 +16,6 @@ const HEIGHT = 360
 const PADDING = { top: 30, right: 55, bottom: 50, left: 55 }
 const CHART_W = WIDTH - PADDING.left - PADDING.right
 const CHART_H = HEIGHT - PADDING.top - PADDING.bottom
-
-function resolveColor(cssVar: string): string {
-  if (typeof document === 'undefined') return '#999'
-  const match = cssVar.match(/var\((.+)\)/)
-  if (!match) return cssVar
-  return getComputedStyle(document.documentElement).getPropertyValue(match[1]).trim() || '#999'
-}
 
 const STAR_KEYS = ['two_stars', 'three_stars', 'four_stars', 'five_stars'] as const
 const STAR_LABELS = ['2-star', '3-star', '4-star', '5-star']
@@ -174,14 +168,7 @@ export function ClassHistoryChart({ data, currentSeason, teamColor }: ClassHisto
   }, [drawChart])
 
   // Redraw on theme change
-  useEffect(() => {
-    const observer = new MutationObserver(() => drawChart())
-    observer.observe(document.documentElement, {
-      attributes: true,
-      attributeFilter: ['class', 'data-theme'],
-    })
-    return () => observer.disconnect()
-  }, [drawChart])
+  useChartTheme(drawChart)
 
   function handleMouseMove(e: React.MouseEvent<SVGSVGElement>) {
     const svg = svgRef.current

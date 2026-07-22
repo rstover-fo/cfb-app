@@ -4,6 +4,7 @@ import { useState, useRef, useMemo, useCallback, useEffect } from 'react'
 import { CaretDown } from '@phosphor-icons/react'
 import rough from 'roughjs'
 import { TeamSeasonTrajectory, TrajectoryAverages } from '@/lib/types/database'
+import { resolveColor, useChartTheme } from '@/lib/charts/theme'
 
 interface TrajectoryChartProps {
   trajectory: TeamSeasonTrajectory[]
@@ -109,13 +110,6 @@ const HEIGHT = 350
 const PADDING = { top: 30, right: 30, bottom: 50, left: 60 }
 const CHART_WIDTH = WIDTH - PADDING.left - PADDING.right
 const CHART_HEIGHT = HEIGHT - PADDING.top - PADDING.bottom
-
-function resolveColor(cssVar: string): string {
-  if (typeof document === 'undefined') return '#999'
-  const match = cssVar.match(/var\((.+)\)/)
-  if (!match) return cssVar
-  return getComputedStyle(document.documentElement).getPropertyValue(match[1]).trim() || '#999'
-}
 
 export function TrajectoryChart({ trajectory, averages, conference, teamName }: TrajectoryChartProps) {
   const [selectedMetric, setSelectedMetric] = useState<MetricKey>('wins')
@@ -301,16 +295,7 @@ export function TrajectoryChart({ trajectory, averages, conference, teamName }: 
   }, [drawChart])
 
   // Redraw on theme change
-  useEffect(() => {
-    const observer = new MutationObserver(() => {
-      requestAnimationFrame(drawChart)
-    })
-    observer.observe(document.documentElement, {
-      attributes: true,
-      attributeFilter: ['class', 'data-theme'],
-    })
-    return () => observer.disconnect()
-  }, [drawChart])
+  useChartTheme(drawChart)
 
   if (!chartGeometry || teamData.length === 0) {
     return (

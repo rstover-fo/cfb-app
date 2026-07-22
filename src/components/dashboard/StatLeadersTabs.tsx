@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import type { StatLeadersData, StatLeader } from '@/lib/queries/dashboard'
 import { teamNameToSlug } from '@/lib/utils'
 
@@ -73,45 +74,39 @@ interface StatLeadersTabsProps {
 export function StatLeadersTabs({ data }: StatLeadersTabsProps) {
   const [activeTab, setActiveTab] = useState<TabKey>('epa')
 
-  const currentTab = TABS.find((t) => t.key === activeTab)!
-  const leaders = data[activeTab]
-
   return (
-    <>
-      {/* Tabs */}
-      <div className="flex gap-1 mb-4">
+    <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as TabKey)} className="gap-0">
+      <TabsList aria-label="Stat leader category" className="mb-4 gap-1">
         {TABS.map((tab) => (
-          <button
-            key={tab.key}
-            onClick={() => setActiveTab(tab.key)}
-            className={`px-3 py-1.5 text-xs font-medium rounded transition-colors ${
-              activeTab === tab.key
-                ? 'bg-[var(--bg-surface-alt)] text-[var(--text-primary)]'
-                : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
-            }`}
-          >
+          <TabsTrigger key={tab.key} value={tab.key} className="px-3 py-1.5 text-xs">
             {tab.label}
-          </button>
+          </TabsTrigger>
         ))}
-      </div>
+      </TabsList>
 
-      {/* Leaders list */}
-      {leaders.length > 0 ? (
-        <div className="space-y-0.5">
-          {leaders.map((leader, i) => (
-            <LeaderRow
-              key={leader.team}
-              leader={leader}
-              rank={i + 1}
-              format={currentTab.format}
-            />
-          ))}
-        </div>
-      ) : (
-        <div className="py-8 text-center text-sm text-[var(--text-muted)]">
-          No data available
-        </div>
-      )}
-    </>
+      {TABS.map((tab) => {
+        const leaders = data[tab.key]
+        return (
+          <TabsContent key={tab.key} value={tab.key}>
+            {leaders.length > 0 ? (
+              <div className="space-y-0.5">
+                {leaders.map((leader, i) => (
+                  <LeaderRow
+                    key={leader.team}
+                    leader={leader}
+                    rank={i + 1}
+                    format={tab.format}
+                  />
+                ))}
+              </div>
+            ) : (
+              <div className="py-8 text-center text-sm text-[var(--text-muted)]">
+                No data available
+              </div>
+            )}
+          </TabsContent>
+        )
+      })}
+    </Tabs>
   )
 }

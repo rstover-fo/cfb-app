@@ -26,29 +26,39 @@ function chainable(data: unknown = [], single = false) {
     builder[m] = vi.fn().mockReturnValue(builder)
   }
   builder.single = vi.fn().mockResolvedValue(resolved)
+  builder.maybeSingle = vi.fn().mockResolvedValue(resolved)
   // Make the builder itself awaitable
   builder.then = (resolve: (v: unknown) => void) => resolve({ data, error: null })
   return builder
 }
 
+function fromMock(table: string) {
+  if (table === 'teams_with_logos') {
+    return chainable([
+      {
+        school: 'Alabama',
+        abbreviation: 'ALA',
+        conference: 'SEC',
+        classification: 'fbs',
+        color: '#9E1B32',
+        alt_color: '#FFFFFF',
+        logo: 'https://a.espncdn.com/i/teamlogos/ncaa/500/333.png',
+      },
+    ])
+  }
+  return chainable()
+}
+
 vi.mock('@/lib/supabase/server', () => ({
   createClient: vi.fn().mockResolvedValue({
-    from: vi.fn().mockImplementation((table: string) => {
-      if (table === 'teams_with_logos') {
-        return chainable([
-          {
-            school: 'Alabama',
-            abbreviation: 'ALA',
-            conference: 'SEC',
-            classification: 'fbs',
-            color: '#9E1B32',
-            alt_color: '#FFFFFF',
-            logo: 'https://a.espncdn.com/i/teamlogos/ncaa/500/333.png',
-          },
-        ])
-      }
-      return chainable()
-    }),
+    from: vi.fn().mockImplementation(fromMock),
+    // Elo and ATS widgets (getTeamElo/getTeamEloHistory/getTeamAts) read from
+    // the `api` schema via .schema('api').from(...) -- mirror the same
+    // chainable builder so those calls resolve to an empty/no-row result
+    // instead of throwing.
+    schema: vi.fn().mockImplementation(() => ({
+      from: vi.fn().mockImplementation(fromMock),
+    })),
     rpc: vi.fn().mockResolvedValue({ data: [], error: null }),
   }),
 }))

@@ -27,6 +27,12 @@ function TeamInitials({ school }: { school: string }) {
 
 export function TeamCard({ team, metrics }: TeamCardProps) {
   const slug = (team.school ?? '').toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')
+  // Ranks are partitioned by season + classification (see api.team_epa_season),
+  // so a bare "#1" is ambiguous once FBS and FCS teams share a filtered view
+  // ("All Divisions" on /teams) -- qualify with the team's own division.
+  const rankLabel = metrics?.rank
+    ? `#${metrics.rank}${team.classification ? ` ${team.classification.toUpperCase()}` : ''}`
+    : '--'
 
   return (
     <Link
@@ -76,7 +82,7 @@ export function TeamCard({ team, metrics }: TeamCardProps) {
         <div className="text-center">
           <p className="text-[var(--text-muted)]">Rank</p>
           <p className="text-[var(--text-primary)] font-medium">
-            {metrics?.rank ? `#${metrics.rank}` : '--'}
+            {rankLabel}
           </p>
         </div>
       </div>

@@ -60,6 +60,28 @@ export interface StatLeadersData {
   explosiveness: StatLeader[]
 }
 
+// Row shape for the public.get_data_freshness() RPC -- camelCased for UI
+// consumption (unlike src/lib/queries/mcp.ts's callDataFreshness, which
+// mirrors the raw snake_case RPC shape for MCP tool consumers).
+export interface DataFreshnessRow {
+  schemaName: string
+  tableName: string
+  rowCount: number
+  expectedRefreshFrequency: string
+  /** Fractional days since last activity (numeric in Postgres) -- can be < 1 for same-day updates. */
+  daysSinceActivity: number | null
+  isStale: boolean
+}
+
+interface RawDataFreshnessRow {
+  schema_name: string
+  table_name: string
+  row_count: number
+  expected_refresh_frequency: string
+  days_since_activity: number | null
+  is_stale: boolean
+}
+
 
 // Get top movers (EPA delta vs prior season)
 export const getTopMovers = cache(async (season: number): Promise<{ risers: Mover[], fallers: Mover[] }> => {
@@ -310,3 +332,33 @@ export const getStatLeaders = cache(async (season: number): Promise<StatLeadersD
     explosiveness: mapToLeader(explosivenessLeaders)
   }
 })
+
+// Get freshness status for all tracked marts tables (public.get_data_freshness RPC).
+// Used to surface a subtle "data updated Xh ago" note in the UI -- see
+// getFreshestUpdateDays() below for reducing this to a single relative-time value.
+export const getDataFreshness = cache(async (): Promise<DataFreshnessRow[]> => {
+  const supabase = await createClient()
+  const { data, error } = await supabase.rpc('get_data_freshness')
+
+  if (error) return []
+
+  return ((data ?? []) as RawDataFreshnessRow[]).map(r => ({
+    schemaName: r.schema_name,
+    tableName: r.table_name,
+    rowCount: r.row_count,
+    expectedRefreshFrequency: r.expected_refresh_frequency,
+    daysSinceActivity: r.days_since_activity,
+    isStale: r.is_stale,
+  }))
+})
+
+// Reduce a freshness row set to the single most-recent update, in fractional
+// days. Returns null when no row carries a usable timestamp.
+export function getFreshestUpdateDays(rows: DataFreshnessRow[]): number | null {
+  const values = rows
+    .map(r => r.daysSinceActivity)
+    .filter((d): d is number => d != null && !Number.isNaN(d))
+
+  if (values.length === 0) return null
+  return Math.min(...values)
+}

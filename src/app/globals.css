@@ -36,6 +36,10 @@
   /* Accent (interactive elements) */
   --accent: #C47A5A;
   --accent-hover: #B06A4A;
+  /* Text/icon color for accent-filled surfaces. Paper-white literal, same
+     rationale (and value family) as --primary-foreground below. Team theme
+     overlays (e.g. OU) override this alongside --accent. */
+  --accent-foreground: #FAF7F2;
 
   /* Shadows */
   --shadow-soft: 0 4px 20px rgba(26, 24, 20, 0.08);
@@ -47,6 +51,89 @@
   /* Typography */
   --font-headline: 'Libre Baskerville', Georgia, serif;
   --font-body: 'DM Sans', system-ui, sans-serif;
+
+  /* ===========================================
+     shadcn/ui TOKEN BRIDGE
+     Pure aliases onto the editorial tokens above -- no new colors are
+     introduced here. Because the aliased vars already flip under
+     [data-theme]/prefers-color-scheme/[data-team-theme], shadcn components
+     get dark mode and team-theme overlays for free with no .dark class.
+     --accent is intentionally NOT aliased to shadcn's "accent" role: the
+     app already owns --accent (interactive/team-theme color) and giving
+     shadcn's neutral hover/highlight role the same name would collide with
+     its existing meaning. shadcn's accent role is mapped to the
+     non-conflicting --accent-shadcn (aliasing --bg-surface-alt) instead.
+     =========================================== */
+  --background: var(--bg-primary);
+  --foreground: var(--text-primary);
+
+  --card: var(--bg-surface);
+  --card-foreground: var(--text-primary);
+
+  --popover: var(--bg-surface);
+  --popover-foreground: var(--text-primary);
+
+  --primary: var(--color-run);
+  --primary-foreground: #FAF7F2;
+
+  --secondary: var(--bg-surface-alt);
+  --secondary-foreground: var(--text-primary);
+
+  --accent-shadcn: var(--bg-surface-alt);
+  --accent-shadcn-foreground: var(--text-primary);
+
+  --muted: var(--bg-surface-alt);
+  --muted-foreground: var(--text-muted);
+
+  --destructive: var(--color-negative);
+  /* Same sanctioned paper-white literal as --primary-foreground above. */
+  --destructive-foreground: #FAF7F2;
+
+  --input: var(--border);
+  --ring: var(--color-run);
+
+  /* Matches .card's border-radius (3px) below, expressed in rem. */
+  --radius: 0.1875rem;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+
+  --color-accent-shadcn: var(--accent-shadcn);
+  --color-accent-shadcn-foreground: var(--accent-shadcn-foreground);
+
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  /* --radius is deliberately small (3px, matching .card's near-square
+     editorial corners), so the standard shadcn "- 4px"/"- 2px" offsets
+     would go negative or fully square. Floor sm/md at 2px so pre-existing
+     rounded-sm/md surfaces keep a hint of rounding (this scale is
+     app-global, not shadcn-only). */
+  --radius-sm: max(2px, calc(var(--radius) - 4px));
+  --radius-md: max(2px, calc(var(--radius) - 2px));
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
 }
 
 /* Dark Mode (Inverted Editorial) */
@@ -64,6 +151,9 @@
 
     --accent: #D08A6A;
     --accent-hover: #E09A7A;
+    /* Dark ink on the lightened dark-mode accent (~6.5:1); paper-white
+       would fall to ~2.3:1 here. */
+    --accent-foreground: #1A1814;
 
     --field-green: #1e4a1a;
     --field-endzone: #153012;
@@ -88,6 +178,7 @@
   --field-line: #ffffff;
   --accent: #C47A5A;
   --accent-hover: #B06A4A;
+  --accent-foreground: #FAF7F2;
   --shadow-soft: 0 4px 20px rgba(26, 24, 20, 0.08);
   --shadow-hover: 0 8px 30px rgba(26, 24, 20, 0.12);
 }
@@ -102,6 +193,7 @@
   --border: #3D362E;
   --accent: #D08A6A;
   --accent-hover: #E09A7A;
+  --accent-foreground: #1A1814;
   --field-green: #1e4a1a;
   --field-endzone: #153012;
   --field-line: #cccccc;

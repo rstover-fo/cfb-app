@@ -1,12 +1,13 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, type KeyboardEvent } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
 import { ChartBar } from '@phosphor-icons/react'
 import type { CoachRecord, CoachSortKey } from '@/lib/queries/coaches'
 import { teamNameToSlug, formatPercent } from '@/lib/utils'
 import { EmptyState } from '@/components/EmptyState'
+import { CoachHistoryDialog, type SelectedCoach } from '@/components/coaches/CoachHistoryDialog'
 
 const SORT_TABS: { key: CoachSortKey; label: string }[] = [
   { key: 'win_pct', label: 'SU Win%' },
@@ -39,10 +40,26 @@ interface CoachesClientProps {
 // just swap which already-sorted array is displayed -- no client refetch.
 export function CoachesClient({ byWinPct, byAtsWinPct, activeByWinPct, activeByAtsWinPct }: CoachesClientProps) {
   const [sortBy, setSortBy] = useState<CoachSortKey>('win_pct')
+  const [selectedCoach, setSelectedCoach] = useState<SelectedCoach | null>(null)
   const [scope, setScope] = useState<CoachScope>('active')
   const coaches = scope === 'active'
     ? (sortBy === 'win_pct' ? activeByWinPct : activeByAtsWinPct)
     : (sortBy === 'win_pct' ? byWinPct : byAtsWinPct)
+
+  // api.coaching_history has no coach-id column -- first_name/last_name is
+  // the only join key it shares with api.coach_records (see getCoachingHistory
+  // in src/lib/queries/coaches.ts). A row missing either isn't clickable.
+  function openHistory(coach: CoachRecord) {
+    if (!coach.first_name || !coach.last_name) return
+    setSelectedCoach({ firstName: coach.first_name, lastName: coach.last_name, displayName: coach.coach_name })
+  }
+
+  function handleRowKeyDown(event: KeyboardEvent<HTMLTableRowElement>, coach: CoachRecord) {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault()
+      openHistory(coach)
+    }
+  }
 
   return (
     <div>
@@ -110,16 +127,27 @@ export function CoachesClient({ byWinPct, byAtsWinPct, activeByWinPct, activeByA
               <tbody>
                 {coaches.map((coach, idx) => {
                   const partialAts = coach.seasons_with_ats_data < coach.seasons_count
+                  const clickable = Boolean(coach.first_name && coach.last_name)
                   return (
                     <tr
                       key={`${coach.coach_name}-${coach.team}`}
-                      className="border-b border-[var(--border)] last:border-b-0 hover:bg-[var(--bg-surface-alt)]"
+                      // NOTE: deliberately no role="button" override here --
+                      // that would replace the <tr>'s implicit "row" role and
+                      // break every getAllByRole('row') query in this file's
+                      // and the page's tests. tabIndex + onKeyDown alone still
+                      // make the row keyboard-focusable and activatable.
+                      className={`border-b border-[var(--border)] last:border-b-0 hover:bg-[var(--bg-surface-alt)] ${clickable ? 'cursor-pointer' : ''}`}
+                      onClick={clickable ? () => openHistory(coach) : undefined}
+                      onKeyDown={clickable ? event => handleRowKeyDown(event, coach) : undefined}
+                      tabIndex={clickable ? 0 : undefined}
+                      aria-label={clickable ? `View ${coach.coach_name}'s coaching history` : undefined}
                     >
                       <td className="py-2 px-2 tabular-nums text-[var(--text-muted)]">{idx + 1}</td>
                       <td className="py-2 px-2 text-[var(--text-primary)]">{coach.coach_name}</td>
                       <td className="py-2 px-2">
                         <Link
                           href={`/teams/${teamNameToSlug(coach.team)}`}
+                          onClick={event => event.stopPropagation()}
                           className="flex items-center gap-2 text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:underline"
                         >
                           {coach.logo && (
@@ -167,6 +195,13 @@ export function CoachesClient({ byWinPct, byAtsWinPct, activeByWinPct, activeByA
           </div>
         )}
       </div>
+
+      <CoachHistoryDialog
+        coach={selectedCoach}
+        onOpenChange={open => {
+          if (!open) setSelectedCoach(null)
+        }}
+      />
     </div>
   )
 }

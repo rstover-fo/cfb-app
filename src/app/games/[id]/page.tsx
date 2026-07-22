@@ -1,8 +1,11 @@
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
 import { getGameById, getGameBoxScore, getGamePlayerLeaders, getGameLineScores, getGameDrives, getGamePlays, getGameWinProbability, getGameRecap } from '@/lib/queries/games'
+import { getGamePrediction, getLineMovement } from '@/lib/queries/predictions'
 import { GameScoreHeader } from '@/components/game/GameScoreHeader'
 import { GameRecap } from '@/components/game/GameRecap'
+import { PredictionCard } from '@/components/game/PredictionCard'
+import { LineMovementChart } from '@/components/game/LineMovementChart'
 import { QuarterScores } from '@/components/game/QuarterScores'
 import { GameBoxScore } from '@/components/game/GameBoxScore'
 import { PlayerLeaders } from '@/components/game/PlayerLeaders'
@@ -23,7 +26,7 @@ export default async function GamePage({ params }: GamePageProps) {
     notFound()
   }
 
-  const [game, boxScore, playerLeaders, lineScores, drives, plays, winProbability, recap] = await Promise.all([
+  const [game, boxScore, playerLeaders, lineScores, drives, plays, winProbability, recap, prediction, lineMovement] = await Promise.all([
     getGameById(gameId),
     getGameBoxScore(gameId),
     getGamePlayerLeaders(gameId),
@@ -32,6 +35,8 @@ export default async function GamePage({ params }: GamePageProps) {
     getGamePlays(gameId),
     getGameWinProbability(gameId),
     getGameRecap(gameId),
+    getGamePrediction(gameId),
+    getLineMovement(gameId),
   ])
 
   if (!game) {
@@ -71,6 +76,21 @@ export default async function GamePage({ params }: GamePageProps) {
 
         {/* Score Header */}
         <GameScoreHeader game={game} />
+
+        {/* House Prediction + market line movement */}
+        {(prediction || lineMovement.length > 0) && (
+          <div className="mt-6 space-y-4">
+            {prediction && (
+              <PredictionCard prediction={prediction} homeTeam={game.home_team} awayTeam={game.away_team} />
+            )}
+            <LineMovementChart
+              points={lineMovement}
+              homeTeam={game.home_team}
+              awayTeam={game.away_team}
+              modelMargin={prediction?.expected_home_margin ?? null}
+            />
+          </div>
+        )}
 
         {/* AI-Generated Recap */}
         {recap && (

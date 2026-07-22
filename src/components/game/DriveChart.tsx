@@ -5,6 +5,7 @@ import { GameTabSelector } from './GameTabSelector'
 import { DriveBarChart } from './DriveBarChart'
 import { DriveFieldOverlay } from './DriveFieldOverlay'
 import { DriveTimeline } from './DriveTimeline'
+import { TabsContent } from '@/components/ui/tabs'
 import type { GameDrive } from '@/lib/types/database'
 import type { GameWithTeams } from '@/lib/queries/games'
 
@@ -29,18 +30,17 @@ export function DriveChart({ drives, game }: DriveChartProps) {
         activeTab={activeTab}
         onTabChange={setActiveTab}
         ariaLabel="Drive chart view"
-      />
-      <div role="tabpanel" id={`tabpanel-${activeTab}`}>
-        {activeTab === 'bar-chart' && (
+      >
+        <TabsContent value="bar-chart">
           <DriveBarChart drives={drives} game={game} />
-        )}
-        {activeTab === 'field' && (
+        </TabsContent>
+        <TabsContent value="field">
           <DriveFieldOverlay drives={drives} game={game} />
-        )}
-        {activeTab === 'timeline' && (
+        </TabsContent>
+        <TabsContent value="timeline">
           <DriveTimeline drives={drives} game={game} />
-        )}
-      </div>
+        </TabsContent>
+      </GameTabSelector>
     </section>
   )
 }

@@ -36,6 +36,13 @@ const baseProps = {
   roi: null,
   signees: null,
   portalActivity: null,
+  returningProduction: null,
+  transferPortalImpact: null,
+  teamElo: null,
+  teamEloHistory: [],
+  teamAts: null,
+  playcallingProfile: null,
+  teamWeekFeatures: [],
 }
 
 describe('TeamPageClient — team theme UI', () => {

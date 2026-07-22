@@ -16,7 +16,7 @@ vi.mock('@/lib/supabase/server', () => ({
 }))
 
 import { createClient } from '@/lib/supabase/server'
-import { getStandings, getStatLeaders } from '../dashboard'
+import { getStandings, getStatLeaders, getDataFreshness, getFreshestUpdateDays } from '../dashboard'
 import { createSupabaseMock, dbError, ok, type SupabaseMockConfig } from './helpers'
 import { createTeamsWithLogosRows } from './fixtures/shared'
 import {
@@ -24,6 +24,8 @@ import {
   createTeamEpaRankRow,
   createTeamSpecialTeamsRow,
   createTeamHistoryRecordRow,
+  createRawDataFreshnessRow,
+  createDataFreshnessScenario,
 } from './fixtures/dashboard'
 
 function mockClient(config: SupabaseMockConfig) {
@@ -207,10 +209,10 @@ describe('getStatLeaders', () => {
   // opp_epa_per_play rides on defensive_havoc, NOT team_epa_season -- see
   // getStatLeaders: selecting it from team_epa_season would 400 the query.
   const havocRows = [
-    { team: 'Oklahoma', havoc_rate: 0.18, opp_epa_per_play: -0.05 },
-    { team: 'Texas', havoc_rate: 0.22, opp_epa_per_play: -0.18 },
-    { team: 'Alabama', havoc_rate: 0.1, opp_epa_per_play: 0.02 },
-    { team: 'Nobody State', havoc_rate: 0.5, opp_epa_per_play: -0.9 },
+    { team: 'Oklahoma', havoc_rate: 0.18, opp_epa_per_play: -0.05, front_seven_havoc_rate: 0.12, db_havoc_rate: 0.06 },
+    { team: 'Texas', havoc_rate: 0.22, opp_epa_per_play: -0.18, front_seven_havoc_rate: 0.15, db_havoc_rate: 0.07 },
+    { team: 'Alabama', havoc_rate: 0.1, opp_epa_per_play: 0.02, front_seven_havoc_rate: 0.08, db_havoc_rate: 0.02 },
+    { team: 'Nobody State', havoc_rate: 0.5, opp_epa_per_play: -0.9, front_seven_havoc_rate: 0.3, db_havoc_rate: 0.2 },
   ]
 
   it('excludes teams absent from the FBS team lookup', async () => {
@@ -345,5 +347,66 @@ describe('getStatLeaders', () => {
     const result = await getStatLeaders(2025)
 
     expect(result).toEqual({ epa: [], defEpa: [], havoc: [], successRate: [], explosiveness: [] })
+  })
+})
+
+describe('getDataFreshness', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('camelCases the raw RPC rows', async () => {
+    mockClient({ rpc: { get_data_freshness: ok([createRawDataFreshnessRow()]) } })
+
+    const result = await getDataFreshness()
+
+    expect(result).toEqual([
+      {
+        schemaName: 'marts',
+        tableName: 'team_epa_season',
+        rowCount: 134,
+        expectedRefreshFrequency: 'daily',
+        daysSinceActivity: 0.5,
+        isStale: false,
+      },
+    ])
+  })
+
+  it('returns an empty list, not a throw, when the RPC errors', async () => {
+    mockClient({ rpc: { get_data_freshness: dbError('boom') } })
+
+    const result = await getDataFreshness()
+
+    expect(result).toEqual([])
+  })
+
+  it('returns an empty list when the RPC resolves with no data', async () => {
+    mockClient({ rpc: { get_data_freshness: ok(null) } })
+
+    const result = await getDataFreshness()
+
+    expect(result).toEqual([])
+  })
+})
+
+describe('getFreshestUpdateDays', () => {
+  it('returns the minimum days_since_activity across tracked tables, ignoring nulls', async () => {
+    mockClient({ rpc: { get_data_freshness: ok(createDataFreshnessScenario()) } })
+
+    const rows = await getDataFreshness()
+
+    expect(getFreshestUpdateDays(rows)).toBe(0.125)
+  })
+
+  it('returns null when every row has a null days_since_activity', () => {
+    const rows = [
+      { schemaName: 'marts', tableName: 'recruiting', rowCount: 1, expectedRefreshFrequency: 'yearly', daysSinceActivity: null, isStale: true },
+    ]
+
+    expect(getFreshestUpdateDays(rows)).toBeNull()
+  })
+
+  it('returns null for an empty row set', () => {
+    expect(getFreshestUpdateDays([])).toBeNull()
   })
 })

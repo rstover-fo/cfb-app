@@ -4,7 +4,11 @@ import { cookies } from 'next/headers'
 import { Team, TeamSeasonEpa, TeamStyleProfile, TeamSeasonTrajectory, DrivePattern, DownDistanceSplit, TrajectoryAverages, RedZoneSplit, FieldPositionSplit, HomeAwaySplit, ConferenceSplit, RosterPlayer, PlayerSeasonStat, Game, ScheduleGame, RecruitingClassHistory, RecruitingROI, Signee, PortalActivity } from '@/lib/types/database'
 import { TeamPageClient } from '@/components/team/TeamPageClient'
 import { CURRENT_SEASON } from '@/lib/queries/constants'
+import { quoteFilterValue } from '@/lib/queries/shared'
 import { TEAM_THEME_COOKIE, parseTeamThemeCookie, themeConfigForSlug } from '@/lib/theme/team-theme'
+import { getTeamElo, getTeamEloHistory, getTeamAts } from '@/lib/queries/predictions'
+import { getPlaycallingProfile, getTeamWeekFeatures } from '@/lib/queries/playcalling'
+import { getReturningProduction, getTransferPortalImpact } from '@/lib/queries/roster-context'
 
 interface TeamPageProps {
   params: Promise<{ slug: string }>
@@ -131,11 +135,13 @@ export default async function TeamPage({ params, searchParams }: TeamPageProps) 
   })
   const playerStats = playerStatsResult.error ? null : (playerStatsResult.data as PlayerSeasonStat[] | null)
 
-  // Fetch schedule
+  // Fetch schedule. team.school is non-null in practice (the team was
+  // resolved by slugifying school), but the view types it nullable.
+  const quotedSchool = quoteFilterValue(team.school ?? '')
   const scheduleResult = await supabase
     .from('games')
     .select('*')
-    .or(`home_team.eq.${team.school},away_team.eq.${team.school}`)
+    .or(`home_team.eq."${quotedSchool}",away_team.eq."${quotedSchool}"`)
     .eq('season', currentSeason)
     .order('week')
 
@@ -150,6 +156,20 @@ export default async function TeamPage({ params, searchParams }: TeamPageProps) 
   const roi = roiResult.error ? null : ((roiResult.data as RecruitingROI[] | null)?.[0] ?? null)
   const signees = signeesResult.error ? null : (signeesResult.data as Signee[] | null)
   const portalActivity = portalResult.error ? null : (portalResult.data as PortalActivity | null)
+
+  // Fetch Elo rating (season-end + game-by-game history) and ATS record.
+  // All fns are self-guarded (return null/[] on error/no coverage), matching
+  // this page's convention of never failing the whole page render on one
+  // widget's data.
+  const [teamElo, teamEloHistory, teamAts, playcallingProfile, teamWeekFeatures, returningProduction, transferPortalImpact] = await Promise.all([
+    getTeamElo(team.school ?? '', currentSeason),
+    getTeamEloHistory(team.school ?? '', currentSeason),
+    getTeamAts(team.school ?? '', currentSeason),
+    getPlaycallingProfile(team.school ?? '', currentSeason),
+    getTeamWeekFeatures(team.school ?? '', currentSeason),
+    getReturningProduction(team.school ?? '', currentSeason),
+    getTransferPortalImpact(team.school ?? '', currentSeason),
+  ])
 
   // Fetch all teams (for schedule logos and Compare tab)
   const { data: allTeamsData } = await supabase.from('teams_with_logos').select('*')
@@ -210,8 +230,15 @@ export default async function TeamPage({ params, searchParams }: TeamPageProps) 
       roi={roi}
       signees={signees}
       portalActivity={portalActivity}
+      returningProduction={returningProduction}
+      transferPortalImpact={transferPortalImpact}
       teamTheme={teamTheme}
       activeThemeKey={activeThemeKey}
+      teamElo={teamElo}
+      teamEloHistory={teamEloHistory}
+      teamAts={teamAts}
+      playcallingProfile={playcallingProfile}
+      teamWeekFeatures={teamWeekFeatures}
     />
   )
 }

@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
+import { quoteFilterValue } from './shared'
 
 // ---------------------------------------------------------------------------
 // Query layer for the MCP (Model Context Protocol) tool server
@@ -42,13 +43,7 @@ function clamp(limit: number | undefined, fallback: number): number {
   return Math.min(limit ?? fallback, DEFAULT_ROW_CAP)
 }
 
-// Double-quote a team/school name for use inside a PostgREST `or=(...)`
-// filter string. Parentheses/commas are structural in that syntax, so a name
-// like "Miami (OH)" would otherwise corrupt the filter. Mirrors
-// cfb_mcp/server.py's query_games and src/lib/queries/matchups.ts.
-function quoteFilterValue(value: string): string {
-  return value.replace(/"/g, '""')
-}
+// quoteFilterValue moved to shared.ts so predictions.ts can reuse it.
 
 // ---------------------------------------------------------------------------
 // 1. query_team -- api.team_detail
@@ -312,15 +307,13 @@ export async function queryLeaderboardTeams(
     .from('leaderboard_teams')
     .select(LEADERBOARD_TEAMS_COLUMNS)
     .eq('season', season)
-    // `classification` is landing on api.leaderboard_teams alongside the
-    // warehouse change that scopes rank columns (wins_rank, ppg_rank, ...)
-    // to FBS. Filtering here keeps get_leaderboard results FBS-only, same
-    // as the rest of the app -- see FBS_CONFERENCES in
-    // src/lib/queries/shared.ts for the broader FCS-leak context. This
-    // filter will 400/error until that column exists; queryLeaderboardTeams
-    // already surfaces PostgREST errors as a friendly `error` string rather
-    // than throwing (see the `if (error)` branch below), so callers degrade
-    // gracefully in the window before the warehouse PR deploys.
+    // `classification` landed on api.leaderboard_teams 2026-07-22 alongside
+    // the warehouse change that scopes rank columns (wins_rank, ppg_rank,
+    // defense_ppg_rank, epa_rank) to PARTITION BY season, classification
+    // instead of season alone (see cfb-database's SCHEMA_CONTRACT.md
+    // 2026-07-22 changelog entry). Filtering here keeps get_leaderboard
+    // results FBS-only, same as the rest of the app -- see FBS_CONFERENCES
+    // in src/lib/queries/shared.ts for the broader FCS-leak context.
     .eq('classification', 'fbs')
     .order(LEADERBOARD_ORDER_COLUMN[metric], { ascending: true })
     .limit(clamp(limit, DEFAULT_ROW_CAP))

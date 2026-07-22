@@ -4,7 +4,13 @@ import { useState, useMemo } from 'react'
 import { Team } from '@/lib/types/database'
 import { TeamCard } from './TeamCard'
 import { TeamSearch } from './TeamSearch'
-import { selectClassName, selectStyle } from '@/lib/utils'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 
 type Division = 'fbs' | 'fcs' | 'all'
 
@@ -77,16 +83,16 @@ export function TeamList({ teams, metricsMap }: TeamListProps) {
     <div>
       {/* Division Dropdown */}
       <div className="mb-4">
-        <select
-          value={division}
-          onChange={(e) => handleDivisionChange(e.target.value as Division)}
-          className={selectClassName}
-          style={selectStyle}
-        >
-          <option value="fbs">FBS</option>
-          <option value="fcs">FCS</option>
-          <option value="all">All Divisions</option>
-        </select>
+        <Select value={division} onValueChange={(v) => handleDivisionChange(v as Division)}>
+          <SelectTrigger className="text-sm" aria-label="Select division">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="fbs">FBS</SelectItem>
+            <SelectItem value="fcs">FCS</SelectItem>
+            <SelectItem value="all">All Divisions</SelectItem>
+          </SelectContent>
+        </Select>
       </div>
 
       {/* Conference Tabs */}

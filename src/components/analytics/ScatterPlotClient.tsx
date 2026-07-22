@@ -36,6 +36,8 @@ type MetricKey =
   | 'consistency_vs_explosiveness'
   | 'havoc_vs_bend'
   | 'tempo_vs_efficiency'
+  | 'front_seven_vs_db_havoc'
+  | 'havoc_split_rates'
 
 interface QuadrantLabels {
   topLeft: string
@@ -142,6 +144,33 @@ const PLOT_OPTIONS: PlotOption[] = [
       topRight: 'Fast & Effective',
       bottomLeft: 'Slow & Inefficient',
       bottomRight: 'Fast & Sloppy'
+    }
+  },
+  {
+    id: 'front_seven_vs_db_havoc',
+    label: 'Front-7 vs DB Havoc',
+    xLabel: 'Front-7 Havoc Rate',
+    yLabel: 'DB Havoc Rate',
+    quadrantLabels: {
+      topLeft: 'DB-Focused Defense',
+      topRight: 'Balanced Havoc',
+      bottomLeft: 'Vulnerable',
+      bottomRight: 'Line-Focused Defense'
+    }
+  },
+  {
+    id: 'havoc_split_rates',
+    label: 'Overall vs Split Havoc',
+    xLabel: 'Overall Havoc Rate',
+    yLabel: 'Front-7 Havoc Rate',
+    // x = overall havoc, y = front-7 havoc: a high-y/low-x team gets its
+    // (limited) havoc from the front seven; a high-x/low-y team's havoc is
+    // supplied by the secondary.
+    quadrantLabels: {
+      topLeft: 'Front-7 Reliant',
+      topRight: 'Front-7 Dominant',
+      bottomLeft: 'Limited Havoc',
+      bottomRight: 'DB-Driven Havoc'
     }
   },
 ]
@@ -278,6 +307,18 @@ export function ScatterPlotClient({ teams, metrics, styles, havoc, tempo, record
             if (!teamTempo) return null
             x = teamTempo.plays_per_game ?? 0
             y = teamTempo.epa_per_play ?? 0
+            break
+          case 'front_seven_vs_db_havoc':
+            const teamHavoc1 = havocMap.get(school)
+            if (!teamHavoc1) return null
+            x = teamHavoc1.front_seven_havoc_rate ?? 0
+            y = teamHavoc1.db_havoc_rate ?? 0
+            break
+          case 'havoc_split_rates':
+            const teamHavoc2 = havocMap.get(school)
+            if (!teamHavoc2) return null
+            x = teamHavoc2.havoc_rate ?? 0
+            y = teamHavoc2.front_seven_havoc_rate ?? 0
             break
           default:
             return null

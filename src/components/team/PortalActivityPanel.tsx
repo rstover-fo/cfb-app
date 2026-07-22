@@ -3,10 +3,27 @@
 import { useState } from 'react'
 import { Star } from '@phosphor-icons/react'
 import { PortalActivity, TransferRecord } from '@/lib/types/database'
+import { formatOrdinal, formatPercent } from '@/lib/utils'
+import type { TransferPortalImpact } from '@/lib/queries/roster-context'
 
 interface PortalActivityPanelProps {
   activity: PortalActivity | null
+  /** League-wide portal-impact percentiles from api.transfer_portal_impact
+   *  -- additive context alongside the RPC-sourced activity list above, not
+   *  a replacement for it. Renders its own section only when present. */
+  impact: TransferPortalImpact | null
   season: number
+}
+
+// "62nd percentile" caption, or null when the view hasn't scored this stat
+// for the team/season (e.g. too few FBS teams with portal data yet).
+function pctlCaption(pctl: number | null): string | null {
+  if (pctl == null) return null
+  return `${formatOrdinal(Math.round(pctl * 100))} percentile`
+}
+
+function signed(value: number): string {
+  return `${value >= 0 ? '+' : ''}${value}`
 }
 
 type PortalTab = 'incoming' | 'outgoing'
@@ -48,13 +65,49 @@ function TransferRow({ t, showOrigin }: { t: TransferRecord; showOrigin: boolean
   )
 }
 
-export function PortalActivityPanel({ activity, season }: PortalActivityPanelProps) {
+export function PortalActivityPanel({ activity, impact, season }: PortalActivityPanelProps) {
   const [tab, setTab] = useState<PortalTab>('incoming')
+
+  // League-context row: net transfers, portal dependency, and win delta vs.
+  // the rest of FBS, each with its percentile as a muted caption. Additive
+  // to (never gated on) the RPC-sourced activity list -- renders whenever
+  // the portal-impact view has a row, even if the activity list is empty.
+  const leagueContext = impact && (
+    <div className="mb-4">
+      <h3 className="text-[10px] uppercase tracking-wider text-[var(--text-muted)] mb-2">
+        FBS Percentile Context
+      </h3>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <SummaryCard
+          label="Net Transfers"
+          value={impact.net_transfers !== null ? signed(impact.net_transfers) : '--'}
+          color={impact.net_transfers !== null
+            ? (impact.net_transfers >= 0 ? 'var(--color-positive)' : 'var(--color-negative)')
+            : undefined}
+          caption={pctlCaption(impact.net_transfers_pctl)}
+        />
+        <SummaryCard
+          label="Portal Dependency"
+          value={impact.portal_dependency !== null ? formatPercent(impact.portal_dependency) : '--'}
+          caption={pctlCaption(impact.portal_dependency_pctl)}
+        />
+        <SummaryCard
+          label="Win Δ"
+          value={impact.win_delta !== null ? signed(impact.win_delta) : '--'}
+          color={impact.win_delta !== null
+            ? (impact.win_delta >= 0 ? 'var(--color-positive)' : 'var(--color-negative)')
+            : undefined}
+          caption={pctlCaption(impact.win_delta_pctl)}
+        />
+      </div>
+    </div>
+  )
 
   if (!activity) {
     return (
       <section>
         <h2 className="font-headline text-2xl text-[var(--text-primary)] mb-4">Transfer Portal</h2>
+        {leagueContext}
         <p className="text-[var(--text-muted)] text-sm">
           Transfer portal data available from 2021 onward.
         </p>
@@ -71,6 +124,8 @@ export function PortalActivityPanel({ activity, season }: PortalActivityPanelPro
   return (
     <section>
       <h2 className="font-headline text-2xl text-[var(--text-primary)] mb-4">Transfer Portal</h2>
+
+      {leagueContext}
 
       {noActivity && !summary ? (
         <p className="text-[var(--text-muted)] text-sm">
@@ -165,7 +220,7 @@ export function PortalActivityPanel({ activity, season }: PortalActivityPanelPro
   )
 }
 
-function SummaryCard({ label, value, color }: { label: string; value: string; color?: string }) {
+function SummaryCard({ label, value, color, caption }: { label: string; value: string; color?: string; caption?: string | null }) {
   return (
     <div className="border border-[var(--border)] rounded-sm bg-[var(--bg-surface)] p-3 text-center">
       <div className="text-xs text-[var(--text-muted)] uppercase tracking-wide">{label}</div>
@@ -175,6 +230,9 @@ function SummaryCard({ label, value, color }: { label: string; value: string; co
       >
         {value}
       </div>
+      {caption && (
+        <div className="text-[10px] text-[var(--text-muted)] mt-1 tabular-nums">{caption}</div>
+      )}
     </div>
   )
 }

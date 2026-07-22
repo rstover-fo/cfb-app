@@ -4,6 +4,16 @@ import { createClient } from '@/lib/supabase/server'
 // Re-export constants for server components
 export { CURRENT_SEASON, REGULAR_SEASON_MAX_WEEK, POSTSEASON_MIN_WEEK } from './constants'
 
+// Double-quote a team/school name for use inside a PostgREST `or=(...)`
+// filter string. Parentheses/commas are structural in that syntax, so a name
+// like "Miami (OH)" would otherwise corrupt the filter (and silently return
+// zero rows). Callers must wrap the returned value in double quotes:
+// `.or(`home_team.eq."${quoteFilterValue(team)}",...`)`. Mirrors
+// cfb_mcp/server.py's query_games.
+export function quoteFilterValue(value: string): string {
+  return value.replace(/"/g, '""')
+}
+
 // FBS conference names. NOT used to filter teams out of FBS-only data sets
 // any more -- `.in('conference', FBS_CONFERENCES)` demonstrably leaked FCS
 // schools into prod (e.g. "Ohio State Newark", North Dakota State on the

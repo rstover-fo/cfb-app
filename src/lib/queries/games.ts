@@ -1,8 +1,9 @@
 import { cache } from 'react'
 import { createClient } from '@/lib/supabase/server'
-import { getTeamLookup } from './shared'
+import { getTeamLookup, quoteFilterValue } from './shared'
 import { REGULAR_SEASON_MAX_WEEK, POSTSEASON_MIN_WEEK } from './constants'
 import type { GameBoxScore, BoxScoreTeam, PlayerLeaders, TeamLeaders, LineScores, GameDrive, GamePlay, GameWinProbability, GameRecap } from '@/lib/types/database'
+import type { ApiSchema } from '@/lib/types/api.generated'
 
 // Season phase type
 export type SeasonPhase = 'all' | 'regular' | 'postseason'
@@ -78,7 +79,8 @@ export const getGames = cache(async (filter: GamesFilter): Promise<GameWithTeams
 
   // Team filter at database level
   if (filter.team) {
-    query = query.or(`home_team.eq.${filter.team},away_team.eq.${filter.team}`)
+    const quoted = quoteFilterValue(filter.team)
+    query = query.or(`home_team.eq."${quoted}",away_team.eq."${quoted}"`)
   }
 
   const { data, error } = await query
@@ -178,8 +180,13 @@ export const getGameById = cache(async (gameId: number): Promise<GameWithTeams |
   }
 })
 
-// Row shape for api.game_box_score (EAV: one row per stat category per team)
-// TODO(A0.6): regenerate supabase types to include `api` schema views/tables
+// Row shape for api.game_box_score (EAV: one row per stat category per team).
+// See src/lib/types/api.generated.ts's `game_box_score` Row for the full
+// (nullable) generated shape -- kept hand-typed here rather than adopted
+// directly because this query's .select() only pulls a subset of columns
+// and every field is narrowed non-null (this EAV row is only ever consumed
+// after the null/empty-data guard above returns early) and home_away is
+// narrowed to the literal 'home' | 'away' union the pivot logic below relies on.
 interface GameBoxScoreRow {
   team: string
   home_away: 'home' | 'away'
@@ -238,8 +245,11 @@ const SORT_STAT: Record<string, string> = {
   'defensive': 'TOT',
 }
 
-// Row shape for api.game_player_leaders (one row per player per stat_type per category)
-// TODO(A0.6): regenerate supabase types to include `api` schema views/tables
+// Row shape for api.game_player_leaders (one row per player per stat_type per category).
+// See src/lib/types/api.generated.ts's `game_player_leaders` Row for the full
+// generated shape -- kept hand-typed here since this query selects a column
+// subset and narrows every field non-null (consumed only after the
+// null/empty-data guard above returns early).
 interface GamePlayerLeaderRow {
   team: string
   home_away: 'home' | 'away'
@@ -319,19 +329,13 @@ export const getGamePlayerLeaders = cache(async (gameId: number): Promise<Player
 // Note: the view SUMS all overtime periods into a single *_ot column, so a
 // multi-OT game collapses to one combined OT score below (matches
 // QuarterScores.tsx, which renders a single "OT" column for index 4).
-// TODO(A0.6): regenerate supabase types to include `api` schema views/tables
-interface GameLineScoresRow {
-  home_q1: number | null
-  home_q2: number | null
-  home_q3: number | null
-  home_q4: number | null
-  home_ot: number | null
-  away_q1: number | null
-  away_q2: number | null
-  away_q3: number | null
-  away_q4: number | null
-  away_ot: number | null
-}
+// Adopted from src/lib/types/api.generated.ts -- this query's .select()
+// pulls exactly this column subset and every one is already nullable there,
+// so no narrowing is needed (unlike the EAV row shapes above).
+type GameLineScoresRow = Pick<
+  ApiSchema['Views']['game_line_scores']['Row'],
+  'home_q1' | 'home_q2' | 'home_q3' | 'home_q4' | 'home_ot' | 'away_q1' | 'away_q2' | 'away_q3' | 'away_q4' | 'away_ot'
+>
 
 // Get quarter-by-quarter line scores for a game from the contracted api.game_line_scores view
 export const getGameLineScores = cache(async (gameId: number): Promise<LineScores | null> => {
@@ -365,8 +369,11 @@ export const getGameLineScores = cache(async (gameId: number): Promise<LineScore
   return { home, away }
 })
 
-// Row shape for api.game_drives (flattened; no double-underscore columns)
-// TODO: regenerate supabase types after migration deploy
+// Row shape for api.game_drives (flattened; no double-underscore columns).
+// See src/lib/types/api.generated.ts's `game_drives` Row for the full
+// generated shape (every column nullable there, per view convention) --
+// kept hand-typed/non-null here since GameDrive (src/lib/types/database.ts)
+// is also non-null and every consumer of getGameDrives relies on that.
 interface GameDriveRow {
   drive_number: number
   offense: string
@@ -405,8 +412,11 @@ export const getGameDrives = cache(async (gameId: number): Promise<GameDrive[]> 
   return data as GameDriveRow[]
 })
 
-// Row shape for api.game_plays (flattened; no double-underscore columns)
-// TODO: regenerate supabase types after migration deploy
+// Row shape for api.game_plays (flattened; no double-underscore columns).
+// See src/lib/types/api.generated.ts's `game_plays` Row for the full
+// generated shape (every column nullable there) -- kept hand-typed/non-null
+// here to match GamePlay (src/lib/types/database.ts), which every consumer
+// of getGamePlays relies on.
 interface GamePlayRow {
   game_id: number
   drive_number: number
@@ -465,7 +475,10 @@ export const getGamePlays = cache(async (gameId: number): Promise<GamePlay[]> =>
 // core.plays on play_id and may be null -- either for every row in a game
 // (if play_id doesn't correspond 1:1 with core.plays.id) or per-row (e.g.
 // untimed OT downs carry a period but no clock).
-// TODO: regenerate supabase types to include `api` schema views/tables
+// See src/lib/types/api.generated.ts's `game_win_probability` Row (also
+// flags this view "Pending deploy" per SCHEMA_CONTRACT.md as of 2026-07-22)
+// -- kept hand-typed here since this query narrows play_id to non-null
+// (every returned row always carries one).
 interface GameWinProbabilityRow {
   play_id: string
   home_win_probability: number | null
@@ -500,8 +513,13 @@ export const getGameWinProbability = cache(async (gameId: number): Promise<GameW
 })
 
 // Row shape for api.game_recaps (one row per game, nightly LLM-generated).
-// Authoritative definition: cfb-database src/schemas/api/034_game_recaps.sql.
-// TODO: regenerate supabase types to include `api` schema views/tables
+// Authoritative definition: cfb-database src/schemas/api/037_game_recaps.sql
+// (renumbered from 034 when coach_records/other Tier-3 views were added
+// ahead of it -- see api.generated.ts's header). See api.generated.ts's
+// `game_recaps` Row for the full generated shape; kept hand-typed/non-null
+// here since GameRecap (src/lib/types/database.ts) is also non-null and
+// getGameRecap already returns null for the "not generated yet" case before
+// this type is ever touched.
 interface GameRecapRow {
   headline: string
   recap: string

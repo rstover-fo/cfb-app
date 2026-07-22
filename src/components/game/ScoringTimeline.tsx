@@ -5,6 +5,7 @@ import { GameTabSelector } from './GameTabSelector'
 import { ScoreStepLine } from './ScoreStepLine'
 import { WinProbabilityChart } from './WinProbabilityChart'
 import { MomentumChart } from './MomentumChart'
+import { TabsContent } from '@/components/ui/tabs'
 import type { GameDrive, GameWinProbability } from '@/lib/types/database'
 import type { GameWithTeams } from '@/lib/queries/games'
 import type { LineScores } from '@/lib/types/database'
@@ -35,23 +36,17 @@ export function ScoringTimeline({ drives, lineScores, game, serverWP }: ScoringT
         activeTab={activeTab}
         onTabChange={setActiveTab}
         ariaLabel="Scoring timeline views"
-      />
-
-      <div
-        role="tabpanel"
-        id={`tabpanel-${activeTab}`}
-        aria-labelledby={activeTab}
       >
-        {activeTab === 'score-flow' && (
+        <TabsContent value="score-flow">
           <ScoreStepLine drives={drives} lineScores={lineScores} game={game} />
-        )}
-        {activeTab === 'win-prob' && (
+        </TabsContent>
+        <TabsContent value="win-prob">
           <WinProbabilityChart drives={drives} lineScores={lineScores} game={game} serverWP={serverWP} />
-        )}
-        {activeTab === 'momentum' && (
+        </TabsContent>
+        <TabsContent value="momentum">
           <MomentumChart drives={drives} lineScores={lineScores} game={game} />
-        )}
-      </div>
+        </TabsContent>
+      </GameTabSelector>
     </section>
   )
 }

@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import rough from 'roughjs'
 import { FootballField, yardToX } from './FootballField'
 import { DrivePattern } from '@/lib/types/database'
+import { resolveColor, useChartTheme } from '@/lib/charts/theme'
 
 type Side = 'offense' | 'defense'
 
@@ -46,13 +47,6 @@ function formatYardLabel(yard: number): string {
   if (yard === 50) return 'Midfield'
   if (yard < 50) return `Own ${yard}s`
   return `Opp ${100 - yard}s`
-}
-
-function resolveColor(cssVar: string): string {
-  if (typeof document === 'undefined') return '#999'
-  const match = cssVar.match(/var\((.+)\)/)
-  if (!match) return cssVar
-  return getComputedStyle(document.documentElement).getPropertyValue(match[1]).trim() || '#999'
 }
 
 // Compute bar height based on count relative to max count in the dataset
@@ -144,6 +138,11 @@ export function DrivePatterns({ offenseDrives, defenseDrives, teamName }: DriveP
   const [selectedOutcome, setSelectedOutcome] = useState<string | null>(null)
   const [tooltip, setTooltip] = useState<{ x: number; y: number; data: DrivePattern } | null>(null)
   const [animationKey, setAnimationKey] = useState(0)
+  // Bumped by useChartTheme on a dark/light flip so the redraw effect below
+  // (whose dependency array roughjs draws are keyed to) re-runs -- roughjs
+  // bakes colors into concrete strings at draw time, so a theme change needs
+  // an explicit redraw signal like every other chart (see src/lib/charts/theme.ts).
+  const [themeTick, setThemeTick] = useState(0)
 
   const svgRef = useRef<SVGSVGElement>(null)
   const barsRef = useRef<SVGGElement>(null)
@@ -351,7 +350,10 @@ export function DrivePatterns({ offenseDrives, defenseDrives, teamName }: DriveP
       barsGroup.removeEventListener('mouseover', handleMouseOver as EventListener)
       barsGroup.removeEventListener('mouseout', handleMouseOut as EventListener)
     }
-  }, [lanes, fieldWidth, fieldHeight, maxCount, animationKey])
+  }, [lanes, fieldWidth, fieldHeight, maxCount, animationKey, themeTick])
+
+  // Redraw on theme change (bumps themeTick, which the effect above depends on)
+  useChartTheme(useCallback(() => setThemeTick(t => t + 1), []))
 
   return (
     <div className="relative" ref={containerRef} onMouseLeave={handleContainerMouseLeave}>

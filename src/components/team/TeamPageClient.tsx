@@ -1,14 +1,19 @@
 'use client'
 
-import { useState } from 'react'
 import Image from 'next/image'
 import Link from 'next/link'
 import { Sword } from '@phosphor-icons/react'
 import { Team, TeamSeasonEpa, TeamStyleProfile, TeamSeasonTrajectory, DrivePattern, DownDistanceSplit, TrajectoryAverages, RedZoneSplit, FieldPositionSplit, HomeAwaySplit, ConferenceSplit, RosterPlayer, PlayerSeasonStat, ScheduleGame, RecruitingClassHistory, RecruitingROI, Signee, PortalActivity } from '@/lib/types/database'
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { MetricsCards } from '@/components/team/MetricsCards'
+import { PlaycallingProfile } from '@/components/team/PlaycallingProfile'
+import { AdjustedEpaChart } from '@/components/team/AdjustedEpaChart'
 import { StyleProfile } from '@/components/team/StyleProfile'
 import { DrivePatterns } from '@/components/visualizations/DrivePatterns'
 import { TrajectoryChart } from '@/components/team/TrajectoryChart'
+import { EloCard } from '@/components/team/EloCard'
+import { EloHistoryChart } from '@/components/team/EloHistoryChart'
+import { AtsCard } from '@/components/team/AtsCard'
 import { SituationalView } from '@/components/team/SituationalView'
 import { SeasonSelector } from '@/components/SeasonSelector'
 import { TeamThemeToggle } from '@/components/team/TeamThemeToggle'
@@ -17,8 +22,11 @@ import { ScheduleView } from './ScheduleView'
 import { CompareView } from './CompareView'
 import { RecruitingView } from './RecruitingView'
 import type { TeamThemeConfig } from '@/lib/theme/team-theme'
+import type { TeamElo, TeamEloGamePoint, TeamAts } from '@/lib/queries/predictions'
+import type { PlaycallingProfile as PlaycallingProfileData, TeamWeekFeature } from '@/lib/queries/playcalling'
+import type { ReturningProduction, TransferPortalImpact } from '@/lib/queries/roster-context'
 
-type TabId = 'overview' | 'situational' | 'schedule' | 'roster' | 'compare' | 'recruiting'
+type TabId = 'overview' | 'situational' | 'playcalling' | 'schedule' | 'roster' | 'compare' | 'recruiting'
 
 interface Tab {
   id: TabId
@@ -29,6 +37,7 @@ interface Tab {
 const TABS: Tab[] = [
   { id: 'overview', label: 'Overview', enabled: true },
   { id: 'situational', label: 'Situational', enabled: true },
+  { id: 'playcalling', label: 'Playcalling', enabled: true },
   { id: 'schedule', label: 'Schedule', enabled: true },
   { id: 'roster', label: 'Roster', enabled: true },
   { id: 'compare', label: 'Compare', enabled: true },
@@ -58,10 +67,17 @@ interface TeamPageClientProps {
   roi: RecruitingROI | null
   signees: Signee[] | null
   portalActivity: PortalActivity | null
+  returningProduction: ReturningProduction | null
+  transferPortalImpact: TransferPortalImpact | null
   /** Theme this team offers (e.g. OU "Sooner Mode"), or null if it has none. */
   teamTheme: TeamThemeConfig | null
   /** The theme key currently active site-wide, per the visitor's cookie. */
   activeThemeKey: string | null
+  teamElo: TeamElo | null
+  teamEloHistory: TeamEloGamePoint[]
+  teamAts: TeamAts | null
+  playcallingProfile: PlaycallingProfileData | null
+  teamWeekFeatures: TeamWeekFeature[]
 }
 
 export function TeamPageClient({
@@ -87,11 +103,16 @@ export function TeamPageClient({
   roi,
   signees,
   portalActivity,
+  returningProduction,
+  transferPortalImpact,
   teamTheme,
-  activeThemeKey
+  activeThemeKey,
+  teamElo,
+  teamEloHistory,
+  teamAts,
+  playcallingProfile,
+  teamWeekFeatures
 }: TeamPageClientProps) {
-  const [activeTab, setActiveTab] = useState<TabId>('overview')
-
   // True only when this team's own theme is the one currently active.
   const isThemeActive = teamTheme !== null && activeThemeKey === teamTheme.key
 
@@ -148,91 +169,92 @@ export function TeamPageClient({
         <SeasonSelector seasons={availableSeasons} currentSeason={currentSeason} />
       </header>
 
-      {/* Tab Navigation */}
-      <nav className="flex gap-2 mb-6 overflow-x-auto scrollbar-hide" role="tablist" aria-label="Team page sections">
-        {TABS.map(tab => {
-          const isActive = activeTab === tab.id
-          const isDisabled = !tab.enabled
-
-          return (
-            <button
-              key={tab.id}
-              role="tab"
-              aria-selected={isActive}
-              aria-controls={`tabpanel-${tab.id}`}
-              disabled={isDisabled}
-              onClick={() => tab.enabled && setActiveTab(tab.id)}
-              className={`px-4 py-2 border-[1.5px] rounded-sm text-sm whitespace-nowrap transition-all ${
-                isActive
-                  ? 'bg-[var(--bg-surface)] border-[var(--color-run)] text-[var(--text-primary)]'
-                  : isDisabled
-                  ? 'border-[var(--border)] text-[var(--text-muted)] opacity-50 cursor-not-allowed'
-                  : 'border-[var(--border)] text-[var(--text-secondary)] hover:border-[var(--text-muted)]'
-              }`}
-            >
+      <Tabs defaultValue="overview" className="gap-0">
+        {/* py-1.5 reserves room inside the scroll container for the active
+            tab's accent bar (after:bottom-[-5px]) and the 3px focus ring --
+            overflow-x-auto forces overflow-y to auto too, which would
+            otherwise clip both (see DESIGN.md, Tabs). */}
+        <TabsList aria-label="Team page sections" className="mb-6 w-full justify-start overflow-x-auto scrollbar-hide py-1.5">
+          {TABS.map(tab => (
+            <TabsTrigger key={tab.id} value={tab.id} disabled={!tab.enabled}>
               {tab.label}
-              {isDisabled && <span className="ml-1 text-xs">(soon)</span>}
-            </button>
-          )
-        })}
-      </nav>
+              {!tab.enabled && <span className="ml-1 text-xs">(soon)</span>}
+            </TabsTrigger>
+          ))}
+        </TabsList>
 
-      {/* Tab Content */}
-      <div id={`tabpanel-${activeTab}`} role="tabpanel" aria-labelledby={`tab-${activeTab}`}>
-        {activeTab === 'overview' && (
-          <>
-            {/* Drive Patterns */}
+        <TabsContent value="overview">
+          {/* Drive Patterns */}
+          <section className="mb-10">
+            <h2 className="font-headline text-2xl text-[var(--text-primary)] mb-4">Drive Patterns</h2>
+            {offenseDrives && offenseDrives.length > 0 ? (
+              <DrivePatterns
+                offenseDrives={offenseDrives}
+                defenseDrives={defenseDrives ?? []}
+                teamName={team.school ?? ''}
+              />
+            ) : (
+              <p className="text-[var(--text-muted)]">No drive data available</p>
+            )}
+          </section>
+
+          {/* Performance Metrics */}
+          <section className="mb-10">
+            <h2 className="font-headline text-2xl text-[var(--text-primary)] mb-4">Performance Metrics</h2>
+            {metrics ? (
+              <MetricsCards metrics={metrics} />
+            ) : (
+              <p className="text-[var(--text-muted)]">No metrics available for this season</p>
+            )}
+          </section>
+
+          {/* Elo Rating */}
+          {(teamElo || teamEloHistory.length > 0) && (
             <section className="mb-10">
-              <h2 className="font-headline text-2xl text-[var(--text-primary)] mb-4">Drive Patterns</h2>
-              {offenseDrives && offenseDrives.length > 0 ? (
-                <DrivePatterns
-                  offenseDrives={offenseDrives}
-                  defenseDrives={defenseDrives ?? []}
-                  teamName={team.school ?? ''}
-                />
-              ) : (
-                <p className="text-[var(--text-muted)]">No drive data available</p>
-              )}
+              <h2 className="font-headline text-2xl text-[var(--text-primary)] mb-4">Elo Rating</h2>
+              <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,320px)_1fr] gap-4 items-start">
+                <EloCard elo={teamElo} history={teamEloHistory} />
+                <EloHistoryChart history={teamEloHistory} teamName={team.school ?? ''} />
+              </div>
             </section>
+          )}
 
-            {/* Performance Metrics */}
+          {/* Style Profile */}
+          <section className="mb-10">
+            <h2 className="font-headline text-2xl text-[var(--text-primary)] mb-4">Style Profile</h2>
+            {style ? (
+              <StyleProfile style={style} />
+            ) : (
+              <p className="text-[var(--text-muted)]">No style data available</p>
+            )}
+          </section>
+
+          {/* Historical Trajectory */}
+          <section className="mb-10">
+            <h2 className="font-headline text-2xl text-[var(--text-primary)] mb-4">Historical Trajectory</h2>
+            {trajectory && trajectory.length > 0 ? (
+              <TrajectoryChart
+                trajectory={trajectory}
+                averages={trajectoryAverages}
+                conference={team.conference || 'FBS'}
+                teamName={team.school ?? ''}
+              />
+            ) : (
+              <p className="text-[var(--text-muted)]">No trajectory data available</p>
+            )}
+          </section>
+
+          {/* Opponent-Adjusted Offense — gated so no stray heading renders
+              when the feature build hasn't produced either EPA series yet. */}
+          {teamWeekFeatures.some(w => w.adj_epa_off !== null || w.off_epa_per_play !== null) && (
             <section className="mb-10">
-              <h2 className="font-headline text-2xl text-[var(--text-primary)] mb-4">Performance Metrics</h2>
-              {metrics ? (
-                <MetricsCards metrics={metrics} />
-              ) : (
-                <p className="text-[var(--text-muted)]">No metrics available for this season</p>
-              )}
+              <h2 className="font-headline text-2xl text-[var(--text-primary)] mb-4">Opponent-Adjusted Offense</h2>
+              <AdjustedEpaChart features={teamWeekFeatures} teamName={team.school ?? ''} />
             </section>
+          )}
+        </TabsContent>
 
-            {/* Style Profile */}
-            <section className="mb-10">
-              <h2 className="font-headline text-2xl text-[var(--text-primary)] mb-4">Style Profile</h2>
-              {style ? (
-                <StyleProfile style={style} />
-              ) : (
-                <p className="text-[var(--text-muted)]">No style data available</p>
-              )}
-            </section>
-
-            {/* Historical Trajectory */}
-            <section className="mb-10">
-              <h2 className="font-headline text-2xl text-[var(--text-primary)] mb-4">Historical Trajectory</h2>
-              {trajectory && trajectory.length > 0 ? (
-                <TrajectoryChart
-                  trajectory={trajectory}
-                  averages={trajectoryAverages}
-                  conference={team.conference || 'FBS'}
-                  teamName={team.school ?? ''}
-                />
-              ) : (
-                <p className="text-[var(--text-muted)]">No trajectory data available</p>
-              )}
-            </section>
-          </>
-        )}
-
-        {activeTab === 'situational' && (
+        <TabsContent value="situational">
           <SituationalView
             downDistanceData={downDistanceSplits}
             redZoneData={redZoneSplits}
@@ -241,17 +263,24 @@ export function TeamPageClient({
             conferenceData={conferenceSplits}
             conference={team.conference || 'FBS'}
           />
-        )}
+        </TabsContent>
 
-        {activeTab === 'roster' && (
-          <RosterView roster={roster} stats={playerStats} />
-        )}
+        <TabsContent value="playcalling">
+          <PlaycallingProfile profile={playcallingProfile} />
+        </TabsContent>
 
-        {activeTab === 'schedule' && (
+        <TabsContent value="schedule">
+          <div className="mb-6">
+            <AtsCard ats={teamAts} />
+          </div>
           <ScheduleView schedule={schedule} teamColor={team.color} />
-        )}
+        </TabsContent>
 
-        {activeTab === 'compare' && (
+        <TabsContent value="roster">
+          <RosterView roster={roster} stats={playerStats} />
+        </TabsContent>
+
+        <TabsContent value="compare">
           <CompareView
             team={team}
             metrics={metrics}
@@ -259,19 +288,21 @@ export function TeamPageClient({
             allTeams={allTeams}
             currentSeason={currentSeason}
           />
-        )}
+        </TabsContent>
 
-        {activeTab === 'recruiting' && (
+        <TabsContent value="recruiting">
           <RecruitingView
             classHistory={classHistory}
             roi={roi}
             signees={signees}
             portalActivity={portalActivity}
+            returningProduction={returningProduction}
+            transferPortalImpact={transferPortalImpact}
             teamColor={team.color}
             currentSeason={currentSeason}
           />
-        )}
-      </div>
+        </TabsContent>
+      </Tabs>
     </div>
   )
 }

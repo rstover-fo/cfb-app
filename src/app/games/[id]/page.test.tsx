@@ -2,6 +2,8 @@ import { describe, it, expect, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import GamePage from './page'
 import { getGameRecap } from '@/lib/queries/games'
+import { getLineMovement } from '@/lib/queries/predictions'
+import { createLineMovementRows } from '@/lib/queries/__tests__/fixtures/predictions'
 
 const mockNotFound = vi.fn()
 vi.mock('next/navigation', () => ({
@@ -43,6 +45,11 @@ vi.mock('@/lib/queries/games', () => ({
   getGameRecap: vi.fn().mockResolvedValue(null),
 }))
 
+vi.mock('@/lib/queries/predictions', () => ({
+  getGamePrediction: vi.fn().mockResolvedValue(null),
+  getLineMovement: vi.fn().mockResolvedValue([]),
+}))
+
 vi.mock('@/components/game/GameScoreHeader', () => ({
   GameScoreHeader: ({ game }: { game: { home_team: string } }) => (
     <div data-testid="score-header">{game.home_team}</div>
@@ -61,6 +68,12 @@ vi.mock('@/components/game/GameRecap', () => ({
   GameRecap: ({ recap }: { recap: { headline: string } }) => (
     <div data-testid="game-recap">{recap.headline}</div>
   ),
+}))
+vi.mock('@/components/game/PredictionCard', () => ({
+  PredictionCard: () => <div data-testid="prediction-card">Prediction Card</div>,
+}))
+vi.mock('@/components/game/LineMovementChart', () => ({
+  LineMovementChart: () => <div data-testid="line-movement-chart">Line Movement</div>,
 }))
 
 describe('Game detail page', () => {
@@ -104,5 +117,21 @@ describe('Game detail page', () => {
     render(jsx)
 
     expect(screen.getByTestId('game-recap')).toHaveTextContent('Sooners Rally Late to Stun Ohio State')
+  })
+
+  it('omits the prediction section entirely when there is no prediction and no line movement', async () => {
+    const jsx = await GamePage({ params: Promise.resolve({ id: '1' }) })
+    render(jsx)
+    expect(screen.queryByTestId('prediction-card')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('line-movement-chart')).not.toBeInTheDocument()
+  })
+
+  it('renders the LineMovementChart when line movement snapshots exist (even with no prediction row)', async () => {
+    vi.mocked(getLineMovement).mockResolvedValueOnce(createLineMovementRows())
+
+    const jsx = await GamePage({ params: Promise.resolve({ id: '1' }) })
+    render(jsx)
+
+    expect(screen.getByTestId('line-movement-chart')).toBeInTheDocument()
   })
 })

@@ -15,16 +15,16 @@ interface PollTableProps {
 function MovementBadge({ movement }: { movement: number | null }) {
   if (movement === null) {
     return (
-      <span className="inline-block px-1.5 py-0.5 text-[10px] font-medium rounded bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" aria-label="New to rankings">
+      <span className="inline-block px-1.5 py-0.5 text-[10px] font-medium rounded text-[var(--color-positive)] bg-[var(--color-positive)]/10" aria-label="New to rankings">
         NEW
       </span>
     )
   }
   if (movement > 0) {
-    return <span className="text-xs text-green-600 dark:text-green-400 tabular-nums" aria-label={`Up ${movement}`}>&#9650;{movement}</span>
+    return <span className="text-xs tabular-nums" style={{ color: 'var(--color-positive)' }} aria-label={`Up ${movement}`}>&#9650;{movement}</span>
   }
   if (movement < 0) {
-    return <span className="text-xs tabular-nums" style={{ color: 'var(--color-negative, #dc2626)' }} aria-label={`Down ${Math.abs(movement)}`}>&#9660;{Math.abs(movement)}</span>
+    return <span className="text-xs tabular-nums" style={{ color: 'var(--color-negative)' }} aria-label={`Down ${Math.abs(movement)}`}>&#9660;{Math.abs(movement)}</span>
   }
   return <span className="text-xs text-[var(--text-muted)]" aria-label="No change">&mdash;</span>
 }

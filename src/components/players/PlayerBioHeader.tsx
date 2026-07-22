@@ -2,6 +2,7 @@
 
 import Image from 'next/image'
 import Link from 'next/link'
+import { ArrowsLeftRight } from '@phosphor-icons/react'
 import type { PlayerProfile } from '@/app/players/[id]/actions'
 import { teamNameToSlug } from '@/lib/utils'
 
@@ -134,6 +135,15 @@ export function PlayerBioHeader({ player }: PlayerBioHeaderProps) {
             </div>
           )}
         </div>
+
+        {/* Compare entry point */}
+        <Link
+          href={`/players/compare?p1=${player.player_id}`}
+          className="flex-shrink-0 inline-flex items-center gap-1.5 text-sm text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:underline transition-colors"
+        >
+          <ArrowsLeftRight size={16} weight="regular" aria-hidden="true" />
+          Compare
+        </Link>
       </div>
     </div>
   )

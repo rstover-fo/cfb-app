@@ -4,6 +4,7 @@ import { useEffect, useCallback } from 'react'
 import { useRoughSvg } from '@/hooks/useRoughSvg'
 import type { GameDrive } from '@/lib/types/database'
 import type { GameWithTeams } from '@/lib/queries/games'
+import { resolveColor, useChartTheme } from '@/lib/charts/theme'
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -56,13 +57,6 @@ function mapDriveResult(driveResult: string): string {
   if (r.includes('END OF') || r.includes('HALF') || r.includes('4TH QUARTER')) return 'end_of_half'
   if (r === 'KICKOFF') return 'end_of_half'
   return 'uncategorized'
-}
-
-function resolveColor(cssVar: string): string {
-  if (typeof document === 'undefined') return '#999'
-  const match = cssVar.match(/var\((.+)\)/)
-  if (!match) return cssVar
-  return getComputedStyle(document.documentElement).getPropertyValue(match[1]).trim() || '#999'
 }
 
 function getOutcomeColor(outcome: string): string {
@@ -125,16 +119,7 @@ export function DriveBarChart({ drives, game }: DriveBarChartProps) {
   }, [drawBars])
 
   // Redraw on theme change
-  useEffect(() => {
-    const observer = new MutationObserver(() => {
-      requestAnimationFrame(drawBars)
-    })
-    observer.observe(document.documentElement, {
-      attributes: true,
-      attributeFilter: ['class', 'data-theme'],
-    })
-    return () => observer.disconnect()
-  }, [drawBars])
+  useChartTheme(drawBars)
 
   const headerHeight = 20
   const totalHeight = drives.length * ROW_HEIGHT

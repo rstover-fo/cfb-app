@@ -3,6 +3,7 @@
 import { useRef, useEffect, useCallback, useMemo, useState } from 'react'
 import rough from 'roughjs'
 import type { PlayerGameLogEntry } from '@/lib/types/database'
+import { resolveColor, useChartTheme } from '@/lib/charts/theme'
 
 interface GameTrendChartProps {
   gameLog: PlayerGameLogEntry[]
@@ -20,13 +21,6 @@ const STAT_LABELS: Record<string, string> = {
   epa_per_play: 'EPA / Play',
   total_yards: 'Total Yards',
   success_rate: 'Success Rate',
-}
-
-function resolveColor(cssVar: string): string {
-  if (typeof document === 'undefined') return '#999'
-  const match = cssVar.match(/var\((.+)\)/)
-  if (!match) return cssVar
-  return getComputedStyle(document.documentElement).getPropertyValue(match[1]).trim() || '#999'
 }
 
 /**
@@ -148,16 +142,7 @@ export function GameTrendChart({ gameLog, statKey = 'epa_per_play' }: GameTrendC
   }, [drawChart])
 
   // Theme change detection
-  useEffect(() => {
-    const observer = new MutationObserver(() => {
-      requestAnimationFrame(drawChart)
-    })
-    observer.observe(document.documentElement, {
-      attributes: true,
-      attributeFilter: ['class', 'data-theme'],
-    })
-    return () => observer.disconnect()
-  }, [drawChart])
+  useChartTheme(drawChart)
 
   // Tooltip event delegation via mouseover/mouseout on the SVG
   useEffect(() => {

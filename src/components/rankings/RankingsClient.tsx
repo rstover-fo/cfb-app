@@ -12,7 +12,14 @@ import {
 import type { EnrichedPollRanking, PollRanking } from '@/lib/types/database'
 import { PollTable } from './PollTable'
 import { BumpsChart } from './BumpsChart'
-import { selectClassName, selectStyle, teamNameToSlug } from '@/lib/utils'
+import { teamNameToSlug } from '@/lib/utils'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 
 interface RankingsClientProps {
   initialRankings: EnrichedPollRanking[]
@@ -137,32 +144,32 @@ export function RankingsClient({
       {/* Filter Controls */}
       <div className="flex flex-wrap items-center gap-3 mb-6">
         {/* Poll selector */}
-        <select
-          value={poll}
-          onChange={(e) => handlePollChange(e.target.value)}
-          className={selectClassName}
-          style={selectStyle}
-          disabled={isPending}
-          aria-label="Select poll"
-        >
-          {availablePolls.map(p => (
-            <option key={p} value={p}>{p}</option>
-          ))}
-        </select>
+        <Select value={poll} onValueChange={handlePollChange} disabled={isPending}>
+          <SelectTrigger className="text-sm" aria-label="Select poll">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {availablePolls.map(p => (
+              <SelectItem key={p} value={p}>{p}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
 
         {/* Season selector */}
-        <select
-          value={season}
-          onChange={(e) => handleSeasonChange(parseInt(e.target.value, 10))}
-          className={selectClassName}
-          style={selectStyle}
+        <Select
+          value={String(season)}
+          onValueChange={(v) => handleSeasonChange(parseInt(v, 10))}
           disabled={isPending}
-          aria-label="Select season"
         >
-          {availableSeasons.map(s => (
-            <option key={s} value={s}>{s}</option>
-          ))}
-        </select>
+          <SelectTrigger className="text-sm" aria-label="Select season">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {availableSeasons.map(s => (
+              <SelectItem key={s} value={String(s)}>{s}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
 
         {/* Week navigation */}
         <div className="flex items-center gap-1">
@@ -174,18 +181,20 @@ export function RankingsClient({
           >
             <CaretLeft size={16} weight="bold" />
           </button>
-          <select
-            value={week}
-            onChange={(e) => handleWeekChange(parseInt(e.target.value, 10))}
-            className={selectClassName}
-            style={selectStyle}
+          <Select
+            value={String(week)}
+            onValueChange={(v) => handleWeekChange(parseInt(v, 10))}
             disabled={isPending}
-            aria-label="Select week"
           >
-            {availableWeeks.map(w => (
-              <option key={w} value={w}>Week {w}</option>
-            ))}
-          </select>
+            <SelectTrigger className="text-sm" aria-label="Select week">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {availableWeeks.map(w => (
+                <SelectItem key={w} value={String(w)}>Week {w}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
           <button
             onClick={handleNextWeek}
             disabled={isPending || week >= maxWeek}

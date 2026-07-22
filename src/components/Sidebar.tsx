@@ -17,6 +17,9 @@ import {
   Sword,
   ArrowsLeftRight,
   Megaphone,
+  Target,
+  TrendUp,
+  UsersThree,
   List,
   X,
 } from '@phosphor-icons/react'
@@ -25,6 +28,7 @@ import { ThemeToggle } from './ThemeToggle'
 const navItems = [
   { href: '/', label: 'Home', icon: House },
   { href: '/teams', label: 'Teams', icon: Football },
+  { href: '/conferences', label: 'Conferences', icon: UsersThree },
   { href: '/compare', label: 'Compare', icon: ArrowsLeftRight },
   { href: '/games', label: 'Games', icon: CalendarBlank },
   { href: '/rivals', label: 'Rivals', icon: Sword },
@@ -32,9 +36,18 @@ const navItems = [
   { href: '/coaches', label: 'Coaches', icon: Megaphone },
   { href: '/rankings', label: 'Rankings', icon: Trophy },
   { href: '/analytics', label: 'Analytics', icon: ChartScatter },
+  { href: '/models', label: 'Models', icon: Target },
+  { href: '/predictions', label: 'Edge Board', icon: TrendUp },
 ]
 
-export function Sidebar() {
+interface SidebarProps {
+  /** Relative-time label ("3h ago") for the most recent marts update, or null
+   *  when freshness data is unavailable. See src/lib/queries/dashboard.ts's
+   *  getDataFreshness()/getFreshestUpdateDays(). */
+  dataUpdatedLabel?: string | null
+}
+
+export function Sidebar({ dataUpdatedLabel = null }: SidebarProps = {}) {
   const [collapsed, setCollapsed] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
   const pathname = usePathname()
@@ -166,6 +179,13 @@ export function Sidebar() {
             <GearSix size={20} weight="thin" />
             <span className={`text-sm ${collapsed ? 'md:hidden' : ''}`}>Settings</span>
           </button>
+          {dataUpdatedLabel && !collapsed && (
+            <p className="px-3 pt-1 text-[10px] text-[var(--text-muted)] leading-snug">
+              Data updated {dataUpdatedLabel}
+              <br />
+              Marts refresh on a schedule — not real-time.
+            </p>
+          )}
         </div>
       </aside>
     </>

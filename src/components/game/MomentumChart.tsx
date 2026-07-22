@@ -5,6 +5,7 @@ import rough from 'roughjs'
 import type { GameDrive } from '@/lib/types/database'
 import type { LineScores } from '@/lib/types/database'
 import type { GameWithTeams } from '@/lib/queries/games'
+import { resolveColor, useChartTheme } from '@/lib/charts/theme'
 
 interface MomentumChartProps {
   drives: GameDrive[]
@@ -23,13 +24,6 @@ const BAR_WIDTH_RATIO = 0.7
 const BAR_WIDTH = COL_WIDTH * BAR_WIDTH_RATIO
 const BAR_PADDING = COL_WIDTH * ((1 - BAR_WIDTH_RATIO) / 2)
 const CENTER_Y = MARGIN.top + PLOT_HEIGHT / 2
-
-function resolveColor(cssVar: string): string {
-  if (typeof document === 'undefined') return '#999'
-  const match = cssVar.match(/var\((.+)\)/)
-  if (!match) return cssVar
-  return getComputedStyle(document.documentElement).getPropertyValue(match[1]).trim() || '#999'
-}
 
 function yFromDiff(diff: number, maxAbsDiff: number): number {
   // Positive diff goes up (lower y), negative goes down (higher y)
@@ -135,16 +129,7 @@ export function MomentumChart({ drives: _drives, lineScores, game }: MomentumCha
   }, [drawBars])
 
   // Redraw on theme change
-  useEffect(() => {
-    const observer = new MutationObserver(() => {
-      requestAnimationFrame(drawBars)
-    })
-    observer.observe(document.documentElement, {
-      attributes: true,
-      attributeFilter: ['class', 'data-theme'],
-    })
-    return () => observer.disconnect()
-  }, [drawBars])
+  useChartTheme(drawBars)
 
   const finalHome = lineScores.home.reduce((s, q) => s + q, 0)
   const finalAway = lineScores.away.reduce((s, q) => s + q, 0)

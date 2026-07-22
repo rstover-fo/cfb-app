@@ -1,3 +1,10 @@
+import { type ClassValue, clsx } from 'clsx'
+import { twMerge } from 'tailwind-merge'
+
+export function cn(...inputs: ClassValue[]) {
+  return twMerge(clsx(inputs))
+}
+
 export function teamNameToSlug(name: string): string {
   return name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')
 }
@@ -13,11 +20,31 @@ export function formatPercent(value: number): string {
   return `${(value * 100).toFixed(1)}%`
 }
 
+/** "72" -> "72nd", handling the 11th/12th/13th exceptions. Canonical ordinal
+ *  formatter for percentile captions (see DESIGN.md, Percentiles & ranks). */
+export function formatOrdinal(n: number): string {
+  const rem = n % 100
+  if (rem >= 11 && rem <= 13) return `${n}th`
+  switch (n % 10) {
+    case 1: return `${n}st`
+    case 2: return `${n}nd`
+    case 3: return `${n}rd`
+    default: return `${n}th`
+  }
+}
+
 export function formatRank(rank: number): string {
-  if (rank === 1) return '1st'
-  if (rank === 2) return '2nd'
-  if (rank === 3) return '3rd'
-  return `${rank}th`
+  return formatOrdinal(rank)
+}
+
+/** Fractional days (e.g. from get_data_freshness's days_since_activity) ->
+ *  short relative-time label ("just now", "3h ago", "2d ago"). Never negative. */
+export function formatRelativeDays(days: number): string {
+  const safeDays = Math.max(0, days)
+  const hours = safeDays * 24
+  if (hours < 0.5) return 'just now'
+  if (hours < 24) return `${Math.round(hours)}h ago`
+  return `${Math.round(safeDays)}d ago`
 }
 
 // Shared select dropdown styling

@@ -1,5 +1,16 @@
 {
   "env": {
     "CLAUDE_CODE_TASK_LIST_ID": "cfb-app-tasks"
+  },
+  "extraKnownMarketplaces": {
+    "impeccable": {
+      "source": {
+        "source": "github",
+        "repo": "pbakaus/impeccable"
+      }
+    }
+  },
+  "enabledPlugins": {
+    "impeccable@impeccable": true
   }
 }
