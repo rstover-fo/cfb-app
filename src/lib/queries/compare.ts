@@ -1,6 +1,7 @@
 import { cache } from 'react'
 import { createClient } from '@/lib/supabase/server'
 import type { Team, TeamSeasonEpa, TeamStyleProfile } from '@/lib/types/database'
+import type { ApiSchema } from '@/lib/types/api.generated'
 import { teamNameToSlug } from '@/lib/utils'
 
 // Fetch all FBS teams for the /compare route's team pickers. Filtered via
@@ -53,31 +54,17 @@ export const getCompareTeamMetrics = cache(async (school: string, season: number
 })
 
 // Row shape for api.team_history (contracted view; multi-season trends).
-// See /workspace/cfb-database/src/schemas/api/002_team_history.sql
-// TODO: regenerate supabase types to include `api` schema views/tables
-export interface TeamHistoryRow {
+// Adopted from src/lib/types/api.generated.ts, which mirrors
+// /workspace/cfb-database/src/schemas/api/002_team_history.sql column-for-
+// column -- this query selects every one of them (TEAM_HISTORY_COLUMNS
+// below), so no Pick narrowing is needed. `team`/`season` are narrowed
+// non-null (the generated Row marks every view column nullable by
+// convention) since every row here comes from a `.eq('team', school)`
+// query and the chronological sort below (`a.season - b.season`) requires
+// season to be a real number.
+export type TeamHistoryRow = Omit<ApiSchema['Views']['team_history']['Row'], 'team' | 'season'> & {
   team: string
   season: number
-  conference: string | null
-  games: number | null
-  wins: number | null
-  losses: number | null
-  conf_wins: number | null
-  conf_losses: number | null
-  ppg: number | null
-  opp_ppg: number | null
-  avg_margin: number | null
-  sp_rating: number | null
-  sp_rank: number | null
-  elo: number | null
-  fpi: number | null
-  epa_per_play: number | null
-  epa_tier: string | null
-  success_rate: number | null
-  explosiveness: number | null
-  total_plays: number | null
-  recruiting_rank: number | null
-  recruiting_points: number | null
 }
 
 // Explicit columns - NOT select('*'). Declared `as const` so Supabase can

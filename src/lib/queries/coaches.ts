@@ -4,10 +4,14 @@ import { getTeamLookup } from './shared'
 
 // ---------------------------------------------------------------------------
 // Row shape for the contracted api.coach_records view (career-at-school
-// grain: one row per coach x team). Hand-typed because the generated
-// Supabase types only cover the `public` schema -- see matchups.ts's
-// GameDetailRow for the established pattern.
-// TODO: regenerate supabase types to include `api` schema views/tables
+// grain: one row per coach x team). Column names/order match
+// src/lib/types/api.generated.ts's `coach_records` Row exactly (that Row is
+// all-nullable per the generated-types convention for views; kept hand-typed
+// non-null here since this query selects every column with no optional
+// projection, matching the established pattern in matchups.ts's
+// GameDetailRow). api.coach_records is "Pending deploy" per cfb-database's
+// SCHEMA_CONTRACT.md as of 2026-07-22 -- getCoachRecords already degrades to
+// [] on any query error, so no special-casing is needed here for that.
 // ---------------------------------------------------------------------------
 export interface CoachRecordRow {
   coach_name: string

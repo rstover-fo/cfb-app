@@ -2,10 +2,14 @@ import { cache } from 'react'
 import { createClient } from '@/lib/supabase/server'
 
 // ---------------------------------------------------------------------------
-// Row shapes for the contracted api.* views.
-// The generated Supabase types only cover the `public` schema, so the `api`
-// schema views (matchup, game_detail) are typed by hand here.
-// TODO: regenerate supabase types to include `api` schema views/tables
+// Row shapes for the contracted api.* views (matchup, game_detail).
+// See src/lib/types/api.generated.ts's `matchup` and `game_detail` Rows for
+// the full generated shapes (every column nullable there, per view
+// convention). Kept hand-typed here rather than adopted directly because
+// both interfaces below select a narrower column subset than the full view
+// and narrow several fields non-null (team1/team2, total_games, the win/tie
+// counters, game_id/season/week/start_date/home_team/away_team) that this
+// module's normalize/reorient helpers rely on being present.
 // ---------------------------------------------------------------------------
 
 // Raw element of api.matchup.recent_results (JSONB array, season DESC).
