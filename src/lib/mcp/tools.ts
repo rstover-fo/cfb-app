@@ -27,10 +27,13 @@ import {
 } from '@/lib/queries/predictions'
 import { getPlaycallingProfile, getTeamWeekFeatures } from '@/lib/queries/playcalling'
 import { getLiveScoreboard } from '@/lib/queries/live'
+import { getWepaLeaders, getUsageLeaders, getPlayerComparison, type WepaCategory } from '@/lib/queries/players'
+import { getConferenceComparison } from '@/lib/queries/conferences'
+import { getCoachingHistory } from '@/lib/queries/coaches'
 import { CURRENT_SEASON, PREDICTION_MODEL_VERSIONS, DEFAULT_PREDICTION_MODEL } from '@/lib/queries/constants'
 
 // ---------------------------------------------------------------------------
-// MCP v2: fifteen read-only tools over the cfb-database warehouse, mounted at
+// MCP v2: nineteen read-only tools over the cfb-database warehouse, mounted at
 // src/app/api/[transport]/route.ts via mcp-handler's createMcpHandler.
 //
 // Tools 1-8 are a TypeScript port of the reference Python server
@@ -53,15 +56,28 @@ import { CURRENT_SEASON, PREDICTION_MODEL_VERSIONS, DEFAULT_PREDICTION_MODEL } f
 // comment), and get_live_scoreboard/get_model_accuracy follow get_matchup_edges'
 // precedent of returning the envelope even when empty (an empty scoreboard or
 // not-yet-populated accuracy table is a normal state, not an error).
+// Tools 16-19 (get_player_leaders, compare_players, get_conference_comparison,
+// get_coaching_history) are phase-3 app-native additions over the player
+// leaderboards/comparison surface (src/lib/queries/players.ts), the
+// conferences surface (src/lib/queries/conferences.ts), and the coaches
+// surface (src/lib/queries/coaches.ts). getWepaLeaders/getUsageLeaders/
+// getCoachingHistory follow the players.ts/coaches.ts convention of
+// collapsing "no row"/"query error" into []; getPlayerComparison collapses
+// both into null (see each fn's own doc comment) -- so, same as tools 9-15,
+// there's no separate error-string branch to pass through here. get_
+// conference_comparison additionally mirrors src/app/conferences/page.tsx's
+// offseason fallback: if the requested season has no computed aggregates
+// yet, it retries season-1 once before giving up, and reports back which
+// season the returned rows actually belong to.
 // Tool implementations are exported as plain async (args) => string
 // functions (below) so they're unit-testable without spinning up the MCP
 // transport; registerMcpTools() is the only place that touches the SDK's
 // McpServer.
 // ---------------------------------------------------------------------------
 
-// All fifteen tools are read-only, non-destructive, idempotent, and talk to an
-// external service (Supabase/PostgREST) -- same annotation set for every one,
-// mirroring cfb_mcp/server.py's READ_ONLY_ANNOTATIONS.
+// All nineteen tools are read-only, non-destructive, idempotent, and talk to
+// an external service (Supabase/PostgREST) -- same annotation set for every
+// one, mirroring cfb_mcp/server.py's READ_ONLY_ANNOTATIONS.
 const READ_ONLY_ANNOTATIONS = {
   readOnlyHint: true,
   destructiveHint: false,
@@ -473,6 +489,144 @@ export async function getModelAccuracyTool(): Promise<string> {
   // never a "No ... found" string (an empty table before the backtest job
   // has ever run is the only empty case, and is still not an error).
   return dump(wrap('api.prediction_accuracy', rows))
+}
+
+// ---------------------------------------------------------------------------
+// 16. get_player_leaders
+// ---------------------------------------------------------------------------
+
+const WEPA_CATEGORIES = ['passing', 'rushing', 'kicking'] as const
+const PLAYER_LEADERS_DEFAULT_LIMIT = 25
+const PLAYER_LEADERS_MAX_LIMIT = 100
+
+export interface GetPlayerLeadersArgs {
+  season?: number
+  type: 'wepa' | 'usage'
+  category?: WepaCategory
+  limit?: number
+}
+
+export async function getPlayerLeadersTool(args: GetPlayerLeadersArgs): Promise<string> {
+  const season = args.season ?? CURRENT_SEASON
+  const limit = Math.min(Math.max(args.limit ?? PLAYER_LEADERS_DEFAULT_LIMIT, 1), PLAYER_LEADERS_MAX_LIMIT)
+
+  // getWepaLeaders/getUsageLeaders (src/lib/queries/players.ts) both collapse
+  // "no row"/"query error" to [] -- there is no separate error string to pass
+  // through here, so an empty result always renders as a friendly string.
+  if (args.type === 'wepa') {
+    const rows = await getWepaLeaders(season, args.category, limit)
+    if (rows.length === 0) {
+      return (
+        `No wepa leaders found for season=${season}` +
+        `${args.category ? `, category=${args.category}` : ''}. This is normal before enough ` +
+        'play-by-play data has been processed for that season.'
+      )
+    }
+    return dump(wrap('api.player_wepa_leaders', rows))
+  }
+
+  // `category` only applies to wepa leaders (api.player_wepa_leaders has a
+  // category column; api.player_usage_leaders does not) -- silently ignored
+  // for type='usage' rather than erroring.
+  const rows = await getUsageLeaders(season, limit)
+  if (rows.length === 0) {
+    return (
+      `No usage leaders found for season=${season}. This is normal before enough play-by-play ` +
+      'data has been processed for that season.'
+    )
+  }
+  return dump(wrap('api.player_usage_leaders', rows))
+}
+
+// ---------------------------------------------------------------------------
+// 17. compare_players
+// ---------------------------------------------------------------------------
+
+export interface ComparePlayersArgs {
+  player_id_1: number
+  player_id_2: number
+  season?: number
+}
+
+export async function comparePlayersTool(args: ComparePlayersArgs): Promise<string> {
+  // getPlayerComparison (src/lib/queries/players.ts) collapses "no row"/
+  // "query error" to null -- there is no separate error string to pass
+  // through here. Fetched in parallel since the two lookups are independent.
+  const [player1, player2] = await Promise.all([
+    getPlayerComparison(String(args.player_id_1), args.season),
+    getPlayerComparison(String(args.player_id_2), args.season),
+  ])
+
+  const missingIds: number[] = []
+  if (!player1) missingIds.push(args.player_id_1)
+  if (!player2) missingIds.push(args.player_id_2)
+
+  if (missingIds.length > 0) {
+    const seasonNote = args.season != null ? ` in season=${args.season}` : ''
+    return (
+      `No comparison data found for player_id ${missingIds.join(' and ')}${seasonNote}. Check the ` +
+      "player_id(s) (numeric CFBD athlete id, not a name) and season -- getPlayerComparison " +
+      'defaults to each player\'s most recent season on record when season is omitted.'
+    )
+  }
+
+  return dump({ player1, player2 })
+}
+
+// ---------------------------------------------------------------------------
+// 18. get_conference_comparison
+// ---------------------------------------------------------------------------
+
+export interface GetConferenceComparisonArgs {
+  season?: number
+}
+
+export async function getConferenceComparisonTool(args: GetConferenceComparisonArgs): Promise<string> {
+  // Mirrors src/app/conferences/page.tsx's offseason fallback: a season with
+  // no computed aggregates yet (early in the year, before enough games have
+  // been played) is a valid, non-error state -- retry one season back before
+  // giving up.
+  let season = args.season ?? CURRENT_SEASON
+  let rows = await getConferenceComparison(season)
+
+  if (rows.length === 0) {
+    season -= 1
+    rows = await getConferenceComparison(season)
+  }
+
+  if (rows.length === 0) {
+    return (
+      `No conference comparison data found for season=${args.season ?? CURRENT_SEASON} or the prior ` +
+      'season.'
+    )
+  }
+
+  // `season` is included alongside the envelope since it may differ from the
+  // requested/default season after the fallback -- callers need to know
+  // which season the returned rows actually belong to.
+  return dump({ season, ...wrap('api.conference_comparison', rows) })
+}
+
+// ---------------------------------------------------------------------------
+// 19. get_coaching_history
+// ---------------------------------------------------------------------------
+
+export interface GetCoachingHistoryArgs {
+  first_name: string
+  last_name: string
+}
+
+export async function getCoachingHistoryTool(args: GetCoachingHistoryArgs): Promise<string> {
+  const rows = await getCoachingHistory(args.first_name, args.last_name)
+
+  if (rows.length === 0) {
+    return (
+      `No coaching history found for '${args.first_name} ${args.last_name}'. Check the spelling -- ` +
+      'first_name/last_name must exactly match api.coaching_history (case-sensitive).'
+    )
+  }
+
+  return dump(wrap('api.coaching_history', rows))
 }
 
 // ---------------------------------------------------------------------------
@@ -990,5 +1144,158 @@ export function registerMcpTools(server: McpServer): void {
       annotations: { title: 'Get Model Accuracy', ...READ_ONLY_ANNOTATIONS },
     },
     async () => textResult(await getModelAccuracyTool())
+  )
+
+  server.registerTool(
+    'get_player_leaders',
+    {
+      title: 'Get Player Leaders',
+      description:
+        "Get a season leaderboard of individual players by opponent-adjusted EPA/PAAR ('wepa') or " +
+        "snap-share usage ('usage'). Use for \"top wepa passers in 2024\", \"who leads the country in " +
+        'rushing wepa", "highest-usage receivers this season". \'wepa\' is served from ' +
+        'api.player_wepa_leaders (wepa, paar, metric, plays, pre-ranked league-wide per category via ' +
+        "season_rank ascending) and can optionally be narrowed to one category ('passing', 'rushing', " +
+        "'kicking') -- omitting category returns all three mixed together, sorted by season_rank within " +
+        "each. 'usage' is served from api.player_usage_leaders (usage_overall plus pass/rush/down-type " +
+        'situational usage splits, sorted usage_overall descending) and has no category breakdown -- ' +
+        '`category` is ignored if passed with type=\'usage\'. Both views are derived from play-by-play ' +
+        'data, so only seasons from 2014 on have coverage. `season` defaults to the current season ' +
+        `(${CURRENT_SEASON}) if omitted. Returns JSON {"_source", "count", "rows"}, or a friendly "No ` +
+        '... leaders found..." string if the season/category combination has no data yet.',
+      inputSchema: {
+        season: z
+          .number()
+          .int()
+          .optional()
+          .describe(`Season year, e.g. 2024. Defaults to the current season (${CURRENT_SEASON}) if omitted.`),
+        type: z
+          .enum(['wepa', 'usage'])
+          .describe(
+            "'wepa' for opponent-adjusted EPA/PAAR leaders (api.player_wepa_leaders), or 'usage' for " +
+              'snap-share usage leaders (api.player_usage_leaders).'
+          ),
+        category: z
+          .enum(WEPA_CATEGORIES)
+          .optional()
+          .describe(
+            "Restrict wepa leaders to one category: 'passing', 'rushing', or 'kicking'. Only applies " +
+              "when type='wepa' -- ignored for type='usage', which has no per-category breakdown."
+          ),
+        limit: z
+          .number()
+          .int()
+          .min(1)
+          .max(PLAYER_LEADERS_MAX_LIMIT)
+          .optional()
+          .describe(
+            `Max rows to return. Default ${PLAYER_LEADERS_DEFAULT_LIMIT}, hard-capped at ` +
+              `${PLAYER_LEADERS_MAX_LIMIT}.`
+          ),
+      },
+      annotations: { title: 'Get Player Leaders', ...READ_ONLY_ANNOTATIONS },
+    },
+    async args => textResult(await getPlayerLeadersTool(args))
+  )
+
+  server.registerTool(
+    'compare_players',
+    {
+      title: 'Compare Players',
+      description:
+        'Compare two players side by side: full player_detail stat set plus position-group-relative ' +
+        'percentiles for each. Use for "compare Caleb Williams and Drake Maye", "who has better rushing ' +
+        'stats, player A or player B". Backed by api.player_comparison (one row per player_id x season): ' +
+        'raw counting stats (passing/rushing/receiving/defense) alongside *_pctl columns (0-1 fractions) ' +
+        "giving each stat's percentile rank against the player's position group that same season -- a " +
+        'QB naturally has null receiving/defense stats and vice versa. `season` is part of the grain, so ' +
+        "each player_id has one row per season; if `season` is omitted, each player's LATEST available " +
+        'season is resolved independently -- the two players in the response may end up on different ' +
+        'seasons if their careers don\'t overlap. Use search_players first to resolve a player_id from a ' +
+        'name. Returns JSON {"player1", "player2"} (each the raw api.player_comparison row, or null if ' +
+        'that id had no data), or a friendly "No comparison data found..." string naming which ' +
+        'player_id(s) came back empty if either lookup fails.',
+      inputSchema: {
+        player_id_1: z
+          .number()
+          .int()
+          .describe('First player_id (numeric CFBD athlete id, not a name -- resolve via search_players first).'),
+        player_id_2: z
+          .number()
+          .int()
+          .describe('Second player_id (numeric CFBD athlete id, not a name -- resolve via search_players first).'),
+        season: z
+          .number()
+          .int()
+          .optional()
+          .describe(
+            "Season year. Omit to use each player's latest available season independently (they may " +
+              'differ between the two players).'
+          ),
+      },
+      annotations: { title: 'Compare Players', ...READ_ONLY_ANNOTATIONS },
+    },
+    async args => textResult(await comparePlayersTool(args))
+  )
+
+  server.registerTool(
+    'get_conference_comparison',
+    {
+      title: 'Get Conference Comparison',
+      description:
+        'Get conference-level aggregate metrics for a season: average wins, SP+ rating, EPA/play, ' +
+        'recruiting rank, and non-conference win%, each with a percentile rank against the rest of FBS. ' +
+        'Use for "which conference is strongest by SP+ this year", "how does the Big Ten compare to the ' +
+        'SEC in recruiting", "best non-conference performance by league". Backed by ' +
+        'api.conference_comparison (one row per conference/season, member_count always >= 4), sorted ' +
+        'strongest-first by avg_sp_rating (nulls last). `season` defaults to the current season ' +
+        `(${CURRENT_SEASON}) if omitted. IMPORTANT: early in a season, before enough games have been ` +
+        'played, the requested season may have no computed aggregates yet -- this tool automatically ' +
+        'retries season-1 once in that case (mirroring the /conferences page\'s own offseason fallback) ' +
+        'rather than returning an empty result. Returns JSON {"season", "_source": ' +
+        '"api.conference_comparison", "count", "rows"} where `season` reports which season the returned ' +
+        'rows actually belong to (it may differ from the requested/default season after the fallback), ' +
+        'or a friendly "No conference comparison data found..." string if both the requested season and ' +
+        'season-1 come back empty.',
+      inputSchema: {
+        season: z
+          .number()
+          .int()
+          .optional()
+          .describe(
+            `Season year, e.g. 2024. Defaults to the current season (${CURRENT_SEASON}) if omitted; ` +
+              'falls back to season-1 automatically if the season has no computed aggregates yet.'
+          ),
+      },
+      annotations: { title: 'Get Conference Comparison', ...READ_ONLY_ANNOTATIONS },
+    },
+    async args => textResult(await getConferenceComparisonTool(args))
+  )
+
+  server.registerTool(
+    'get_coaching_history',
+    {
+      title: 'Get Coaching History',
+      description:
+        'Get a coach\'s full per-tenure coaching history: one row per school stint, with win/loss ' +
+        'record, conference record, bowl record, and recruiting-talent trajectory (inherited vs ' +
+        'year-3 talent rank) for each. Use for "Nick Saban\'s coaching history", "how did this coach do ' +
+        'at his previous school", "did this coach improve the roster talent level". Backed by ' +
+        'api.coaching_history, ordered chronologically by tenure_start. A coach who left and later ' +
+        'returned to the same school gets two separate rows (distinct tenures), not one merged row -- ' +
+        'unlike api.coach_records\' single career-at-school aggregate. inherited_talent_rank/' +
+        'year3_talent_rank/talent_improvement are null for pre-recruiting-rankings-era tenures -- that ' +
+        'is a normal data gap, not an error. first_name/last_name must match exactly (case-sensitive); ' +
+        'this view has no coach-id or fuzzy-search entry point, so get an exact spelling first (e.g. via ' +
+        'general web knowledge) if unsure. Returns JSON {"_source": "api.coaching_history", "count", ' +
+        '"rows"}, or a friendly "No coaching history found..." string if the name doesn\'t match any ' +
+        'coach on record.',
+      inputSchema: {
+        first_name: z.string().describe("Coach's first name, exact match, e.g. 'Nick'."),
+        last_name: z.string().describe("Coach's last name, exact match, e.g. 'Saban'."),
+      },
+      annotations: { title: 'Get Coaching History', ...READ_ONLY_ANNOTATIONS },
+    },
+    async args => textResult(await getCoachingHistoryTool(args))
   )
 }
