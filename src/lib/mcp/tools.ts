@@ -23,11 +23,14 @@ import {
   getTeamElo,
   getTeamEloHistory,
   getScoredMatchupEdges,
+  getPredictionAccuracy,
 } from '@/lib/queries/predictions'
+import { getPlaycallingProfile, getTeamWeekFeatures } from '@/lib/queries/playcalling'
+import { getLiveScoreboard } from '@/lib/queries/live'
 import { CURRENT_SEASON, PREDICTION_MODEL_VERSIONS, DEFAULT_PREDICTION_MODEL } from '@/lib/queries/constants'
 
 // ---------------------------------------------------------------------------
-// MCP v2: eleven read-only tools over the cfb-database warehouse, mounted at
+// MCP v2: fifteen read-only tools over the cfb-database warehouse, mounted at
 // src/app/api/[transport]/route.ts via mcp-handler's createMcpHandler.
 //
 // Tools 1-8 are a TypeScript port of the reference Python server
@@ -42,13 +45,21 @@ import { CURRENT_SEASON, PREDICTION_MODEL_VERSIONS, DEFAULT_PREDICTION_MODEL } f
 // doc comments), so these three tools have no separate error-string branch
 // to pass through; a null/empty result always renders as either an empty
 // envelope or a friendly "not found" string, never a thrown exception.
+// Tools 12-15 (get_playcalling_profile, get_adjusted_epa, get_live_scoreboard,
+// get_model_accuracy) are further app-native additions over the playcalling
+// (src/lib/queries/playcalling.ts), live (src/lib/queries/live.ts), and
+// predictions surfaces -- same envelope/never-throw conventions; their query
+// fns also collapse "no row"/"query error" into null/[] (see each fn's doc
+// comment), and get_live_scoreboard/get_model_accuracy follow get_matchup_edges'
+// precedent of returning the envelope even when empty (an empty scoreboard or
+// not-yet-populated accuracy table is a normal state, not an error).
 // Tool implementations are exported as plain async (args) => string
 // functions (below) so they're unit-testable without spinning up the MCP
 // transport; registerMcpTools() is the only place that touches the SDK's
 // McpServer.
 // ---------------------------------------------------------------------------
 
-// All eleven tools are read-only, non-destructive, idempotent, and talk to an
+// All fifteen tools are read-only, non-destructive, idempotent, and talk to an
 // external service (Supabase/PostgREST) -- same annotation set for every one,
 // mirroring cfb_mcp/server.py's READ_ONLY_ANNOTATIONS.
 const READ_ONLY_ANNOTATIONS = {
@@ -378,6 +389,90 @@ export async function getMatchupEdgesTool(args: GetMatchupEdgesArgs): Promise<st
   // state, not an error, so this always returns the envelope (possibly with
   // count: 0) rather than a "No ... found" string.
   return dump(wrap('api.scored_matchup_edges', edges.slice(0, limit)))
+}
+
+// ---------------------------------------------------------------------------
+// 12. get_playcalling_profile
+// ---------------------------------------------------------------------------
+
+export interface GetPlaycallingProfileArgs {
+  team: string
+  season?: number
+}
+
+export async function getPlaycallingProfileTool(args: GetPlaycallingProfileArgs): Promise<string> {
+  const season = args.season ?? CURRENT_SEASON
+  const profile = await getPlaycallingProfile(args.team, season)
+
+  // getPlaycallingProfile (src/lib/queries/playcalling.ts) returns null for
+  // both "no row" and "query error" -- there is no separate error string to
+  // pass through here, so a null result always renders as this friendly string.
+  if (!profile) {
+    return (
+      `No playcalling profile found for '${args.team}' in ${season}. This is normal for a team/season ` +
+      "without enough qualifying plays for the view to emit a row -- also check the team name (exact, " +
+      'case-sensitive).'
+    )
+  }
+
+  return dump(wrap('api.team_playcalling_profile', [profile]))
+}
+
+// ---------------------------------------------------------------------------
+// 13. get_adjusted_epa
+// ---------------------------------------------------------------------------
+
+export interface GetAdjustedEpaArgs {
+  team: string
+  season?: number
+}
+
+export async function getAdjustedEpaTool(args: GetAdjustedEpaArgs): Promise<string> {
+  const season = args.season ?? CURRENT_SEASON
+
+  // getTeamWeekFeatures carries both the walk-forward opponent-adjusted EPA
+  // columns (adj_epa_off/def/net) and the matching raw, unadjusted per-play
+  // EPA columns for the same team/week in one row -- a single envelope covers
+  // both without a second query.
+  const weeks = await getTeamWeekFeatures(args.team, season)
+
+  if (weeks.length === 0) {
+    return (
+      `No adjusted-EPA data found for '${args.team}' in ${season}. This is normal before the feature ` +
+      'build has run for this team/season -- also check the team name (exact, case-sensitive).'
+    )
+  }
+
+  return dump(wrap('api.team_week_features', weeks))
+}
+
+// ---------------------------------------------------------------------------
+// 14. get_live_scoreboard
+// ---------------------------------------------------------------------------
+
+export async function getLiveScoreboardTool(): Promise<string> {
+  const games = await getLiveScoreboard()
+
+  // api.live_scoreboard is only populated during Saturday polling windows in
+  // season (see live.ts's module header) -- an empty slate is the normal
+  // state most of the time (weekdays, off-season, outside an active polling
+  // window), not an error, so this always returns the envelope (possibly
+  // count: 0) rather than a "No ... found" string, mirroring get_matchup_edges.
+  return dump(wrap('api.live_scoreboard', games))
+}
+
+// ---------------------------------------------------------------------------
+// 15. get_model_accuracy
+// ---------------------------------------------------------------------------
+
+export async function getModelAccuracyTool(): Promise<string> {
+  const rows = await getPredictionAccuracy()
+
+  // api.prediction_accuracy is a small (~90-row), system-level backtest
+  // table with no caller-supplied filters -- always returns the envelope,
+  // never a "No ... found" string (an empty table before the backtest job
+  // has ever run is the only empty case, and is still not an error).
+  return dump(wrap('api.prediction_accuracy', rows))
 }
 
 // ---------------------------------------------------------------------------
@@ -780,5 +875,120 @@ export function registerMcpTools(server: McpServer): void {
       annotations: { title: 'Get Matchup Edges', ...READ_ONLY_ANNOTATIONS },
     },
     async args => textResult(await getMatchupEdgesTool(args))
+  )
+
+  server.registerTool(
+    'get_playcalling_profile',
+    {
+      title: 'Get Playcalling Profile',
+      description:
+        "Get a team's situational run/pass identity for a season, with percentile ranks against the " +
+        'rest of FBS. Use for "how run-heavy is Oklahoma on early downs", "does this team pass more on ' +
+        '3rd down than average", "red zone tendencies", "pace of play". Backed by ' +
+        'api.team_playcalling_profile (one row per team/season): overall/early-down/3rd-down/red-zone ' +
+        'run and pass rates, success rates, avg EPA, run-rate deltas when leading vs trailing, ' +
+        'plays-per-game pace, plus a matching set of *_pctl columns giving each rate\'s percentile rank ' +
+        '(0-100) against the rest of FBS that same season -- a higher percentile means more extreme ' +
+        "relative to the league, not necessarily 'better' (e.g. a very high third_down_pass_rate_pctl " +
+        'just means this team passes on 3rd down far more than most FBS teams). `season` defaults to ' +
+        `the current season (${CURRENT_SEASON}) if omitted. Returns JSON {"_source": ` +
+        '"api.team_playcalling_profile", "count", "rows"} with at most one row, or a friendly "No ' +
+        'playcalling profile found..." string if the team/season combination has too few qualifying ' +
+        'plays for the view to emit a row.',
+      inputSchema: {
+        team: z.string().describe("Exact school name as used by CFBD, e.g. 'Oklahoma'. Case-sensitive."),
+        season: z
+          .number()
+          .int()
+          .optional()
+          .describe(`Season year, e.g. 2024. Defaults to the current season (${CURRENT_SEASON}) if omitted.`),
+      },
+      annotations: { title: 'Get Playcalling Profile', ...READ_ONLY_ANNOTATIONS },
+    },
+    async args => textResult(await getPlaycallingProfileTool(args))
+  )
+
+  server.registerTool(
+    'get_adjusted_epa',
+    {
+      title: 'Get Adjusted EPA',
+      description:
+        "Get a team's week-by-week walk-forward opponent-adjusted EPA alongside the matching raw " +
+        '(unadjusted) EPA and success-rate columns for the same weeks. Use for "how has Oklahoma\'s ' +
+        'adjusted offense trended this season", "is this team\'s raw EPA inflated by weak opponents", ' +
+        '"walk-forward EPA trajectory". Backed by api.team_week_features, one row per (team, season, ' +
+        'week_index) -- week_index is a dense 1..N index within the season (some weeks/teams are ' +
+        'skipped by the model), not the raw `week` column, though `week` is also included for ' +
+        'reference. adj_epa_off/adj_epa_def/adj_epa_net are WALK-FORWARD opponent-adjusted EPA (each ' +
+        "week's coefficients are fit only on data available up to that point in the season, so these " +
+        'are not hindsight-adjusted using the full season) computed via ridge regression against ' +
+        'opponent strength; off_epa_per_play and def_epa_per_play_allowed are the corresponding RAW, ' +
+        "unadjusted per-play EPA for the same team/week -- compare adj vs raw to see how much of a " +
+        "team's raw EPA is opponent-strength noise versus real performance. Also includes elo_pregame, " +
+        'games_played_to_date, off_success_rate, and both havoc-rate columns (havoc_rate_defense, ' +
+        'havoc_rate_offense_allowed). `season` defaults to the current season ' +
+        `(${CURRENT_SEASON}) if omitted. Returns JSON {"_source": "api.team_week_features", "count", ` +
+        '"rows"} ordered week_index ascending, or a friendly "No adjusted-EPA data found..." string if ' +
+        "the feature build hasn't run yet for this team/season.",
+      inputSchema: {
+        team: z.string().describe("Exact school name as used by CFBD, e.g. 'Oklahoma'. Case-sensitive."),
+        season: z
+          .number()
+          .int()
+          .optional()
+          .describe(`Season year, e.g. 2024. Defaults to the current season (${CURRENT_SEASON}) if omitted.`),
+      },
+      annotations: { title: 'Get Adjusted EPA', ...READ_ONLY_ANNOTATIONS },
+    },
+    async args => textResult(await getAdjustedEpaTool(args))
+  )
+
+  server.registerTool(
+    'get_live_scoreboard',
+    {
+      title: 'Get Live Scoreboard',
+      description:
+        'Get the current live scoreboard slate: in-progress/pregame/final game state for the day\'s ' +
+        'tracked games (score, period/clock, possession, live win probability vs market). Use for ' +
+        '"what\'s the score of the Oklahoma game right now", "who has the ball", "live win probability ' +
+        'for this game". Backed by api.live_scoreboard, ordered by game_id (the view has no start-time ' +
+        'column to order by). IMPORTANT: this view is only populated during Saturday polling windows ' +
+        "during the season -- cfb-database's live poller writes/refreshes rows only while games are " +
+        'scheduled or in progress that day, and the table is otherwise empty. An EMPTY result ' +
+        '({"count": 0, "rows": []}) is the normal state most of the time -- any weekday, the ' +
+        'off-season, or any moment outside an active polling window -- not an error and not a sign the ' +
+        'query is broken. Takes no arguments. Returns JSON {"_source": "api.live_scoreboard", "count", ' +
+        '"rows"}.',
+      inputSchema: {},
+      annotations: { title: 'Get Live Scoreboard', ...READ_ONLY_ANNOTATIONS },
+    },
+    async () => textResult(await getLiveScoreboardTool())
+  )
+
+  server.registerTool(
+    'get_model_accuracy',
+    {
+      title: 'Get Model Accuracy',
+      description:
+        'Get backtested accuracy/calibration metrics for the house prediction model(s), broken out by ' +
+        'model_version x season x edge_threshold. Use for "how accurate is the prediction model", ' +
+        '"which model version performs best", "is the model well-calibrated", "how does the model ' +
+        'compare to CFBD\'s own model". Backed by api.prediction_accuracy (~90 rows total covering ' +
+        'every model_version/season/edge_threshold combination -- the caller filters/groups ' +
+        'client-side, e.g. by model_version or a minimum edge_threshold). margin_mae/margin_rmse ' +
+        'measure how far the predicted home margin is from the actual margin (lower is better); ' +
+        'ats_wins/ats_losses/ats_pushes/ats_hit_rate measure against-the-spread performance when ' +
+        "picking with the model's edge; brier is the Brier score for home_win_prob calibration (lower " +
+        'is better -- 0 is perfect, 0.25 is coin-flip-equivalent); cfbd_brier is the same Brier score ' +
+        "computed for CFBD's own published win probability over the same games, included as an " +
+        'external benchmark -- a lower brier than cfbd_brier means the house model out-calibrated ' +
+        'CFBD\'s. n_games/n_with_market/n_scored_win_prob are the sample sizes behind each row (small ' +
+        "samples, e.g. early in a new model_version's life, should be read with more caution). Takes " +
+        'no arguments. Returns JSON {"_source": "api.prediction_accuracy", "count", "rows"}, ordered ' +
+        'season descending, then model_version, then edge_threshold ascending.',
+      inputSchema: {},
+      annotations: { title: 'Get Model Accuracy', ...READ_ONLY_ANNOTATIONS },
+    },
+    async () => textResult(await getModelAccuracyTool())
   )
 }
