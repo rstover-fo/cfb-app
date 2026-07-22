@@ -99,20 +99,42 @@ Rules:
 
 ## Charts (roughjs aesthetic)
 
-- Recipe: D3 for scales/layout, roughjs (via `useRoughSvg`) for strokes/fills —
-  sketchy rectangles, wobbly lines, hachure fills. No default-styled SVG/`<rect>` bars.
-- **Color resolution:** roughjs bakes concrete color strings at draw time, so charts must
-  resolve tokens through `src/lib/charts/theme.ts` — `resolveColor('var(--color-run)')` —
-  and re-draw on theme flips via `useChartTheme`. Never hardcode chart hex; never read
-  tokens any other way.
-- Series semantics: run = `--color-run`, pass = `--color-pass`, good/bad deltas =
-  `--color-positive`/`--color-negative`. Team-specific marks may use the team's brand color
-  passed in as data (already-resolved hex is passed through `resolveColor` unchanged).
+- **One recipe** (`docs/chart-style-spec.md` is binding — ratified at Gate A): D3/manual
+  scales in `useMemo`, a static React-rendered SVG scaffold (grids/axes/labels via
+  `var(--token)` refs), one `<g ref={roughGroupRef}>` rough layer, and a `drawChart`
+  `useCallback` that clears the group and draws with `rough.svg` — wired via
+  `useEffect(drawChart)` + `useChartTheme(drawChart)`. No default-styled SVG data marks
+  (plain `<rect>` bars, un-rough `<path>` series). `useRoughSvg` is deprecated — no new
+  imports; it is deleted in the sweep's final task and never reintroduced.
+- **Color resolution:** roughjs bakes concrete colors at draw time, so all rough ink goes
+  through `resolveColor` in `src/lib/charts/theme.ts` (semantic roles via `inkFor` in
+  `src/lib/charts/series.ts`) and charts redraw on theme flips via `useChartTheme` —
+  including team brand hex, which passes through unchanged but is applied only inside rough
+  draw calls, never native SVG attrs. No raw hex in charts; never read tokens any other
+  way; missing team colors fall back to `--text-primary` (home) / `--text-muted` (away).
+- **Shared primitives** (`src/lib/charts/`): every chart sits in `ChartFrame`
+  (surface + 1.5px border + 3px radius + p-4, title slot, `role="img"`/`ariaLabel`/
+  `decorative` props, built-in `EmptyState` slot); details render in `ChartTooltip` — the
+  reserved-height panel below the SVG with an in-SVG crosshair/row-highlight/accent-ring
+  indicator (floating, cursor-following, and SVG-drawn tooltips are defects); series keys
+  render in the HTML `ChartLegend` (opt-in `aria-pressed` toggle variant), never inside
+  the SVG. Migrations may not fork or wrap the primitives with per-chart styling.
+- **Series semantics:** run = `--color-run`, pass = `--color-pass`, good/bad deltas =
+  `--color-positive`/`--color-negative`. Paired/mirrored series always use the ±41°
+  hachure rule (`pairedBarOptions`) so hue is never the only separating channel.
+- **Heat surfaces** use the five `--heat-1`…`--heat-5` tokens (light+dark values in
+  `globals.css`) — HTML cells via `var(--heat-N)` directly, rough ink via
+  `resolveHeatColor(level)`. Never raw Tailwind color classes or `dark:` variants.
+- **Stable wobble:** every chart passes a fixed `seed` in all rough options
+  (default hierarchy: primary 3px/1.0 roughness, secondary 2px/0.7, tertiary 1.5px/0.5).
+  Default canvas 700×350, `PADDING {30, 30, 50, 60}`, SVG `w-full h-auto`.
+- **Raster exemption:** team logos stay native `<image>`/`next/image`, never roughified;
+  emphasis near raster is a rough `rc.circle` accent ring — no glow filters, no pulse
+  animations. Transparent hit-target layers are likewise not rough-drawn.
 - **Chart internals never use shadcn components or bridge utilities** — they consume
   editorial tokens directly. shadcn is chrome (controls, tables, dialogs), not data ink.
-- **Paired-series fills mirror their hachure angle** (e.g. ±41° in PercentileBars'
-  tornado layout) so the two sides stay distinguishable beyond hue alone — color is
-  never the only channel separating mirrored series.
+- **Empty charts** render `EmptyState` inside `ChartFrame` behind an explicit null-guard
+  predicate — never bare strings, bare `null`, or fake zero-data marks.
 
 ## Component conventions
 

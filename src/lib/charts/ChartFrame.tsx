@@ -49,9 +49,11 @@ export function ChartFrame({
   className,
   children,
 }: ChartFrameProps) {
+  // `ariaLabel` is required unless `decorative` (spec §2); if a chart omits
+  // it anyway, fall back to the title rather than an empty label.
   const a11y: ChartSvgA11yProps = decorative
     ? { 'aria-hidden': true }
-    : { role: 'img', 'aria-label': ariaLabel ?? '' }
+    : { role: 'img', 'aria-label': ariaLabel ?? title ?? '' }
 
   return (
     <div

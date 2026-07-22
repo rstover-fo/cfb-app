@@ -375,7 +375,7 @@ export function TrajectoryChart({ trajectory, averages, conference, teamName }: 
               </button>
 
               {dropdownOpen && (
-                <div className="absolute top-full left-0 mt-1 bg-[var(--bg-surface)] border border-[var(--border)] rounded shadow-lg z-10 min-w-[200px]">
+                <div className="absolute top-full left-0 mt-1 bg-[var(--bg-surface)] border-[1.5px] border-[var(--border)] rounded shadow-[var(--shadow-soft)] z-10 min-w-[200px]">
                   {METRICS.map(m => (
                     <button
                       key={m.key}

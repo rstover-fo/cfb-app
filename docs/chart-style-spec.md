@@ -1,5 +1,7 @@
 # Chart Style Spec
 
+**Ratified at Gate A (2026-07-22) by the design-reviewer; the DESIGN.md Charts section below is applied. Primitive location ruled final: `src/lib/charts/` (not `src/components/charts/`).**
+
 **Status:** Binding for the chart-consistency sweep (tasks A1–D3). Every chart/visual
 component converges on the rulings below — there are no sanctioned alternatives. The
 "Proposed DESIGN.md Charts section" at the end is ratified and applied by the
@@ -38,7 +40,7 @@ above during the sweep, and `src/hooks/useRoughSvg.ts` is deleted in task D3. No
 
 ## 2. Frame contract — `ChartFrame`
 
-Every chart renders inside `ChartFrame` (`src/components/charts/ChartFrame.tsx`, new):
+Every chart renders inside `ChartFrame` (`src/lib/charts/ChartFrame.tsx`, new):
 
 - Shell: `bg-[var(--bg-surface)] border-[1.5px] border-[var(--border)] rounded-lg p-4`
   (`rounded-lg` resolves to the editorial 3px — do not inline radii).
@@ -142,8 +144,9 @@ both retire, as does any CSS/SVG-filter glow anywhere. Transparent interaction h
 ## 8. Heat ramp
 
 Five tokens, `--heat-1` (worst) → `--heat-5` (best), declared in `globals.css` `:root`,
-`[data-theme="dark"]`, and the `prefers-color-scheme: dark` block (all three, like every
-other flipping token). Values are tints of the existing semantic family
+`[data-theme="light"]`, `[data-theme="dark"]`, and the `prefers-color-scheme: dark` block
+(all four, like every other flipping token — the explicit light block re-declares the full
+palette). Values are tints of the existing semantic family
 (`--color-negative` #A65A5A, `--color-neutral` #6B635A, `--color-positive` #4A7A5C) mixed
 over the mode's `--bg-surface` (#FFFFFF light, #252019 dark) so `--text-primary` stays
 readable on every cell:
@@ -181,7 +184,11 @@ readable on every cell:
   hierarchy). Bars: `strokeWidth: 1.5, roughness: 1.1, bowing: 0.5, hachureGap: 5,
   fillWeight: 1`. Deviation requires a code comment naming the reason.
 
-## 10. Primitive API sketches (`src/components/charts/`)
+## 10. Primitive API sketches (`src/lib/charts/`)
+
+> Gate A ruling: primitives live in `src/lib/charts/` — charts infrastructure (`theme.ts`)
+> already lived there. All `src/components/charts/` references in this spec read as
+> `src/lib/charts/`.
 
 ```tsx
 // ChartFrame.tsx
@@ -242,7 +249,7 @@ may not fork or wrap them with per-chart styling.
   passes through unchanged but is applied only inside rough draw calls, never native SVG
   attrs. No raw hex in charts; missing team colors fall back to `--text-primary` (home) /
   `--text-muted` (away).
-- **Shared primitives** (`src/components/charts/`): every chart sits in `ChartFrame`
+- **Shared primitives** (`src/lib/charts/`): every chart sits in `ChartFrame`
   (surface + 1.5px border + 3px radius + p-4, title slot, `role="img"`/`ariaLabel`/
   `decorative` props, built-in `EmptyState` slot); details render in `ChartTooltip` — the
   reserved-height panel below the SVG with an in-SVG crosshair/row-highlight/accent-ring
