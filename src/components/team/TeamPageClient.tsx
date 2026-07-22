@@ -6,6 +6,8 @@ import { Sword } from '@phosphor-icons/react'
 import { Team, TeamSeasonEpa, TeamStyleProfile, TeamSeasonTrajectory, DrivePattern, DownDistanceSplit, TrajectoryAverages, RedZoneSplit, FieldPositionSplit, HomeAwaySplit, ConferenceSplit, RosterPlayer, PlayerSeasonStat, ScheduleGame, RecruitingClassHistory, RecruitingROI, Signee, PortalActivity } from '@/lib/types/database'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { MetricsCards } from '@/components/team/MetricsCards'
+import { PlaycallingProfile } from '@/components/team/PlaycallingProfile'
+import { AdjustedEpaChart } from '@/components/team/AdjustedEpaChart'
 import { StyleProfile } from '@/components/team/StyleProfile'
 import { DrivePatterns } from '@/components/visualizations/DrivePatterns'
 import { TrajectoryChart } from '@/components/team/TrajectoryChart'
@@ -21,8 +23,9 @@ import { CompareView } from './CompareView'
 import { RecruitingView } from './RecruitingView'
 import type { TeamThemeConfig } from '@/lib/theme/team-theme'
 import type { TeamElo, TeamEloGamePoint, TeamAts } from '@/lib/queries/predictions'
+import type { PlaycallingProfile as PlaycallingProfileData, TeamWeekFeature } from '@/lib/queries/playcalling'
 
-type TabId = 'overview' | 'situational' | 'schedule' | 'roster' | 'compare' | 'recruiting'
+type TabId = 'overview' | 'situational' | 'playcalling' | 'schedule' | 'roster' | 'compare' | 'recruiting'
 
 interface Tab {
   id: TabId
@@ -33,6 +36,7 @@ interface Tab {
 const TABS: Tab[] = [
   { id: 'overview', label: 'Overview', enabled: true },
   { id: 'situational', label: 'Situational', enabled: true },
+  { id: 'playcalling', label: 'Playcalling', enabled: true },
   { id: 'schedule', label: 'Schedule', enabled: true },
   { id: 'roster', label: 'Roster', enabled: true },
   { id: 'compare', label: 'Compare', enabled: true },
@@ -69,6 +73,8 @@ interface TeamPageClientProps {
   teamElo: TeamElo | null
   teamEloHistory: TeamEloGamePoint[]
   teamAts: TeamAts | null
+  playcallingProfile: PlaycallingProfileData | null
+  teamWeekFeatures: TeamWeekFeature[]
 }
 
 export function TeamPageClient({
@@ -98,7 +104,9 @@ export function TeamPageClient({
   activeThemeKey,
   teamElo,
   teamEloHistory,
-  teamAts
+  teamAts,
+  playcallingProfile,
+  teamWeekFeatures
 }: TeamPageClientProps) {
   // True only when this team's own theme is the one currently active.
   const isThemeActive = teamTheme !== null && activeThemeKey === teamTheme.key
@@ -226,6 +234,15 @@ export function TeamPageClient({
               <p className="text-[var(--text-muted)]">No trajectory data available</p>
             )}
           </section>
+
+          {/* Opponent-Adjusted Offense — gated so no stray heading renders
+              when the feature build hasn't produced either EPA series yet. */}
+          {teamWeekFeatures.some(w => w.adj_epa_off !== null || w.off_epa_per_play !== null) && (
+            <section className="mb-10">
+              <h2 className="font-headline text-2xl text-[var(--text-primary)] mb-4">Opponent-Adjusted Offense</h2>
+              <AdjustedEpaChart features={teamWeekFeatures} teamName={team.school ?? ''} />
+            </section>
+          )}
         </TabsContent>
 
         <TabsContent value="situational">
@@ -237,6 +254,10 @@ export function TeamPageClient({
             conferenceData={conferenceSplits}
             conference={team.conference || 'FBS'}
           />
+        </TabsContent>
+
+        <TabsContent value="playcalling">
+          <PlaycallingProfile profile={playcallingProfile} />
         </TabsContent>
 
         <TabsContent value="schedule">

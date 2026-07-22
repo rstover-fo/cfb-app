@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest'
 import { render, screen, fireEvent, within } from '@testing-library/react'
 import { TeamPageClient } from '../TeamPageClient'
 import type { Team } from '@/lib/types/database'
+import { createTeamWeekFeatureRows } from '@/lib/queries/__tests__/fixtures/playcalling'
 
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ refresh: vi.fn(), push: vi.fn(), replace: vi.fn() }),
@@ -40,6 +41,8 @@ const baseProps = {
   teamElo: null,
   teamEloHistory: [],
   teamAts: null,
+  playcallingProfile: null,
+  teamWeekFeatures: [],
 }
 
 // Radix's TabsTrigger selects a tab on pointerdown/mousedown, not click --
@@ -50,15 +53,16 @@ function selectTab(trigger: HTMLElement) {
 }
 
 describe('TeamPageClient — shadcn Tabs migration', () => {
-  it('renders a tablist with 6 tabs, Overview selected and visible by default', () => {
+  it('renders a tablist with 7 tabs, Overview selected and visible by default', () => {
     render(<TeamPageClient {...baseProps} />)
 
     const tablist = screen.getByRole('tablist', { name: 'Team page sections' })
     const tabs = within(tablist).getAllByRole('tab')
-    expect(tabs).toHaveLength(6)
+    expect(tabs).toHaveLength(7)
     expect(tabs.map(t => t.textContent)).toEqual([
       'Overview',
       'Situational',
+      'Playcalling',
       'Schedule',
       'Roster',
       'Compare',
@@ -94,6 +98,27 @@ describe('TeamPageClient — shadcn Tabs migration', () => {
     selectTab(overviewTab)
     expect(overviewTab).toHaveAttribute('aria-selected', 'true')
     expect(screen.getByText('Drive Patterns')).toBeInTheDocument()
+  })
+
+  it('switches to the Playcalling panel and shows its designed empty note when no profile exists', () => {
+    render(<TeamPageClient {...baseProps} />)
+
+    const playcallingTab = screen.getByRole('tab', { name: 'Playcalling' })
+    selectTab(playcallingTab)
+
+    expect(playcallingTab).toHaveAttribute('aria-selected', 'true')
+    expect(screen.queryByText('Drive Patterns')).not.toBeInTheDocument()
+    expect(
+      screen.getByText('Playcalling profile publishes after enough plays are charted.')
+    ).toBeInTheDocument()
+  })
+
+  it('gates the Opponent-Adjusted Offense section on week-feature data', () => {
+    const { rerender } = render(<TeamPageClient {...baseProps} />)
+    expect(screen.queryByText('Opponent-Adjusted Offense')).not.toBeInTheDocument()
+
+    rerender(<TeamPageClient {...baseProps} teamWeekFeatures={createTeamWeekFeatureRows()} />)
+    expect(screen.getByText('Opponent-Adjusted Offense')).toBeInTheDocument()
   })
 
   it('wires aria-controls on the active trigger to an existing panel id', () => {
