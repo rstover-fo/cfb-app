@@ -3,6 +3,7 @@ import { TopMoversWidget } from '@/components/dashboard/TopMoversWidget'
 import { RecentGamesWidget } from '@/components/dashboard/RecentGamesWidget'
 import { StandingsWidget } from '@/components/dashboard/StandingsWidget'
 import { StatLeadersWidget } from '@/components/dashboard/StatLeadersWidget'
+import { EdgeBoardWidget } from '@/components/dashboard/EdgeBoardWidget'
 import { WidgetSkeleton } from '@/components/dashboard/WidgetSkeleton'
 import { WidgetErrorBoundary } from '@/components/dashboard/WidgetErrorBoundary'
 
@@ -46,6 +47,13 @@ export default function Home() {
         <WidgetErrorBoundary title="Stat Leaders">
           <Suspense fallback={<WidgetSkeleton title="Stat Leaders" rows={5} />}>
             <StatLeadersWidget />
+          </Suspense>
+        </WidgetErrorBoundary>
+
+        {/* Edge Board */}
+        <WidgetErrorBoundary title="Edge Board">
+          <Suspense fallback={<WidgetSkeleton title="Edge Board" rows={6} />}>
+            <EdgeBoardWidget />
           </Suspense>
         </WidgetErrorBoundary>
       </div>
