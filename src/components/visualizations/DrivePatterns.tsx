@@ -1,10 +1,14 @@
 'use client'
 
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useEffect, useMemo } from 'react'
 import rough from 'roughjs'
+import { ChartLine } from '@phosphor-icons/react'
 import { FootballField, yardToX } from './FootballField'
 import { DrivePattern } from '@/lib/types/database'
-import { resolveColor, useChartTheme } from '@/lib/charts/theme'
+import { CHART_INK, resolveColor, useChartTheme } from '@/lib/charts/theme'
+import { ChartFrame } from '@/lib/charts/ChartFrame'
+import { ChartTooltip, swatchBackground } from '@/lib/charts/ChartTooltip'
+import type { ChartTooltipRow } from '@/lib/charts/ChartTooltip'
 
 type Side = 'offense' | 'defense'
 
@@ -39,6 +43,13 @@ const MIN_BAR_HEIGHT = 4
 const MAX_BAR_HEIGHT = 20
 const LANE_PADDING = 4
 const LANE_GAP = 2
+
+const FIELD_WIDTH = 1000
+const FIELD_HEIGHT = 400
+const PLAYABLE_WIDTH = FIELD_WIDTH - (FIELD_WIDTH / 120) * 20
+
+/** Stable wobble (spec §9): identical strokes across re-renders and theme flips. */
+const ROUGH_SEED = 68
 
 // Convert bucketed yard number to readable field position label
 function formatYardLabel(yard: number): string {
@@ -133,140 +144,105 @@ function computeLaneLayouts(
   return layouts
 }
 
+interface BarGeometry {
+  outcome: string
+  index: number
+  x: number
+  y: number
+  width: number
+  height: number
+  drive: DrivePattern
+}
+
+// Flatten lane layouts into individual bar rectangles (spec §1.3: geometry
+// computed in useMemo, never inside drawChart).
+function layoutBars(lanes: LaneLayout[], maxCount: number): BarGeometry[] {
+  const bars: BarGeometry[] = []
+  let index = 0
+  for (const lane of lanes) {
+    let barY = lane.y + 16 // offset below the lane label
+    for (const drive of lane.drives) {
+      const h = barHeight(drive.count, maxCount)
+      const startX = yardToX(drive.start_yard, PLAYABLE_WIDTH)
+      const endX = yardToX(drive.end_yard, PLAYABLE_WIDTH)
+      const x = Math.min(startX, endX)
+      const width = Math.max(Math.abs(endX - startX), 4)
+      bars.push({ outcome: lane.outcome, index, x, y: barY, width, height: h, drive })
+      barY += h + LANE_GAP
+      index++
+    }
+  }
+  return bars
+}
+
 export function DrivePatterns({ offenseDrives, defenseDrives, teamName }: DrivePatternsProps) {
   const [side, setSide] = useState<Side>('offense')
   const [selectedOutcome, setSelectedOutcome] = useState<string | null>(null)
-  const [tooltip, setTooltip] = useState<{ x: number; y: number; data: DrivePattern } | null>(null)
-  const [animationKey, setAnimationKey] = useState(0)
-  // Bumped by useChartTheme on a dark/light flip so the redraw effect below
-  // (whose dependency array roughjs draws are keyed to) re-runs -- roughjs
-  // bakes colors into concrete strings at draw time, so a theme change needs
-  // an explicit redraw signal like every other chart (see src/lib/charts/theme.ts).
-  const [themeTick, setThemeTick] = useState(0)
+  const [hoveredIndex, setHoveredIndex] = useState<number | null>(null)
 
   const svgRef = useRef<SVGSVGElement>(null)
   const barsRef = useRef<SVGGElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
 
-  const fieldWidth = 1000 - (1000 / 120) * 20
-  const fieldHeight = 400
-
   const allDrives = side === 'offense' ? offenseDrives : defenseDrives
-  const grouped = groupByOutcome(allDrives)
-  const maxCount = allDrives.reduce((m, d) => Math.max(m, d.count), 0)
-  const outcomes = LANE_ORDER.filter(o => (grouped.get(o)?.length ?? 0) > 0)
-  const lanes = computeLaneLayouts(grouped, fieldHeight, maxCount, selectedOutcome)
+
+  const grouped = useMemo(() => groupByOutcome(allDrives), [allDrives])
+  const maxCount = useMemo(() => allDrives.reduce((m, d) => Math.max(m, d.count), 0), [allDrives])
+  const outcomes = useMemo(() => LANE_ORDER.filter(o => (grouped.get(o)?.length ?? 0) > 0), [grouped])
+  const lanes = useMemo(
+    () => computeLaneLayouts(grouped, FIELD_HEIGHT, maxCount, selectedOutcome),
+    [grouped, maxCount, selectedOutcome],
+  )
+  const barGeometry = useMemo(() => layoutBars(lanes, maxCount), [lanes, maxCount])
 
   const handleSideToggle = useCallback((newSide: Side) => {
     setSide(newSide)
     setSelectedOutcome(null)
-    setAnimationKey(k => k + 1)
+    setHoveredIndex(null)
   }, [])
 
   const handleOutcomeSelect = useCallback((outcome: string) => {
-    setSelectedOutcome(prev => prev === outcome ? null : outcome)
-    setAnimationKey(k => k + 1)
+    setSelectedOutcome(prev => (prev === outcome ? null : outcome))
+    setHoveredIndex(null)
   }, [])
 
-  // Force-clear tooltip when mouse leaves the entire container
-  const handleContainerMouseLeave = useCallback(() => {
-    setTooltip(null)
-  }, [])
-
-  // Render roughjs bars
-  useEffect(() => {
+  // Draw the rough-drawn bars, then run the staggered entrance fade.
+  const drawChart = useCallback(() => {
     const svg = svgRef.current
-    const barsGroup = barsRef.current
-    if (!svg || !barsGroup) return
+    const group = barsRef.current
+    if (!svg || !group) return
 
-    // Clean up previous
-    while (barsGroup.firstChild) {
-      barsGroup.removeChild(barsGroup.firstChild)
-    }
+    while (group.firstChild) group.removeChild(group.firstChild)
+    if (barGeometry.length === 0) return
 
     const rc = rough.svg(svg)
-
-    // Track all bar elements for animation
-    const barElements: { el: SVGGElement; index: number }[] = []
-    // Build a flat list of drives for tooltip lookup
-    const flatDrives: DrivePattern[] = []
-    let globalIndex = 0
-
-    for (const lane of lanes) {
-      const cssColor = OUTCOME_COLORS[lane.outcome] || 'var(--color-neutral)'
-      const color = resolveColor(cssColor)
-
-      // Lane label on the left
-      const label = document.createElementNS('http://www.w3.org/2000/svg', 'text')
-      label.setAttribute('x', '4')
-      label.setAttribute('y', String(lane.y + 12))
-      label.setAttribute('fill', color)
-      label.setAttribute('font-size', '10')
-      label.setAttribute('font-family', 'var(--font-body)')
-      label.setAttribute('opacity', '0.7')
-      label.textContent = OUTCOME_LABELS[lane.outcome] || lane.outcome
-      barsGroup.appendChild(label)
-
-      // Stack bars within the lane
-      let barY = lane.y + 16 // offset below the label
-
-      for (const drive of lane.drives) {
-        const h = barHeight(drive.count, maxCount)
-        const startX = yardToX(drive.start_yard, fieldWidth)
-        const endX = yardToX(drive.end_yard, fieldWidth)
-        const x = Math.min(startX, endX)
-        const w = Math.max(Math.abs(endX - startX), 4)
-
-        const roughRect = rc.rectangle(x, barY, w, h, {
-          stroke: color,
-          fill: color,
-          fillStyle: 'solid',
-          fillWeight: 0.5,
-          roughness: 0.8,
-          strokeWidth: 1,
-        })
-
-        const g = document.createElementNS('http://www.w3.org/2000/svg', 'g')
-        g.setAttribute('data-outcome', lane.outcome)
-        g.setAttribute('data-index', String(globalIndex))
-        g.style.opacity = '0'
-        g.style.cursor = 'pointer'
-
-        // Invisible hit area for easier hovering
-        const hitRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect')
-        hitRect.setAttribute('x', String(x))
-        hitRect.setAttribute('y', String(barY - 2))
-        hitRect.setAttribute('width', String(w))
-        hitRect.setAttribute('height', String(h + 4))
-        hitRect.setAttribute('fill', 'transparent')
-        g.appendChild(hitRect)
-
-        g.appendChild(roughRect)
-
-        // Count label on the bar if wide enough
-        if (w > 30) {
-          const countLabel = document.createElementNS('http://www.w3.org/2000/svg', 'text')
-          countLabel.setAttribute('x', String(x + w / 2))
-          countLabel.setAttribute('y', String(barY + h / 2 + 3))
-          countLabel.setAttribute('text-anchor', 'middle')
-          countLabel.setAttribute('fill', '#fff')
-          countLabel.setAttribute('font-size', String(Math.min(h - 1, 10)))
-          countLabel.setAttribute('font-family', 'var(--font-body)')
-          countLabel.setAttribute('pointer-events', 'none')
-          countLabel.textContent = String(drive.count)
-          g.appendChild(countLabel)
-        }
-
-        barElements.push({ el: g, index: globalIndex })
-        flatDrives.push(drive)
-        barsGroup.appendChild(g)
-
-        barY += h + LANE_GAP
-        globalIndex++
-      }
+    const mutedColor = resolveColor(CHART_INK.muted)
+    const inkMap: Record<string, string> = {}
+    for (const outcome of LANE_ORDER) {
+      inkMap[outcome] = resolveColor(OUTCOME_COLORS[outcome] ?? CHART_INK.muted)
     }
 
-    // Staggered entrance animation
+    const rects: SVGElement[] = []
+    for (const bar of barGeometry) {
+      const color = inkMap[bar.outcome] ?? mutedColor
+      // Solid fill, not the hachure bar default (spec §9): each bar's meaning
+      // comes from its lane + outcome color, not a paired/mirrored side, so a
+      // hachure fill would add texture without adding legibility here.
+      const rect = rc.rectangle(bar.x, bar.y, bar.width, bar.height, {
+        fill: color,
+        stroke: color,
+        fillStyle: 'solid',
+        strokeWidth: 1.5,
+        roughness: 1.1,
+        bowing: 0.5,
+        seed: ROUGH_SEED,
+      })
+      rect.style.opacity = '0'
+      group.appendChild(rect)
+      rects.push(rect)
+    }
+
+    // Staggered entrance animation.
     let frameId: number
     let startTime: number | null = null
     const staggerMs = 40
@@ -275,222 +251,250 @@ export function DrivePatterns({ offenseDrives, defenseDrives, teamName }: DriveP
     function animate(now: number) {
       if (startTime === null) startTime = now
       const elapsed = now - startTime
-      for (const { el, index } of barElements) {
-        const delay = index * staggerMs
+      rects.forEach((el, i) => {
+        const delay = i * staggerMs
         if (elapsed >= delay) {
           const progress = Math.min(1, (elapsed - delay) / animDuration)
           const t = 1 - Math.pow(1 - progress, 3)
           el.style.opacity = String(0.85 * t)
         }
-      }
-
-      const totalDuration = barElements.length * staggerMs + animDuration
+      })
+      const totalDuration = rects.length * staggerMs + animDuration
       if (elapsed < totalDuration) {
         frameId = requestAnimationFrame(animate)
       }
     }
-
     frameId = requestAnimationFrame(animate)
 
-    // Tooltip event delegation using mouseover/mouseout (bubbles properly)
-    let activeTarget: Element | null = null
+    // Deviation from the plain `useEffect(() => { drawChart() })` recipe
+    // form: the entrance animation schedules its own rAF loop, so drawChart
+    // returns a cleanup to cancel it on redraw/unmount.
+    return () => cancelAnimationFrame(frameId)
+  }, [barGeometry])
 
-    function handleMouseOver(e: MouseEvent) {
-      const target = (e.target as Element).closest('g[data-index]')
-      if (!target || !containerRef.current) {
-        // Mouse moved to a non-bar element within the SVG — clear tooltip
-        if (activeTarget) {
-          ;(activeTarget as HTMLElement).style.opacity = '0.85'
-          activeTarget = null
-          setTooltip(null)
-        }
-        return
-      }
-      if (target === activeTarget) return // same bar, no-op
+  useEffect(() => {
+    return drawChart()
+  }, [drawChart])
 
-      // Un-highlight previous
-      if (activeTarget) {
-        ;(activeTarget as HTMLElement).style.opacity = '0.85'
-      }
+  // Redraw on theme change
+  useChartTheme(drawChart)
 
-      const idx = parseInt(target.getAttribute('data-index') || '-1', 10)
-      if (idx < 0 || idx >= flatDrives.length) return
+  const hoveredBar = hoveredIndex !== null ? barGeometry.find(b => b.index === hoveredIndex) ?? null : null
 
-      const containerRect = containerRef.current.getBoundingClientRect()
-      const rect = target.getBoundingClientRect()
-
-      let x = rect.x + rect.width / 2 - containerRect.x
-      const y = rect.y - containerRect.y
-
-      const tooltipWidth = 220
-      x = Math.max(tooltipWidth / 2, Math.min(x, containerRect.width - tooltipWidth / 2))
-
-      ;(target as HTMLElement).style.opacity = '1'
-      activeTarget = target
-
-      setTooltip({ x, y, data: flatDrives[idx] })
-    }
-
-    function handleMouseOut(e: MouseEvent) {
-      const related = e.relatedTarget as Element | null
-      // Only clear if we left the bars group entirely
-      if (related && barsGroup?.contains(related)) return
-      if (activeTarget) {
-        ;(activeTarget as HTMLElement).style.opacity = '0.85'
-        activeTarget = null
-      }
-      setTooltip(null)
-    }
-
-    barsGroup.addEventListener('mouseover', handleMouseOver as EventListener)
-    barsGroup.addEventListener('mouseout', handleMouseOut as EventListener)
-
-    return () => {
-      cancelAnimationFrame(frameId)
-      barsGroup.removeEventListener('mouseover', handleMouseOver as EventListener)
-      barsGroup.removeEventListener('mouseout', handleMouseOut as EventListener)
-    }
-  }, [lanes, fieldWidth, fieldHeight, maxCount, animationKey, themeTick])
-
-  // Redraw on theme change (bumps themeTick, which the effect above depends on)
-  useChartTheme(useCallback(() => setThemeTick(t => t + 1), []))
+  const tooltipRows: ChartTooltipRow[] = hoveredBar
+    ? [
+        {
+          swatch: 'solid',
+          color: OUTCOME_COLORS[hoveredBar.outcome],
+          label: 'Drives:',
+          value: String(hoveredBar.drive.count),
+        },
+        {
+          label: 'Field position:',
+          value: `${formatYardLabel(hoveredBar.drive.start_yard)} → ${formatYardLabel(hoveredBar.drive.end_yard)}`,
+          muted: true,
+        },
+        {
+          label: 'Averages:',
+          value: `${hoveredBar.drive.avg_plays} plays · ${hoveredBar.drive.avg_yards} yds`,
+          muted: true,
+        },
+      ]
+    : []
 
   return (
-    <div className="relative" ref={containerRef} onMouseLeave={handleContainerMouseLeave}>
-      {/* Side Toggle */}
-      <div className="flex items-center gap-2 mb-4">
-        <button
-          onClick={() => handleSideToggle('offense')}
-          className={`px-4 py-2 border-[1.5px] rounded-sm text-sm transition-all ${
-            side === 'offense'
-              ? 'bg-[var(--bg-surface)] border-[var(--color-run)] text-[var(--text-primary)]'
-              : 'border-[var(--border)] text-[var(--text-secondary)] hover:border-[var(--text-muted)]'
-          }`}
-          aria-pressed={side === 'offense'}
-        >
-          Our Drives
-        </button>
-        <button
-          onClick={() => handleSideToggle('defense')}
-          className={`px-4 py-2 border-[1.5px] rounded-sm text-sm transition-all ${
-            side === 'defense'
-              ? 'bg-[var(--bg-surface)] border-[var(--color-run)] text-[var(--text-primary)]'
-              : 'border-[var(--border)] text-[var(--text-secondary)] hover:border-[var(--text-muted)]'
-          }`}
-          aria-pressed={side === 'defense'}
-        >
-          Opponent Drives
-        </button>
-      </div>
-
-      {/* Outcome Filter */}
-      <div className="flex flex-wrap gap-2 mb-4" role="list" aria-label="Filter by drive outcome">
-        <button
-          onClick={() => {
-            setSelectedOutcome(null)
-            setAnimationKey(k => k + 1)
-          }}
-          className={`px-3 py-1.5 border-[1.5px] rounded-sm text-sm transition-all ${
-            selectedOutcome === null
-              ? 'bg-[var(--bg-surface)] border-[var(--color-run)] text-[var(--text-primary)]'
-              : 'border-[var(--border)] text-[var(--text-secondary)] hover:border-[var(--text-muted)]'
-          }`}
-          aria-pressed={selectedOutcome === null}
-        >
-          All
-        </button>
-        {outcomes.map(outcome => {
-          const color = OUTCOME_COLORS[outcome] || '#999'
-          const label = OUTCOME_LABELS[outcome] || outcome
-          const isActive = selectedOutcome === outcome
-
-          return (
-            <button
-              key={outcome}
-              onClick={() => handleOutcomeSelect(outcome)}
-              className={`flex items-center gap-2 px-3 py-1.5 border-[1.5px] rounded-sm text-sm transition-all ${
-                isActive
-                  ? 'bg-[var(--bg-surface-alt)] border-[var(--color-run)] text-[var(--text-primary)]'
-                  : selectedOutcome === null
-                    ? 'border-[var(--border)] text-[var(--text-secondary)] hover:border-[var(--text-muted)]'
-                    : 'border-[var(--border)] text-[var(--text-secondary)] opacity-40 hover:opacity-70'
-              }`}
-              aria-pressed={isActive}
-            >
-              <span
-                className="inline-block w-3 h-3 rounded-sm"
-                style={{ backgroundColor: color }}
-              />
-              <span>{label}</span>
-              <span className="text-[var(--text-muted)] text-xs">
-                ({grouped.get(outcome)?.length ?? 0})
-              </span>
-            </button>
-          )
-        })}
-      </div>
-
-      {/* Field with Bars -- decorative: the "View drive data as table" details below is
-          the accessible equivalent of everything plotted here. */}
-      <FootballField ref={svgRef} width={1000} height={400} id="drive-patterns" decorative>
-        <g ref={barsRef} />
-      </FootballField>
-
-      {/* Tooltip */}
-      {tooltip && (
-        <div
-          className="absolute bg-[var(--bg-surface)] text-[var(--text-primary)] text-sm px-4 py-3 rounded border border-[var(--border)] shadow-lg pointer-events-none z-10"
-          style={{
-            left: tooltip.x,
-            top: tooltip.y - 80,
-            transform: 'translateX(-50%)',
-          }}
-        >
-          <p className="font-headline text-base capitalize mb-1">
-            {tooltip.data.outcome.replace('_', ' ')}
-          </p>
-          <p className="text-[var(--text-secondary)]">
-            {tooltip.data.count} drive{tooltip.data.count !== 1 ? 's' : ''}
-          </p>
-          <p className="text-[var(--text-muted)] text-xs">
-            {formatYardLabel(tooltip.data.start_yard)} → {formatYardLabel(tooltip.data.end_yard)}
-          </p>
-          <p className="text-[var(--text-muted)] text-xs">
-            {tooltip.data.avg_plays} plays avg · {tooltip.data.avg_yards} yds avg
-          </p>
+    <ChartFrame
+      decorative
+      empty={offenseDrives.length === 0 && defenseDrives.length === 0}
+      emptyState={{
+        icon: ChartLine,
+        title: 'No drive data for this team',
+        description: "Drive-by-drive patterns publish once this season's play-by-play data loads.",
+      }}
+    >
+      <div ref={containerRef} onMouseLeave={() => setHoveredIndex(null)}>
+        {/* Side Toggle */}
+        <div className="flex items-center gap-2 mb-4">
+          <button
+            onClick={() => handleSideToggle('offense')}
+            className={`px-4 py-2 border-[1.5px] rounded-sm text-sm transition-all ${
+              side === 'offense'
+                ? 'bg-[var(--bg-surface)] border-[var(--color-run)] text-[var(--text-primary)]'
+                : 'border-[var(--border)] text-[var(--text-secondary)] hover:border-[var(--text-muted)]'
+            }`}
+            aria-pressed={side === 'offense'}
+          >
+            Our Drives
+          </button>
+          <button
+            onClick={() => handleSideToggle('defense')}
+            className={`px-4 py-2 border-[1.5px] rounded-sm text-sm transition-all ${
+              side === 'defense'
+                ? 'bg-[var(--bg-surface)] border-[var(--color-run)] text-[var(--text-primary)]'
+                : 'border-[var(--border)] text-[var(--text-secondary)] hover:border-[var(--text-muted)]'
+            }`}
+            aria-pressed={side === 'defense'}
+          >
+            Opponent Drives
+          </button>
         </div>
-      )}
 
-      {/* Data Table */}
-      <details className="mt-4">
-        <summary className="cursor-pointer text-sm text-[var(--text-muted)] hover:text-[var(--text-secondary)]">
-          View {teamName} drive data as table
-        </summary>
-        <table className="mt-2 w-full text-sm border-collapse" aria-label={`${teamName} ${side} drive data`}>
-          <thead>
-            <tr className="border-b border-[var(--border)]">
-              <th scope="col" className="text-left p-2 text-[var(--text-muted)]">Outcome</th>
-              <th scope="col" className="text-left p-2 text-[var(--text-muted)]">From</th>
-              <th scope="col" className="text-left p-2 text-[var(--text-muted)]">To</th>
-              <th scope="col" className="text-left p-2 text-[var(--text-muted)]">Count</th>
-              <th scope="col" className="text-left p-2 text-[var(--text-muted)]">Avg Plays</th>
-              <th scope="col" className="text-left p-2 text-[var(--text-muted)]">Avg Yards</th>
-            </tr>
-          </thead>
-          <tbody>
-            {allDrives.map((drive, i) => (
-              <tr key={`${drive.outcome}-${drive.start_yard}-${drive.end_yard}-${i}`} className="border-b border-[var(--border)]">
-                <th scope="row" className="p-2 text-left font-normal capitalize text-[var(--text-primary)]">{drive.outcome.replace('_', ' ')}</th>
-                <td className="p-2 text-[var(--text-secondary)]">{formatYardLabel(drive.start_yard)}</td>
-                <td className="p-2 text-[var(--text-secondary)]">{formatYardLabel(drive.end_yard)}</td>
-                <td className="p-2 text-[var(--text-secondary)]">{drive.count}</td>
-                <td className="p-2 text-[var(--text-secondary)]">{drive.avg_plays}</td>
-                <td className="p-2 text-[var(--text-secondary)]">{drive.avg_yards}</td>
-              </tr>
+        {/* Outcome Filter -- controls, not a legend (kept as buttons); swatches
+            reuse the house `swatchBackground` helper for the solid-swatch vocabulary. */}
+        <div className="flex flex-wrap gap-2 mb-4" role="list" aria-label="Filter by drive outcome">
+          <button
+            onClick={() => {
+              setSelectedOutcome(null)
+              setHoveredIndex(null)
+            }}
+            className={`px-3 py-1.5 border-[1.5px] rounded-sm text-sm transition-all ${
+              selectedOutcome === null
+                ? 'bg-[var(--bg-surface)] border-[var(--color-run)] text-[var(--text-primary)]'
+                : 'border-[var(--border)] text-[var(--text-secondary)] hover:border-[var(--text-muted)]'
+            }`}
+            aria-pressed={selectedOutcome === null}
+          >
+            All
+          </button>
+          {outcomes.map(outcome => {
+            const color = OUTCOME_COLORS[outcome] ?? CHART_INK.muted
+            const label = OUTCOME_LABELS[outcome] || outcome
+            const isActive = selectedOutcome === outcome
+
+            return (
+              <button
+                key={outcome}
+                onClick={() => handleOutcomeSelect(outcome)}
+                className={`flex items-center gap-2 px-3 py-1.5 border-[1.5px] rounded-sm text-sm transition-all ${
+                  isActive
+                    ? 'bg-[var(--bg-surface-alt)] border-[var(--color-run)] text-[var(--text-primary)]'
+                    : selectedOutcome === null
+                      ? 'border-[var(--border)] text-[var(--text-secondary)] hover:border-[var(--text-muted)]'
+                      : 'border-[var(--border)] text-[var(--text-secondary)] opacity-40 hover:opacity-70'
+                }`}
+                aria-pressed={isActive}
+              >
+                <span aria-hidden="true" className="inline-block w-3 h-3 rounded-sm" style={swatchBackground('solid', color)} />
+                <span>{label}</span>
+                <span className="text-[var(--text-muted)] text-xs">
+                  ({grouped.get(outcome)?.length ?? 0})
+                </span>
+              </button>
+            )
+          })}
+        </div>
+
+        {/* Field with Bars -- decorative: the "View drive data as table" details below is
+            the accessible equivalent of everything plotted here. */}
+        <FootballField ref={svgRef} width={FIELD_WIDTH} height={FIELD_HEIGHT} id="drive-patterns" decorative>
+          {/* Lane labels -- static scaffold, var() refs flip natively with theme */}
+          {lanes.map(lane => (
+            <text
+              key={lane.outcome}
+              x={4}
+              y={lane.y + 12}
+              fill={OUTCOME_COLORS[lane.outcome] ?? CHART_INK.muted}
+              fontSize={10}
+              opacity={0.7}
+            >
+              {OUTCOME_LABELS[lane.outcome] || lane.outcome}
+            </text>
+          ))}
+
+          {/* Hover highlight -- bar/row highlight behind the rough layer (spec §3) */}
+          {hoveredBar && (
+            <rect
+              x={hoveredBar.x - 2}
+              y={hoveredBar.y - 2}
+              width={hoveredBar.width + 4}
+              height={hoveredBar.height + 4}
+              fill="var(--bg-surface-alt)"
+              rx={2}
+            />
+          )}
+
+          {/* Rough-drawn bars */}
+          <g ref={barsRef} data-testid="rough-layer" />
+
+          {/* Count labels on wide-enough bars */}
+          {barGeometry
+            .filter(b => b.width > 30)
+            .map(b => (
+              <text
+                key={`count-${b.index}`}
+                x={b.x + b.width / 2}
+                y={b.y + b.height / 2 + 3}
+                textAnchor="middle"
+                fill="var(--bg-surface)"
+                fontSize={Math.min(b.height - 1, 10)}
+                pointerEvents="none"
+              >
+                {b.drive.count}
+              </text>
             ))}
-          </tbody>
-        </table>
-      </details>
-    </div>
+
+          {/* Interaction layer (spec §1.5): base rect clears the highlight,
+              per-bar rects on top drive the hover state. */}
+          <rect
+            x={0}
+            y={0}
+            width={PLAYABLE_WIDTH}
+            height={FIELD_HEIGHT}
+            fill="transparent"
+            onMouseEnter={() => setHoveredIndex(null)}
+          />
+          {barGeometry.map(b => (
+            <rect
+              key={`hit-${b.index}`}
+              x={b.x}
+              y={b.y - 2}
+              width={b.width}
+              height={b.height + 4}
+              fill="transparent"
+              style={{ cursor: 'pointer' }}
+              onMouseEnter={() => setHoveredIndex(b.index)}
+            />
+          ))}
+        </FootballField>
+
+        <ChartTooltip
+          header={hoveredBar ? OUTCOME_LABELS[hoveredBar.outcome] || hoveredBar.outcome : undefined}
+          rows={tooltipRows}
+          prompt="Hover a drive bar for details"
+          minRows={3}
+        />
+
+        {/* Data Table */}
+        <details className="mt-4">
+          <summary className="cursor-pointer text-sm text-[var(--text-muted)] hover:text-[var(--text-secondary)]">
+            View {teamName} drive data as table
+          </summary>
+          <table className="mt-2 w-full text-sm border-collapse" aria-label={`${teamName} ${side} drive data`}>
+            <thead>
+              <tr className="border-b border-[var(--border)]">
+                <th scope="col" className="text-left p-2 text-[var(--text-muted)]">Outcome</th>
+                <th scope="col" className="text-left p-2 text-[var(--text-muted)]">From</th>
+                <th scope="col" className="text-left p-2 text-[var(--text-muted)]">To</th>
+                <th scope="col" className="text-left p-2 text-[var(--text-muted)]">Count</th>
+                <th scope="col" className="text-left p-2 text-[var(--text-muted)]">Avg Plays</th>
+                <th scope="col" className="text-left p-2 text-[var(--text-muted)]">Avg Yards</th>
+              </tr>
+            </thead>
+            <tbody>
+              {allDrives.map((drive, i) => (
+                <tr key={`${drive.outcome}-${drive.start_yard}-${drive.end_yard}-${i}`} className="border-b border-[var(--border)]">
+                  <th scope="row" className="p-2 text-left font-normal capitalize text-[var(--text-primary)]">{drive.outcome.replace('_', ' ')}</th>
+                  <td className="p-2 text-[var(--text-secondary)]">{formatYardLabel(drive.start_yard)}</td>
+                  <td className="p-2 text-[var(--text-secondary)]">{formatYardLabel(drive.end_yard)}</td>
+                  <td className="p-2 text-[var(--text-secondary)]">{drive.count}</td>
+                  <td className="p-2 text-[var(--text-secondary)]">{drive.avg_plays}</td>
+                  <td className="p-2 text-[var(--text-secondary)]">{drive.avg_yards}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </details>
+      </div>
+    </ChartFrame>
   )
 }
