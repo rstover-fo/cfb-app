@@ -96,17 +96,8 @@ export function PlayerDetailClient({
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6">
           <PlayerStatsTable player={player} />
 
-          {percentiles && (
-            <div className="card p-6">
-              <h2 className="text-[10px] uppercase tracking-wider text-[var(--text-muted)] mb-3">
-                Percentile Rankings
-              </h2>
-              <p className="text-[11px] text-[var(--text-muted)] mb-3">
-                vs. {percentiles.position_group ?? 'position group'} &middot; {percentiles.season}
-              </p>
-              <PercentileRadar percentiles={percentiles} />
-            </div>
-          )}
+          {/* PercentileRadar renders its own ChartFrame shell (title + subtitle included). */}
+          {percentiles && <PercentileRadar percentiles={percentiles} />}
         </div>
 
         {/* Game trend chart */}

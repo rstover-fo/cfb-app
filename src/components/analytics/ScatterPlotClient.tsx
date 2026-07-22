@@ -2,9 +2,10 @@
 
 import { useState, useMemo } from 'react'
 import { Team, TeamSeasonEpa, TeamStyleProfile, DefensiveHavoc, TeamTempoMetrics, TeamRecord, TeamSpecialTeamsSos } from '@/lib/types/database'
+import { ChartPolar } from '@phosphor-icons/react'
 import { ScatterPlot } from './ScatterPlot'
 import { RankedTable } from './RankedTable'
-import { RadarChart } from './RadarChart'
+import { RoughRadar } from '@/lib/charts/RoughRadar'
 import { OffenseRadar } from './OffenseRadar'
 import { DefenseRadar } from './DefenseRadar'
 
@@ -641,7 +642,8 @@ export function ScatterPlotClient({ teams, metrics, styles, havoc, tempo, record
             />
           </div>
           {selectedTeamForRadar && (
-            <div className="w-80 card p-6">
+            // No card wrapper here: each radar brings its own ChartFrame shell.
+            <div className="w-80">
               {/* Radar View Toggle */}
               <div className="flex gap-1 mb-4">
                 {(['combined', 'offense', 'defense'] as const).map((mode) => (
@@ -662,10 +664,23 @@ export function ScatterPlotClient({ teams, metrics, styles, havoc, tempo, record
               {/* Radar Chart based on selected mode */}
               <div className="transition-opacity duration-200">
                 {radarViewMode === 'combined' && radarMetrics && (
-                  <RadarChart
-                    metrics={radarMetrics.metrics}
-                    teamName={radarMetrics.teamName}
-                    teamColor={radarMetrics.teamColor}
+                  <RoughRadar
+                    title={radarMetrics.teamName}
+                    ariaLabel={`${radarMetrics.teamName} radar chart: ${radarMetrics.metrics
+                      .map(m => `${m.label} ${Math.round(m.value)}th percentile`)
+                      .join(', ')}`}
+                    axes={radarMetrics.metrics.map(m => ({ key: m.label, label: m.label }))}
+                    series={[
+                      {
+                        label: radarMetrics.teamName,
+                        color: radarMetrics.teamColor,
+                        values: radarMetrics.metrics.map(m => m.value),
+                      },
+                    ]}
+                    emptyState={{
+                      icon: ChartPolar,
+                      title: 'No composite metrics for this team',
+                    }}
                   />
                 )}
                 {radarViewMode === 'offense' && selectedOffenseData && (
@@ -673,7 +688,6 @@ export function ScatterPlotClient({ teams, metrics, styles, havoc, tempo, record
                     teamData={selectedOffenseData}
                     allTeamsData={allOffenseData}
                     teamColor={selectedTeamColor}
-                    size={280}
                   />
                 )}
                 {radarViewMode === 'defense' && selectedDefenseData && (
@@ -681,7 +695,6 @@ export function ScatterPlotClient({ teams, metrics, styles, havoc, tempo, record
                     teamData={selectedDefenseData}
                     allTeamsData={allDefenseData}
                     teamColor={selectedTeamColor}
-                    size={280}
                   />
                 )}
                 {/* Fallback when data is missing */}
