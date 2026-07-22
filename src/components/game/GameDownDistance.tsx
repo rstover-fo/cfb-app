@@ -69,9 +69,13 @@ const SUCCESS_RATE_THRESHOLDS: HeatThreshold[] = [
   { min: 0.4, level: 3 },
 ]
 
-function successRateBg(rate: number): string {
+// Inline style, not a Tailwind class: `bg-[var(--heat-${level})]` assembled at
+// runtime never appears literally in source, so Tailwind's static scan would
+// not generate the utility and cells would render unstyled in production.
+// Matches DownDistanceHeatmap's inline-backgroundColor approach.
+function successRateBgStyle(rate: number): { backgroundColor: string } {
   const level = heatLevelForRate(rate, SUCCESS_RATE_THRESHOLDS)
-  return `bg-[var(--heat-${level})]`
+  return { backgroundColor: `var(--heat-${level})` }
 }
 
 function TeamGrid({ grid, team, color }: { grid: Map<string, BucketStats>; team: string; color: string | null }) {
@@ -128,7 +132,8 @@ function TeamGrid({ grid, team, color }: { grid: Map<string, BucketStats>; team:
               return (
                 <div
                   key={b.key}
-                  className={`px-2 py-2 text-center ${successRateBg(stats.successRate)} ${
+                  style={successRateBgStyle(stats.successRate)}
+                  className={`px-2 py-2 text-center ${
                     smallSample ? 'border border-dashed border-[var(--text-muted)]' : ''
                   }`}
                 >

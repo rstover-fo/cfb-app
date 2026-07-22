@@ -60,22 +60,25 @@ describe('GameDownDistance', () => {
     // 4th down: no plays at all -> no-data cell
   ]
 
+  // Heat backgrounds are inline styles, not Tailwind classes: a
+  // runtime-interpolated bg-[var(--heat-N)] class never appears literally in
+  // source, so Tailwind's static scan would not generate it.
   it('buckets success rate >= .60 onto heat-5', () => {
     render(<GameDownDistance plays={plays} game={game()} />)
     const cell = screen.getByText('100%').parentElement
-    expect(cell).toHaveClass('bg-[var(--heat-5)]')
+    expect(cell).toHaveStyle({ backgroundColor: 'var(--heat-5)' })
   })
 
   it('buckets .40 <= success rate < .60 onto heat-3', () => {
     render(<GameDownDistance plays={plays} game={game()} />)
     const cell = screen.getByText('50%').parentElement
-    expect(cell).toHaveClass('bg-[var(--heat-3)]')
+    expect(cell).toHaveStyle({ backgroundColor: 'var(--heat-3)' })
   })
 
   it('buckets success rate < .40 onto heat-1', () => {
     render(<GameDownDistance plays={plays} game={game()} />)
     const cell = screen.getByText('0%').parentElement
-    expect(cell).toHaveClass('bg-[var(--heat-1)]')
+    expect(cell).toHaveStyle({ backgroundColor: 'var(--heat-1)' })
   })
 
   it('renders an em dash and the surface-alt background for cells with no data', () => {

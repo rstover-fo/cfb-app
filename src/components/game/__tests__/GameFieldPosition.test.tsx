@@ -60,22 +60,24 @@ describe('GameFieldPosition', () => {
     // Red Zone (yards_to_goal 1-20): no plays -> no-data row
   ]
 
+  // Inline-style assertions: heat backgrounds must not be runtime-assembled
+  // Tailwind classes (invisible to the static content scan).
   it('buckets success rate >= .60 onto heat-5', () => {
     render(<GameFieldPosition plays={plays} game={game()} />)
     const cell = screen.getByText('100%')
-    expect(cell).toHaveClass('bg-[var(--heat-5)]')
+    expect(cell).toHaveStyle({ backgroundColor: 'var(--heat-5)' })
   })
 
   it('buckets .40 <= success rate < .60 onto heat-3', () => {
     render(<GameFieldPosition plays={plays} game={game()} />)
     const cell = screen.getByText('50%')
-    expect(cell).toHaveClass('bg-[var(--heat-3)]')
+    expect(cell).toHaveStyle({ backgroundColor: 'var(--heat-3)' })
   })
 
   it('buckets success rate < .40 onto heat-1', () => {
     render(<GameFieldPosition plays={plays} game={game()} />)
     const cell = screen.getByText('0%')
-    expect(cell).toHaveClass('bg-[var(--heat-1)]')
+    expect(cell).toHaveStyle({ backgroundColor: 'var(--heat-1)' })
   })
 
   it('renders an em dash with the surface-alt background for zones with no data', () => {

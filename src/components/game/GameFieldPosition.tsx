@@ -60,9 +60,12 @@ const SUCCESS_RATE_THRESHOLDS: HeatThreshold[] = [
   { min: 0.4, level: 3 },
 ]
 
-function successRateBg(rate: number): string {
+// Inline style, not a Tailwind class: a runtime-interpolated
+// `bg-[var(--heat-N)]` string is invisible to Tailwind's static scan, so the
+// utility would never be generated. Matches DownDistanceHeatmap.
+function successRateBgStyle(rate: number): { backgroundColor: string } {
   const level = heatLevelForRate(rate, SUCCESS_RATE_THRESHOLDS)
-  return `bg-[var(--heat-${level})]`
+  return { backgroundColor: `var(--heat-${level})` }
 }
 
 function TeamTable({ stats, team, color }: { stats: ZoneStats[]; team: string; color: string | null }) {
@@ -105,7 +108,7 @@ function TeamTable({ stats, team, color }: { stats: ZoneStats[]; team: string; c
                   </td>
                   {hasData ? (
                     <>
-                      <td className={`text-sm text-[var(--text-primary)] text-center py-2 px-2 tabular-nums ${successRateBg(row.successRate)}`}>
+                      <td style={successRateBgStyle(row.successRate)} className="text-sm text-[var(--text-primary)] text-center py-2 px-2 tabular-nums">
                         {Math.round(row.successRate * 100)}%
                       </td>
                       <td className={`text-sm text-center py-2 px-2 tabular-nums ${
