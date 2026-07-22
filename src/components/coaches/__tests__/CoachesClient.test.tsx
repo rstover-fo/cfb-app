@@ -44,6 +44,20 @@ const SABAN = coach({ coach_name: 'Nick Saban', team: 'Alabama', win_pct: 0.75, 
 const BY_WIN_PCT = [STOOPS, SABAN]
 const BY_ATS_WIN_PCT = [SABAN, STOOPS]
 
+// Helper: render with the same lists for active and all-time unless a test
+// cares about the distinction (the client defaults to the Active scope).
+function renderClient(props: Partial<Parameters<typeof CoachesClient>[0]> = {}) {
+  return render(
+    <CoachesClient
+      byWinPct={BY_WIN_PCT}
+      byAtsWinPct={BY_ATS_WIN_PCT}
+      activeByWinPct={BY_WIN_PCT}
+      activeByAtsWinPct={BY_ATS_WIN_PCT}
+      {...props}
+    />
+  )
+}
+
 function getBodyRows() {
   return screen.getAllByRole('row').slice(1) // drop header row
 }
@@ -77,7 +91,7 @@ describe('CoachesClient', () => {
   })
 
   it('renders coaches ranked by SU win% by default', () => {
-    render(<CoachesClient byWinPct={BY_WIN_PCT} byAtsWinPct={BY_ATS_WIN_PCT} />)
+    renderClient()
 
     const rows = getBodyRows()
     expect(within(rows[0]).getByText('Bob Stoops')).toBeInTheDocument()
@@ -85,7 +99,7 @@ describe('CoachesClient', () => {
   })
 
   it('switches to ATS win% ordering when the ATS tab is selected', () => {
-    render(<CoachesClient byWinPct={BY_WIN_PCT} byAtsWinPct={BY_ATS_WIN_PCT} />)
+    renderClient()
 
     fireEvent.click(screen.getByRole('button', { name: 'ATS Win%' }))
 
@@ -95,30 +109,37 @@ describe('CoachesClient', () => {
   })
 
   it('shows the partial-ATS-data note only when a coach has fewer ATS seasons than seasons coached', () => {
-    render(
-      <CoachesClient
-        byWinPct={[coach({ seasons_count: 18, seasons_with_ats_data: 10 })]}
-        byAtsWinPct={[coach({ seasons_count: 18, seasons_with_ats_data: 10 })]}
-      />
-    )
+    const partial = [coach({ seasons_count: 18, seasons_with_ats_data: 10 })]
+    renderClient({ byWinPct: partial, byAtsWinPct: partial, activeByWinPct: partial, activeByAtsWinPct: partial })
 
     expect(screen.getByText(/only available for part of this coach/)).toBeInTheDocument()
   })
 
   it('omits the partial-ATS-data note when ATS coverage matches seasons coached', () => {
-    render(
-      <CoachesClient
-        byWinPct={[coach({ seasons_count: 18, seasons_with_ats_data: 18 })]}
-        byAtsWinPct={[coach({ seasons_count: 18, seasons_with_ats_data: 18 })]}
-      />
-    )
+    const full = [coach({ seasons_count: 18, seasons_with_ats_data: 18 })]
+    renderClient({ byWinPct: full, byAtsWinPct: full, activeByWinPct: full, activeByAtsWinPct: full })
 
     expect(screen.queryByText(/only available for part of this coach/)).not.toBeInTheDocument()
   })
 
   it('renders an empty state when there are no coaches', () => {
-    render(<CoachesClient byWinPct={[]} byAtsWinPct={[]} />)
+    renderClient({ byWinPct: [], byAtsWinPct: [], activeByWinPct: [], activeByAtsWinPct: [] })
 
     expect(screen.getByText('No coach data available')).toBeInTheDocument()
+  })
+
+  it('defaults to Active scope and switches to the all-time lists on the All-time toggle', () => {
+    // Active list only contains Saban; all-time list has both.
+    renderClient({ activeByWinPct: [SABAN], activeByAtsWinPct: [SABAN] })
+
+    let rows = getBodyRows()
+    expect(rows).toHaveLength(1)
+    expect(within(rows[0]).getByText('Nick Saban')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'All-time' }))
+
+    rows = getBodyRows()
+    expect(rows).toHaveLength(2)
+    expect(within(rows[0]).getByText('Bob Stoops')).toBeInTheDocument()
   })
 })

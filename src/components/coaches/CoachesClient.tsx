@@ -22,17 +22,29 @@ function formatSeasons(first: number, last: number): string {
   return first === last ? String(first) : `${first}–${last}`
 }
 
+type CoachScope = 'active' | 'all'
+
+const SCOPE_TABS: { key: CoachScope; label: string }[] = [
+  { key: 'active', label: 'Active' },
+  { key: 'all', label: 'All-time' },
+]
+
 interface CoachesClientProps {
   byWinPct: CoachRecord[]
   byAtsWinPct: CoachRecord[]
+  activeByWinPct: CoachRecord[]
+  activeByAtsWinPct: CoachRecord[]
 }
 
-// Both orderings are fetched server-side (page.tsx); the toggle just swaps
-// which already-sorted array is displayed -- no client refetch needed.
-export function CoachesClient({ byWinPct, byAtsWinPct }: CoachesClientProps) {
+// All four sort x scope lists are fetched server-side (page.tsx); the toggles
+// just swap which already-sorted array is displayed -- no client refetch.
+export function CoachesClient({ byWinPct, byAtsWinPct, activeByWinPct, activeByAtsWinPct }: CoachesClientProps) {
   const [sortBy, setSortBy] = useState<CoachSortKey>('win_pct')
   const [selectedCoach, setSelectedCoach] = useState<SelectedCoach | null>(null)
-  const coaches = sortBy === 'win_pct' ? byWinPct : byAtsWinPct
+  const [scope, setScope] = useState<CoachScope>('active')
+  const coaches = scope === 'active'
+    ? (sortBy === 'win_pct' ? activeByWinPct : activeByAtsWinPct)
+    : (sortBy === 'win_pct' ? byWinPct : byAtsWinPct)
 
   // api.coaching_history has no coach-id column -- first_name/last_name is
   // the only join key it shares with api.coach_records (see getCoachingHistory
@@ -51,21 +63,39 @@ export function CoachesClient({ byWinPct, byAtsWinPct }: CoachesClientProps) {
 
   return (
     <div>
-      {/* Sort tabs */}
-      <div className="flex items-end gap-0 mb-0">
-        {SORT_TABS.map(({ key, label }) => (
-          <button
-            key={key}
-            onClick={() => setSortBy(key)}
-            className={`px-4 py-2 text-sm rounded-t border-b-2 transition-colors ${
-              sortBy === key
-                ? 'border-[var(--color-run)] text-[var(--text-primary)] bg-[var(--bg-surface)]'
-                : 'border-transparent text-[var(--text-muted)] hover:text-[var(--text-primary)]'
-            }`}
-          >
-            {label}
-          </button>
-        ))}
+      {/* Sort tabs + active/all-time scope toggle */}
+      <div className="flex items-end justify-between gap-2 mb-0 flex-wrap">
+        <div className="flex items-end gap-0">
+          {SORT_TABS.map(({ key, label }) => (
+            <button
+              key={key}
+              onClick={() => setSortBy(key)}
+              className={`px-4 py-2 text-sm rounded-t border-b-2 transition-colors ${
+                sortBy === key
+                  ? 'border-[var(--color-run)] text-[var(--text-primary)] bg-[var(--bg-surface)]'
+                  : 'border-transparent text-[var(--text-muted)] hover:text-[var(--text-primary)]'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        <div className="flex items-center gap-1 pb-1" role="group" aria-label="Coach scope">
+          {SCOPE_TABS.map(({ key, label }) => (
+            <button
+              key={key}
+              onClick={() => setScope(key)}
+              aria-pressed={scope === key}
+              className={`px-3 py-1 text-xs rounded-full border transition-colors ${
+                scope === key
+                  ? 'border-[var(--color-run)] text-[var(--text-primary)] bg-[var(--bg-surface)]'
+                  : 'border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--text-primary)]'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="card p-4">
