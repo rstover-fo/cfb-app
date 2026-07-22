@@ -444,7 +444,8 @@ export function registerMcpTools(server: McpServer): void {
       title: 'Get Team Leaderboard',
       description:
         'Get a ranked leaderboard of teams for a season by a chosen metric. Use for "top 10 teams by ' +
-        'EPA in 2024", "best scoring defense last season", "who led the country in wins". All metrics ' +
+        'EPA in 2024", "best scoring defense last season", "who led the country in wins". Ranks are ' +
+        'FBS-scoped (FCS teams are excluded and do not count toward rank position). All metrics ' +
         'except \'wepa\' are served from api.leaderboard_teams, which pre-computes rank columns ' +
         "(wins_rank, ppg_rank, defense_ppg_rank, epa_rank) via SQL window functions -- ties are " +
         "possible. 'wepa' (opponent-adjusted EPA) is served from the separate api.team_wepa_season " +
