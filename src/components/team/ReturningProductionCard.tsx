@@ -1,4 +1,5 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { StatBar } from '@/lib/charts/StatBar'
 import { formatPercent } from '@/lib/utils'
 import type { ReturningProduction } from '@/lib/queries/roster-context'
 
@@ -11,12 +12,12 @@ interface SplitRowProps {
   value: number | null
 }
 
-// A single labeled split row -- percentage + a simple CSS fill bar (not a
+// A single labeled split row -- percentage + a StatBar micro-bar (not a
 // roughjs chart; this is card chrome). Omits its own row entirely when the
-// split is null (zero qualifying returners for that split is common).
+// split is null (zero qualifying returners for that split is common), per
+// DESIGN.md's null rule -- StatBar itself never renders for a null value.
 function SplitRow({ label, value }: SplitRowProps) {
   if (value == null) return null
-  const pct = Math.min(100, Math.max(0, Math.round(value * 100)))
 
   return (
     <div className="space-y-1">
@@ -24,12 +25,7 @@ function SplitRow({ label, value }: SplitRowProps) {
         <span className="text-[var(--text-secondary)]">{label}</span>
         <span className="text-[var(--text-primary)] tabular-nums font-medium">{formatPercent(value)}</span>
       </div>
-      <div className="h-2 bg-[var(--bg-surface-alt)] rounded-full overflow-hidden">
-        <div
-          className="h-full rounded-full bg-[var(--color-run)]"
-          style={{ width: `${pct}%` }}
-        />
-      </div>
+      <StatBar value={Math.round(value * 100)} />
     </div>
   )
 }

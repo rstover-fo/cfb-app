@@ -1,9 +1,18 @@
 'use client'
 
+import { StatBar } from '@/lib/charts/StatBar'
 import { RecruitingROI } from '@/lib/types/database'
 
 interface RecruitingROICardProps {
   roi: RecruitingROI | null
+}
+
+// Percentile tiering for the threshold-colored bar: >=75th positive,
+// >=50th neutral, below that negative (DESIGN.md semantic token family).
+function toneForPercentile(pct: number): 'positive' | 'neutral' | 'negative' {
+  if (pct >= 75) return 'positive'
+  if (pct >= 50) return 'neutral'
+  return 'negative'
 }
 
 function PercentileBar({ label, value, percentile, format }: {
@@ -23,15 +32,7 @@ function PercentileBar({ label, value, percentile, format }: {
       </div>
       {pct !== null && (
         <div className="flex items-center gap-2">
-          <div className="flex-1 h-2 bg-[var(--bg-surface-alt)] rounded-full overflow-hidden">
-            <div
-              className="h-full rounded-full transition-all duration-300"
-              style={{
-                width: `${pct}%`,
-                backgroundColor: pct >= 75 ? 'var(--color-positive)' : pct >= 50 ? 'var(--color-run)' : 'var(--color-negative)',
-              }}
-            />
-          </div>
+          <StatBar value={pct} thresholdTone={toneForPercentile(pct)} className="flex-1" />
           <span className="text-xs text-[var(--text-muted)] w-10 text-right">{pct}th</span>
         </div>
       )}
@@ -78,13 +79,15 @@ export function RecruitingROICard({ roi }: RecruitingROICardProps) {
           <div>
             <div className="text-xs text-[var(--text-muted)] uppercase tracking-wide">Wins Over Expected</div>
             <div className={`text-2xl font-headline ${
-              roi.wins_over_expected !== null && Number(roi.wins_over_expected) >= 0
-                ? 'text-[var(--color-positive)]'
-                : 'text-[var(--color-negative)]'
+              roi.wins_over_expected === null
+                ? 'text-[var(--text-muted)]'
+                : Number(roi.wins_over_expected) >= 0
+                  ? 'text-[var(--color-positive)]'
+                  : 'text-[var(--color-negative)]'
             }`}>
               {roi.wins_over_expected !== null
                 ? (Number(roi.wins_over_expected) >= 0 ? '+' : '') + Number(roi.wins_over_expected).toFixed(1)
-                : '--'
+                : '—'
               }
             </div>
           </div>
