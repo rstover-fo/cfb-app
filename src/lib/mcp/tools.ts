@@ -18,21 +18,37 @@ import {
   type LeaderboardMetric,
   type PollSeasonType,
 } from '@/lib/queries/mcp'
+import {
+  getGamePrediction,
+  getTeamElo,
+  getTeamEloHistory,
+  getScoredMatchupEdges,
+} from '@/lib/queries/predictions'
+import { CURRENT_SEASON, PREDICTION_MODEL_VERSIONS, DEFAULT_PREDICTION_MODEL } from '@/lib/queries/constants'
 
 // ---------------------------------------------------------------------------
-// MCP v2: eight read-only tools over the cfb-database warehouse, mounted at
+// MCP v2: eleven read-only tools over the cfb-database warehouse, mounted at
 // src/app/api/[transport]/route.ts via mcp-handler's createMcpHandler.
 //
-// This is a TypeScript port of the reference Python server
+// Tools 1-8 are a TypeScript port of the reference Python server
 // (../../../cfb-database/mcp/src/cfb_mcp/server.py) -- same eight tools,
 // same argument semantics, same `_source`/count/rows JSON envelope, same
-// row caps, same friendly-string-never-throw error contract. Tool
-// implementations are exported as plain async (args) => string functions
-// (below) so they're unit-testable without spinning up the MCP transport;
-// registerMcpTools() is the only place that touches the SDK's McpServer.
+// row caps, same friendly-string-never-throw error contract. Tools 9-11
+// (get_game_prediction, get_team_elo, get_matchup_edges) are app-native
+// additions over the predictions surface (src/lib/queries/predictions.ts)
+// with no Python-server counterpart, following the same envelope and
+// never-throw conventions -- note that predictions.ts's query fns collapse
+// "no row" and "query error" into the same null/[] result (see their own
+// doc comments), so these three tools have no separate error-string branch
+// to pass through; a null/empty result always renders as either an empty
+// envelope or a friendly "not found" string, never a thrown exception.
+// Tool implementations are exported as plain async (args) => string
+// functions (below) so they're unit-testable without spinning up the MCP
+// transport; registerMcpTools() is the only place that touches the SDK's
+// McpServer.
 // ---------------------------------------------------------------------------
 
-// All eight tools are read-only, non-destructive, idempotent, and talk to an
+// All eleven tools are read-only, non-destructive, idempotent, and talk to an
 // external service (Supabase/PostgREST) -- same annotation set for every one,
 // mirroring cfb_mcp/server.py's READ_ONLY_ANNOTATIONS.
 const READ_ONLY_ANNOTATIONS = {
@@ -277,6 +293,91 @@ export async function getDataFreshnessTool(): Promise<string> {
   const result = await callDataFreshness()
   if (result.error) return result.error
   return dump(wrap('public.get_data_freshness', result.rows))
+}
+
+// ---------------------------------------------------------------------------
+// 9. get_game_prediction
+// ---------------------------------------------------------------------------
+
+export interface GetGamePredictionArgs {
+  game_id: number
+  model_version?: string
+}
+
+export async function getGamePredictionTool(args: GetGamePredictionArgs): Promise<string> {
+  const modelVersion = args.model_version ?? DEFAULT_PREDICTION_MODEL
+  const prediction = await getGamePrediction(args.game_id, modelVersion)
+
+  // getGamePrediction (src/lib/queries/predictions.ts) returns null for both
+  // "no row" and "query error" -- there is no separate error string to pass
+  // through here, so a null result always renders as this friendly string.
+  if (!prediction) {
+    return (
+      `No prediction found for game_id=${args.game_id} with model_version='${modelVersion}'. This is normal ` +
+      "if the model hasn't run for this game yet, the game_id doesn't exist, or that model_version wasn't " +
+      'written for this game.'
+    )
+  }
+
+  return dump(wrap('api.game_predictions', [prediction]))
+}
+
+// ---------------------------------------------------------------------------
+// 10. get_team_elo
+// ---------------------------------------------------------------------------
+
+export interface GetTeamEloArgs {
+  team: string
+  season?: number
+}
+
+export async function getTeamEloTool(args: GetTeamEloArgs): Promise<string> {
+  const season = args.season ?? CURRENT_SEASON
+
+  // Fetched in parallel: season-end summary (api.team_elo, at most one row)
+  // and the full game-by-game trajectory (api.game_elo_history). Both fns
+  // collapse "no row"/"query error" to null/[] -- see predictions.ts.
+  const [elo, history] = await Promise.all([
+    getTeamElo(args.team, season),
+    getTeamEloHistory(args.team, season),
+  ])
+
+  if (!elo && history.length === 0) {
+    return `No Elo data found for '${args.team}' in ${season}. Check the team name (exact, case-sensitive) and season.`
+  }
+
+  return dump({
+    elo: wrap('api.team_elo', elo ? [elo] : []),
+    history: wrap('api.game_elo_history', history),
+  })
+}
+
+// ---------------------------------------------------------------------------
+// 11. get_matchup_edges
+// ---------------------------------------------------------------------------
+
+const MATCHUP_EDGES_DEFAULT_LIMIT = 25
+const MATCHUP_EDGES_MAX_LIMIT = 100
+
+export interface GetMatchupEdgesArgs {
+  season?: number
+  week?: number
+  model_version?: string
+  limit?: number
+}
+
+export async function getMatchupEdgesTool(args: GetMatchupEdgesArgs): Promise<string> {
+  const season = args.season ?? CURRENT_SEASON
+  const modelVersion = args.model_version ?? DEFAULT_PREDICTION_MODEL
+  const limit = Math.min(Math.max(args.limit ?? MATCHUP_EDGES_DEFAULT_LIMIT, 1), MATCHUP_EDGES_MAX_LIMIT)
+
+  const edges = await getScoredMatchupEdges(season, args.week, modelVersion)
+
+  // getScoredMatchupEdges is deliberately not empty-guarded (see
+  // predictions.ts) -- an empty slate is a normal off-season/post-lock-in
+  // state, not an error, so this always returns the envelope (possibly with
+  // count: 0) rather than a "No ... found" string.
+  return dump(wrap('api.scored_matchup_edges', edges.slice(0, limit)))
 }
 
 // ---------------------------------------------------------------------------
@@ -561,5 +662,123 @@ export function registerMcpTools(server: McpServer): void {
       annotations: { title: 'Get Data Freshness', ...READ_ONLY_ANNOTATIONS },
     },
     async () => textResult(await getDataFreshnessTool())
+  )
+
+  server.registerTool(
+    'get_game_prediction',
+    {
+      title: 'Get Game Prediction',
+      description:
+        'Get the house model\'s prediction for a single game, plus how it stacks up against the market ' +
+        'line. Use for "what does the model predict for the Oklahoma vs Texas game", "is there value on ' +
+        'this line", "how confident is the model in this matchup". Backed by api.game_predictions, which ' +
+        'is already latest-snapshot per (game_id, model_version) -- at most one row. Two model versions ' +
+        "are written per game: 'elo_v1' (Elo rating differential only) and 'elo_epa_blend_v1' (default -- " +
+        'blends Elo with recent EPA form); home_win_prob is Elo-only in BOTH versions, so only ' +
+        'expected_home_margin changes between them. `edge` = expected_home_margin + market_spread: a ' +
+        'positive edge means the model favors the home team more than the market does (vs. the number); a ' +
+        'negative edge means the model favors the away team relative to the market. market_provider, ' +
+        'market_spread, market_home_margin, market_captured_at, edge, and edge_pick are all null when no ' +
+        'betting line has been posted for this game -- that is a normal state (e.g. very early in the week, ' +
+        'or a game with no market coverage), not an error. Returns JSON {"_source": "api.game_predictions", ' +
+        '"count", "rows"} with at most one row, or a friendly "No prediction found..." string if the model ' +
+        "hasn't run for this game_id/model_version combination or the game_id doesn't exist.",
+      inputSchema: {
+        game_id: z
+          .number()
+          .int()
+          .describe('The game_id to fetch a prediction for (same id as api.game_detail/api.game_predictions).'),
+        model_version: z
+          .enum(PREDICTION_MODEL_VERSIONS)
+          .optional()
+          .describe(
+            `Which model version to fetch. Defaults to '${DEFAULT_PREDICTION_MODEL}' (Elo + recent-EPA ` +
+              "blend). 'elo_v1' is Elo-only; home_win_prob is identical between versions, only " +
+              'expected_home_margin (and therefore edge) differs.'
+          ),
+      },
+      annotations: { title: 'Get Game Prediction', ...READ_ONLY_ANNOTATIONS },
+    },
+    async args => textResult(await getGamePredictionTool(args))
+  )
+
+  server.registerTool(
+    'get_team_elo',
+    {
+      title: 'Get Team Elo',
+      description:
+        'Get a team\'s season-end Elo rating/rank plus its full game-by-game Elo trajectory for a season. ' +
+        'Use for "how strong is Oklahoma by Elo this year", "show Oklahoma\'s Elo trend through the ' +
+        'season", "was this team\'s rating built on a small sample". Combines api.team_elo (season-end ' +
+        'summary: season_end_elo, elo_rank, games_played, a low_confidence flag, and cfbd_elo as a ' +
+        'cross-check against CFBD\'s own published Elo -- at most one row) and api.game_elo_history (one ' +
+        "row per game the team played that season: pregame -> postgame Elo, opponent, home/away, and the " +
+        "team's own win probability for that game, ordered by start_date ascending). low_confidence=true " +
+        'means the season-end rating rests on too few games to be reliable (e.g. an incomplete or just-' +
+        "started season) -- treat it as a caveat, not a data error. Team names must match CFBD's exact, " +
+        'case-sensitive convention. `season` defaults to the current season if omitted. Returns JSON with ' +
+        '"elo" and "history" keys, each {"_source", "count", "rows"} ("elo".rows has 0 or 1 entries), or a ' +
+        'friendly "No Elo data found..." string if the team/season combination has no coverage at all.',
+      inputSchema: {
+        team: z.string().describe("Exact school name as used by CFBD, e.g. 'Oklahoma'. Case-sensitive."),
+        season: z
+          .number()
+          .int()
+          .optional()
+          .describe(`Season year, e.g. 2024. Defaults to the current season (${CURRENT_SEASON}) if omitted.`),
+      },
+      annotations: { title: 'Get Team Elo', ...READ_ONLY_ANNOTATIONS },
+    },
+    async args => textResult(await getTeamEloTool(args))
+  )
+
+  server.registerTool(
+    'get_matchup_edges',
+    {
+      title: 'Get Matchup Edges',
+      description:
+        'Get the scored slate of upcoming games where the house model\'s prediction diverges most from the ' +
+        'market line, ranked by conviction. Use for "which games have the biggest edge this week", "where ' +
+        'does the model disagree with Vegas", "best value on the board". Backed by ' +
+        'api.scored_matchup_edges (upcoming/scheduled games only -- a game drops off this view once it ' +
+        "completes), ordered by abs_edge descending (biggest model-vs-market disagreement first; rows with " +
+        'no posted market line have a null edge and sort last, but are still included, not filtered out). ' +
+        '`edge` = expected_home_margin + market_spread: positive favors the home team vs. the market, ' +
+        'negative favors the away team. Two model versions are written per game; pass `model_version` ' +
+        `explicitly to pin one, otherwise the default blended model ('${DEFAULT_PREDICTION_MODEL}') is used. ` +
+        'IMPORTANT: this view only ever contains games that have not yet been played, so during the ' +
+        'off-season, or after a season\'s full slate has already locked in and completed, an EMPTY result ' +
+        '({"count": 0, "rows": []}) is the expected, correct response -- not an error and not a sign the ' +
+        'query is broken. Returns JSON {"_source": "api.scored_matchup_edges", "count", "rows"}, sliced to ' +
+        'at most `limit` rows (default 25, hard-capped at 100) after sorting by conviction.',
+      inputSchema: {
+        season: z
+          .number()
+          .int()
+          .optional()
+          .describe(`Season year, e.g. 2024. Defaults to the current season (${CURRENT_SEASON}) if omitted.`),
+        week: z
+          .number()
+          .int()
+          .optional()
+          .describe('Restrict to a single week. Omit to get the full season slate (subject to `limit`).'),
+        model_version: z
+          .enum(PREDICTION_MODEL_VERSIONS)
+          .optional()
+          .describe(`Which model version to score edges against. Defaults to '${DEFAULT_PREDICTION_MODEL}'.`),
+        limit: z
+          .number()
+          .int()
+          .min(1)
+          .max(MATCHUP_EDGES_MAX_LIMIT)
+          .optional()
+          .describe(
+            `Max rows to return, taken from the top of the abs_edge-sorted slate. Default ` +
+              `${MATCHUP_EDGES_DEFAULT_LIMIT}, hard-capped at ${MATCHUP_EDGES_MAX_LIMIT}.`
+          ),
+      },
+      annotations: { title: 'Get Matchup Edges', ...READ_ONLY_ANNOTATIONS },
+    },
+    async args => textResult(await getMatchupEdgesTool(args))
   )
 }
