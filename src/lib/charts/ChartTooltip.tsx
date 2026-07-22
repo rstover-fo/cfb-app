@@ -1,6 +1,6 @@
 'use client'
 
-import type { CSSProperties } from 'react'
+import type { CSSProperties, ReactNode } from 'react'
 
 export type SwatchKind = 'solid' | 'dashed'
 
@@ -33,6 +33,13 @@ export interface ChartTooltipRow {
 export interface ChartTooltipProps {
   /** Headline for the hovered/focused selection (e.g. the season or week). */
   header?: string
+  /**
+   * Optional raster/icon adornment rendered inline before the header text
+   * (e.g. the hovered team's logo on dense scatter surfaces). Only renders
+   * when `header` is set; must fit the header line (~1.25rem square) so the
+   * reserved height stays exact.
+   */
+  headerAdornment?: ReactNode
   /** Detail rows for the current selection; empty = idle, shows `prompt`. */
   rows: ChartTooltipRow[]
   /** Muted one-liner shown when nothing is hovered/focused. */
@@ -47,7 +54,7 @@ export interface ChartTooltipProps {
  * in-SVG crosshair / row-highlight / accent-ring selection indicator.
  * Never floating, never cursor-following, never SVG text.
  */
-export function ChartTooltip({ header, rows, prompt, minRows }: ChartTooltipProps) {
+export function ChartTooltip({ header, headerAdornment, rows, prompt, minRows }: ChartTooltipProps) {
   // Reserved height = p-3 (2 x 0.75rem) + header line (text-base 1.5rem +
   // mb-2 0.5rem) + minRows rows (text-sm 1.25rem each + space-y-1 gaps).
   const minHeight = `${1.5 + 2 + minRows * 1.25 + Math.max(0, minRows - 1) * 0.25}rem`
@@ -63,7 +70,10 @@ export function ChartTooltip({ header, rows, prompt, minRows }: ChartTooltipProp
       ) : (
         <>
           {header && (
-            <p className="font-headline text-base text-[var(--text-primary)] mb-2">{header}</p>
+            <p className="font-headline text-base text-[var(--text-primary)] mb-2 flex items-center gap-2">
+              {headerAdornment}
+              {header}
+            </p>
           )}
           <div className="space-y-1">
             {rows.map((row, i) => {

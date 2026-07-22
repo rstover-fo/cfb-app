@@ -7,6 +7,7 @@ afterEach(() => {
   document.documentElement.removeAttribute('style')
   document.documentElement.removeAttribute('class')
   document.documentElement.removeAttribute('data-theme')
+  document.documentElement.removeAttribute('data-team-theme')
 })
 
 describe('resolveColor', () => {
@@ -69,6 +70,24 @@ describe('useChartTheme', () => {
 
     rafSpy.mockRestore()
     vi.useRealTimers()
+  })
+
+  it('fires the callback when data-team-theme flips (accent-token re-skin)', async () => {
+    const rafSpy = vi.spyOn(window, 'requestAnimationFrame').mockImplementation(cb => {
+      cb(0)
+      return 0
+    })
+    const onThemeChange = vi.fn()
+
+    renderHook(() => useChartTheme(onThemeChange))
+
+    // Team theming rewrites the --accent* tokens some charts bake into
+    // rough ink (accent selection rings), so it must trigger a redraw too.
+    document.documentElement.setAttribute('data-team-theme', 'ou')
+
+    await vi.waitFor(() => expect(onThemeChange).toHaveBeenCalledTimes(1))
+
+    rafSpy.mockRestore()
   })
 
   it('fires the callback when the class attribute changes', async () => {

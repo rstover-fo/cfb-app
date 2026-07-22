@@ -605,25 +605,18 @@ export function ScatterPlotClient({ teams, metrics, styles, havoc, tempo, record
         </div>
       </div>
 
-      {/* Scatter Plot */}
-      <div className="card p-6">
-        {plotData.length > 0 ? (
-          <ScatterPlot
-            data={plotData}
-            xLabel={activeOption.xLabel}
-            yLabel={activeOption.yLabel}
-            xInvert={activeOption.xInvert}
-            yInvert={activeOption.yInvert}
-            quadrantLabels={activeOption.quadrantLabels}
-            showLogos={showLogos}
-            highlightedTeamId={highlightedTeamId}
-          />
-        ) : (
-          <div className="text-center py-20 text-[var(--text-muted)]">
-            No data available for this plot type.
-          </div>
-        )}
-      </div>
+      {/* Scatter Plot -- no card wrapper: ScatterPlot brings its own
+          ChartFrame shell and framed EmptyState when plotData is empty. */}
+      <ScatterPlot
+        data={plotData}
+        xLabel={activeOption.xLabel}
+        yLabel={activeOption.yLabel}
+        xInvert={activeOption.xInvert}
+        yInvert={activeOption.yInvert}
+        quadrantLabels={activeOption.quadrantLabels}
+        showLogos={showLogos}
+        highlightedTeamId={highlightedTeamId}
+      />
 
       {/* Legend */}
       <div className="mt-4 text-xs text-[var(--text-muted)]">

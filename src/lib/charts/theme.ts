@@ -56,10 +56,11 @@ export function resolveHeatColor(level: HeatLevel): string {
  * Colors resolved via `resolveColor` are baked into concrete strings at
  * draw time, so roughjs elements don't pick up CSS variable changes on
  * their own when the theme flips. This watches for the `class`/`data-theme`
- * mutations the theme toggle makes on `<html>` (document.documentElement)
- * and re-runs the draw callback (via requestAnimationFrame, so the browser
- * has applied the new styles before colors are re-resolved) so charts
- * redraw with the new palette.
+ * mutations the theme toggle makes on `<html>` (document.documentElement) --
+ * plus `data-team-theme`, which re-skins the `--accent*` tokens some charts
+ * use as rough ink (accent selection rings) -- and re-runs the draw callback
+ * (via requestAnimationFrame, so the browser has applied the new styles
+ * before colors are re-resolved) so charts redraw with the new palette.
  */
 export function useChartTheme(onThemeChange: () => void): void {
   useEffect(() => {
@@ -68,7 +69,7 @@ export function useChartTheme(onThemeChange: () => void): void {
     })
     observer.observe(document.documentElement, {
       attributes: true,
-      attributeFilter: ['class', 'data-theme'],
+      attributeFilter: ['class', 'data-theme', 'data-team-theme'],
     })
     return () => observer.disconnect()
   }, [onThemeChange])

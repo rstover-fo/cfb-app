@@ -58,6 +58,36 @@ describe('ChartTooltip', () => {
     expect(dashedSwatch.style.backgroundImage).toContain('repeating-linear-gradient')
   })
 
+  it('renders an optional headerAdornment inline before the header text', () => {
+    render(
+      <ChartTooltip
+        header="Georgia"
+        headerAdornment={<span data-testid="team-logo" className="w-5 h-5" />}
+        rows={[{ label: 'EPA per Play:', value: '0.245' }]}
+        prompt="Hover a team for details"
+        minRows={2}
+      />,
+    )
+
+    const header = screen.getByText('Georgia')
+    expect(header.className).toContain('font-headline')
+    // Adornment renders inside the header line, before the text.
+    expect(header).toContainElement(screen.getByTestId('team-logo'))
+  })
+
+  it('does not render a headerAdornment without a header', () => {
+    render(
+      <ChartTooltip
+        headerAdornment={<span data-testid="team-logo" className="w-5 h-5" />}
+        rows={[{ label: 'EPA per Play:', value: '0.245' }]}
+        prompt="Hover a team for details"
+        minRows={2}
+      />,
+    )
+
+    expect(screen.queryByTestId('team-logo')).not.toBeInTheDocument()
+  })
+
   it('renders muted caption rows with an empty spacer swatch', () => {
     render(
       <ChartTooltip
