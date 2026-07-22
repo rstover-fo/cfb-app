@@ -207,10 +207,10 @@ describe('getStatLeaders', () => {
   // opp_epa_per_play rides on defensive_havoc, NOT team_epa_season -- see
   // getStatLeaders: selecting it from team_epa_season would 400 the query.
   const havocRows = [
-    { team: 'Oklahoma', havoc_rate: 0.18, opp_epa_per_play: -0.05 },
-    { team: 'Texas', havoc_rate: 0.22, opp_epa_per_play: -0.18 },
-    { team: 'Alabama', havoc_rate: 0.1, opp_epa_per_play: 0.02 },
-    { team: 'Nobody State', havoc_rate: 0.5, opp_epa_per_play: -0.9 },
+    { team: 'Oklahoma', havoc_rate: 0.18, opp_epa_per_play: -0.05, front_seven_havoc_rate: 0.12, db_havoc_rate: 0.06 },
+    { team: 'Texas', havoc_rate: 0.22, opp_epa_per_play: -0.18, front_seven_havoc_rate: 0.15, db_havoc_rate: 0.07 },
+    { team: 'Alabama', havoc_rate: 0.1, opp_epa_per_play: 0.02, front_seven_havoc_rate: 0.08, db_havoc_rate: 0.02 },
+    { team: 'Nobody State', havoc_rate: 0.5, opp_epa_per_play: -0.9, front_seven_havoc_rate: 0.3, db_havoc_rate: 0.2 },
   ]
 
   it('excludes teams absent from the FBS team lookup', async () => {

@@ -16,7 +16,12 @@ export type Team = Database['public']['Views']['teams_with_logos']['Row']
 export type TeamSeasonEpa = Database['public']['Views']['team_epa_season']['Row']
 export type TeamStyleProfile = Database['public']['Views']['team_style_profile']['Row']
 export type TeamSeasonTrajectory = Database['public']['Views']['team_season_trajectory']['Row']
-export type DefensiveHavoc = Database['public']['Views']['defensive_havoc']['Row']
+export type DefensiveHavocBase = Database['public']['Views']['defensive_havoc']['Row']
+// Extend DefensiveHavoc with new columns added 2026-07-19 not yet in generated types
+export interface DefensiveHavoc extends DefensiveHavocBase {
+  front_seven_havoc_rate: number | null
+  db_havoc_rate: number | null
+}
 export type TeamTempoMetrics = Database['public']['Views']['team_tempo_metrics']['Row']
 export type TeamSpecialTeamsSos = Database['public']['Views']['team_special_teams_sos']['Row']
 export type RosterPlayer = Database['public']['Views']['roster']['Row']
