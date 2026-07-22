@@ -1,6 +1,6 @@
 import { cache } from 'react'
 import { createClient } from '@/lib/supabase/server'
-import { getTeamLookup } from './shared'
+import { getTeamLookup, quoteFilterValue } from './shared'
 import { REGULAR_SEASON_MAX_WEEK, POSTSEASON_MIN_WEEK } from './constants'
 import type { GameBoxScore, BoxScoreTeam, PlayerLeaders, TeamLeaders, LineScores, GameDrive, GamePlay, GameWinProbability, GameRecap } from '@/lib/types/database'
 import type { ApiSchema } from '@/lib/types/api.generated'
@@ -79,7 +79,8 @@ export const getGames = cache(async (filter: GamesFilter): Promise<GameWithTeams
 
   // Team filter at database level
   if (filter.team) {
-    query = query.or(`home_team.eq.${filter.team},away_team.eq.${filter.team}`)
+    const quoted = quoteFilterValue(filter.team)
+    query = query.or(`home_team.eq."${quoted}",away_team.eq."${quoted}"`)
   }
 
   const { data, error } = await query

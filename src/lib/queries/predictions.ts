@@ -13,6 +13,7 @@
 import { cache } from 'react'
 import { createClient } from '@/lib/supabase/server'
 import { DEFAULT_PREDICTION_MODEL } from './constants'
+import { quoteFilterValue } from './shared'
 // NOTE: the memo's module-header sketch (Section 2) imports `ApiSchema` here
 // for the `Pick<ApiSchema[...]>` pattern, but per that same section that
 // pattern only applies "where everything stays nullable" (like games.ts's
@@ -179,7 +180,7 @@ export const getTeamEloHistory = cache(async (team: string, season: number): Pro
     .from('game_elo_history')
     .select('game_id, week, season_type, start_date, home_team, away_team, home_pregame_elo, away_pregame_elo, home_postgame_elo, away_postgame_elo, home_win_prob')
     .eq('season', season)
-    .or(`home_team.eq.${team},away_team.eq.${team}`)
+    .or(`home_team.eq."${quoteFilterValue(team)}",away_team.eq."${quoteFilterValue(team)}"`)
     .order('start_date', { ascending: true })
 
   if (error || !data) return []

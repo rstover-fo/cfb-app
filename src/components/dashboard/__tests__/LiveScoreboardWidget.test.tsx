@@ -132,8 +132,22 @@ describe('LiveScoreboardWidget', () => {
     expect(mockFetchLiveScoreboard).not.toHaveBeenCalled()
   })
 
-  it('does not poll when the game list is empty', async () => {
+  it('polls when visible with an empty slate so games appear once posted', async () => {
     vi.setSystemTime(IN_SEASON_SATURDAY)
+    mockFetchLiveScoreboard.mockResolvedValue([inProgress])
+
+    render(<LiveScoreboardWidget initialGames={[]} />)
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5 * 60 * 1000)
+    })
+
+    expect(mockFetchLiveScoreboard).toHaveBeenCalledTimes(1)
+    expect(screen.getByText(/Q2/)).toBeInTheDocument()
+  })
+
+  it('does not poll when gated off (not a live window, no rows)', async () => {
+    vi.setSystemTime(OFF_SEASON_TUESDAY)
 
     render(<LiveScoreboardWidget initialGames={[]} />)
 

@@ -154,7 +154,10 @@ export function LiveScoreboardWidget({ initialGames }: LiveScoreboardWidgetProps
   const hasNonFinalRows = games.some((game) => !isFinalStatus(game.status))
 
   useEffect(() => {
-    if (!visible || games.length === 0 || !hasNonFinalRows) return
+    // Poll while visible unless the slate is complete (rows exist and all are
+    // final). An empty slate on a visible gameday must keep polling so games
+    // appear once the warehouse's Saturday poller writes them.
+    if (!visible || (games.length > 0 && !hasNonFinalRows)) return
 
     const id = setInterval(() => {
       fetchLiveScoreboard()

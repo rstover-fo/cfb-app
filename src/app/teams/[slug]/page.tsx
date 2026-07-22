@@ -4,6 +4,7 @@ import { cookies } from 'next/headers'
 import { Team, TeamSeasonEpa, TeamStyleProfile, TeamSeasonTrajectory, DrivePattern, DownDistanceSplit, TrajectoryAverages, RedZoneSplit, FieldPositionSplit, HomeAwaySplit, ConferenceSplit, RosterPlayer, PlayerSeasonStat, Game, ScheduleGame, RecruitingClassHistory, RecruitingROI, Signee, PortalActivity } from '@/lib/types/database'
 import { TeamPageClient } from '@/components/team/TeamPageClient'
 import { CURRENT_SEASON } from '@/lib/queries/constants'
+import { quoteFilterValue } from '@/lib/queries/shared'
 import { TEAM_THEME_COOKIE, parseTeamThemeCookie, themeConfigForSlug } from '@/lib/theme/team-theme'
 import { getTeamElo, getTeamEloHistory, getTeamAts } from '@/lib/queries/predictions'
 import { getPlaycallingProfile, getTeamWeekFeatures } from '@/lib/queries/playcalling'
@@ -134,11 +135,13 @@ export default async function TeamPage({ params, searchParams }: TeamPageProps) 
   })
   const playerStats = playerStatsResult.error ? null : (playerStatsResult.data as PlayerSeasonStat[] | null)
 
-  // Fetch schedule
+  // Fetch schedule. team.school is non-null in practice (the team was
+  // resolved by slugifying school), but the view types it nullable.
+  const quotedSchool = quoteFilterValue(team.school ?? '')
   const scheduleResult = await supabase
     .from('games')
     .select('*')
-    .or(`home_team.eq.${team.school},away_team.eq.${team.school}`)
+    .or(`home_team.eq."${quotedSchool}",away_team.eq."${quotedSchool}"`)
     .eq('season', currentSeason)
     .order('week')
 

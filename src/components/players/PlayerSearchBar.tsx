@@ -20,6 +20,10 @@ export function PlayerSearchBar() {
 
   const search = useCallback(async (searchQuery: string) => {
     if (searchQuery.trim().length < 2) {
+      // Invalidate any in-flight search so its late response can't pass the
+      // stale-response guard and reopen results for the cleared query.
+      searchIdRef.current++
+      setIsSearching(false)
       setResults([])
       setIsOpen(false)
       return

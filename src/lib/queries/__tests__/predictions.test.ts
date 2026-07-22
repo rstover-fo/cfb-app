@@ -164,6 +164,22 @@ describe('getTeamEloHistory', () => {
     expect(awayGame.team_win_prob).toBeCloseTo(0.62)
   })
 
+  it('double-quotes team names in the or() filter so reserved characters stay literal', async () => {
+    // "Miami (OH)" -- parens/commas are structural in PostgREST or-syntax;
+    // unquoted they corrupt the filter and silently return zero rows.
+    const mock = createSupabaseMock({ apiTables: { game_elo_history: ok([]) } })
+    vi.mocked(createClient).mockResolvedValue(
+      mock as unknown as Awaited<ReturnType<typeof createClient>>
+    )
+
+    await getTeamEloHistory('Miami (OH)', 2025)
+
+    const chain = mock.schema.mock.results[0].value.from.mock.results[0].value
+    expect(chain.or).toHaveBeenCalledWith(
+      'home_team.eq."Miami (OH)",away_team.eq."Miami (OH)"'
+    )
+  })
+
   it('drops rows where the team\'s pregame or postgame Elo is null', async () => {
     mockClient({ apiTables: { game_elo_history: ok(createTeamEloHistoryRows()) } })
 
