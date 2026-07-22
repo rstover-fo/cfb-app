@@ -146,12 +146,27 @@ export function LineMovementChart({ points, homeTeam, awayTeam, modelMargin }: L
     }))
 
     const uniqueTimes = Array.from(new Set(times)).sort((a, b) => a - b)
-    const xTickTimes =
+    const sampledTickTimes =
       uniqueTimes.length <= MAX_X_TICKS
         ? uniqueTimes
         : Array.from({ length: MAX_X_TICKS }, (_, i) =>
             uniqueTimes[Math.round((i / (MAX_X_TICKS - 1)) * (uniqueTimes.length - 1))]
           )
+
+    // Pixel-space thinning: index-even sampling can still land two date
+    // labels nearly on top of each other when snapshots cluster in time
+    // (e.g. captures a few hours apart across midnight). Keep-the-later so
+    // the axis always ends on the most recent snapshot.
+    const MIN_TICK_GAP = 48 // ~width of a "Oct 10" text-xs label + breathing room
+    const xTickTimes: number[] = []
+    for (const t of sampledTickTimes) {
+      const last = xTickTimes[xTickTimes.length - 1]
+      if (last === undefined || getX(t) - getX(last) >= MIN_TICK_GAP) {
+        xTickTimes.push(t)
+      } else {
+        xTickTimes[xTickTimes.length - 1] = t
+      }
+    }
 
     // Hover band boundaries: midpoints between consecutive unique snapshots.
     const hoverBands = uniqueTimes.map((t, i) => {

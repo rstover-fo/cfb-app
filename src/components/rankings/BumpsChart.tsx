@@ -150,6 +150,25 @@ export function BumpsChart({ data, poll, onTeamClick }: BumpsChartProps) {
       }
     })
 
+    // Right-edge label collision pass: a team that fell out of the poll
+    // keeps its label at its last-held rank, colliding with the label of
+    // the team currently holding that rank (real AP data ties several
+    // final positions this way). Greedy top-down dodge with a minimum
+    // vertical gap, then a bottom-up clamp back inside the plot.
+    const MIN_LABEL_GAP = 13 // text-xs line, ~12px glyphs + 1px breathing room
+    const byLabelY = [...teamGeometries].sort((a, b) => a.labelY - b.labelY)
+    for (let i = 1; i < byLabelY.length; i++) {
+      if (byLabelY[i].labelY - byLabelY[i - 1].labelY < MIN_LABEL_GAP) {
+        byLabelY[i].labelY = byLabelY[i - 1].labelY + MIN_LABEL_GAP
+      }
+    }
+    const maxLabelY = HEIGHT - PADDING.bottom
+    for (let i = byLabelY.length - 1; i >= 0; i--) {
+      const limit =
+        i === byLabelY.length - 1 ? maxLabelY : byLabelY[i + 1].labelY - MIN_LABEL_GAP
+      if (byLabelY[i].labelY > limit) byLabelY[i].labelY = limit
+    }
+
     // Axis ticks: rank rows on the left, weeks along the bottom gutter
     const yTicks = RANK_TICKS.map(rank => ({ pct: (rank - 1) / 24, val: rank }))
     const step = weekNumbers.length > 10 ? 2 : 1

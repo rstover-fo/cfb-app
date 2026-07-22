@@ -387,15 +387,17 @@ export function DrivePatterns({ offenseDrives, defenseDrives, teamName }: DriveP
         {/* Field with Bars -- decorative: the "View drive data as table" details below is
             the accessible equivalent of everything plotted here. */}
         <FootballField ref={svgRef} width={FIELD_WIDTH} height={FIELD_HEIGHT} id="drive-patterns" decorative>
-          {/* Lane labels -- static scaffold, var() refs flip natively with theme */}
+          {/* Lane labels -- static scaffold. Field-line ink, not outcome
+              color: semantic tokens are illegible on the always-dark field
+              green; the outcome filter chips above carry the color key. */}
           {lanes.map(lane => (
             <text
               key={lane.outcome}
               x={4}
               y={lane.y + 12}
-              fill={OUTCOME_COLORS[lane.outcome] ?? CHART_INK.muted}
+              fill="var(--field-line)"
               fontSize={10}
-              opacity={0.7}
+              opacity={0.75}
             >
               {OUTCOME_LABELS[lane.outcome] || lane.outcome}
             </text>

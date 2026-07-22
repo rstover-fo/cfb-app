@@ -20,7 +20,10 @@ interface MomentumChartProps {
 
 const WIDTH = 700
 const HEIGHT = 350
-const MARGIN = { top: 30, right: 30, bottom: 50, left: 60 }
+// Right padding wider than the canonical 30 (spec §9) to fit the home/away
+// name labels drawn at the plot's right edge -- documented deviation, same
+// reason as WinProbabilityChart's gutter.
+const MARGIN = { top: 30, right: 56, bottom: 50, left: 60 }
 const PLOT_WIDTH = WIDTH - MARGIN.left - MARGIN.right
 const PLOT_HEIGHT = HEIGHT - MARGIN.top - MARGIN.bottom
 const NUM_QUARTERS = 4
@@ -247,14 +250,16 @@ export function MomentumChart({ drives: _drives, lineScores, game }: MomentumCha
             <g ref={roughGroupRef} data-testid="rough-layer" />
 
             {/* Team axis labels -- static ink tokens, not raw team hex, per
-                spec §6 (team color is rough-draw-only). */}
+                spec §6 (team color is rough-draw-only). Last word only, like
+                WinProbabilityChart's gutter labels: full names overflow the
+                viewBox and clip mid-glyph. */}
             <text
               x={WIDTH - MARGIN.right + 4}
               y={MARGIN.top + 10}
               textAnchor="start"
               className="fill-[var(--text-primary)] text-xs"
             >
-              {game.home_team}
+              {game.home_team?.split(' ').pop()}
             </text>
             <text
               x={WIDTH - MARGIN.right + 4}
@@ -262,7 +267,7 @@ export function MomentumChart({ drives: _drives, lineScores, game }: MomentumCha
               textAnchor="start"
               className="fill-[var(--text-muted)] text-xs"
             >
-              {game.away_team}
+              {game.away_team?.split(' ').pop()}
             </text>
           </svg>
 

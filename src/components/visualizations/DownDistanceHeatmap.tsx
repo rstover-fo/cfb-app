@@ -118,7 +118,7 @@ export function DownDistanceHeatmap({ data, side, title }: DownDistanceHeatmapPr
                       : `${downLabel(down)} and ${bucket}: No data`
                   }
                 >
-                  {hasData && (
+                  {hasData ? (
                     <span className="flex flex-col items-center">
                       <span className="text-xs font-medium tabular-nums text-[var(--text-primary)]">
                         {(cellData.success_rate * 100).toFixed(0)}%
@@ -127,6 +127,9 @@ export function DownDistanceHeatmap({ data, side, title }: DownDistanceHeatmapPr
                         {cellData.play_count}
                       </span>
                     </span>
+                  ) : (
+                    // House null placeholder (DESIGN.md): em dash, muted
+                    <span className="text-xs text-[var(--text-muted)]">&mdash;</span>
                   )}
                 </button>
               )

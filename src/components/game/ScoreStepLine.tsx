@@ -125,6 +125,23 @@ export function ScoreStepLine({ drives, lineScores, game }: ScoreStepLineProps) 
   const scoringEvents = useMemo(() => events.filter((_, i) => i > 0 && i < events.length - 1), [events])
   const isEmpty = scoringEvents.length === 0
 
+  // Score annotations thin by pixel distance: back-to-back scores (a quick
+  // TD off a turnover, late-game trades) otherwise overprint each other.
+  // Scan right-to-left so the latest score in a cluster keeps its label.
+  const labeledEvents = useMemo(() => {
+    const MIN_LABEL_GAP_X = 36 // ~width of a "34-10" text-xs annotation
+    const kept: ScoreEvent[] = []
+    let lastKeptX = Infinity
+    for (let i = scoringEvents.length - 1; i >= 0; i--) {
+      const x = xScale(scoringEvents[i].gameMinute)
+      if (lastKeptX - x >= MIN_LABEL_GAP_X) {
+        kept.unshift(scoringEvents[i])
+        lastKeptX = x
+      }
+    }
+    return kept
+  }, [scoringEvents])
+
   // Y-axis ticks
   const yTicks = useMemo(() => {
     const step = maxScore <= 14 ? 7 : 14
@@ -286,8 +303,8 @@ export function ScoreStepLine({ drives, lineScores, game }: ScoreStepLineProps) 
               </text>
             ))}
 
-            {/* Score labels at scoring events */}
-            {scoringEvents.map((event, i) => {
+            {/* Score labels at scoring events (thinned by pixel distance) */}
+            {labeledEvents.map((event, i) => {
               const x = xScale(event.gameMinute)
               const topScore = Math.max(event.homeScore, event.awayScore)
               const labelY = yScale(topScore, maxScore) - 10

@@ -8,6 +8,8 @@ import { inkFor } from '@/lib/charts/series'
 import { ChartFrame } from '@/lib/charts/ChartFrame'
 import { ChartTooltip } from '@/lib/charts/ChartTooltip'
 import type { ChartTooltipRow } from '@/lib/charts/ChartTooltip'
+import { ChartLegend } from '@/lib/charts/ChartLegend'
+import type { ChartLegendItem } from '@/lib/charts/ChartLegend'
 import { gridLinesY, axisLabelsY, axisLabelsX } from '@/lib/charts/axes'
 import type { ChartLayout } from '@/lib/charts/axes'
 import type { TeamEloGamePoint } from '@/lib/queries/predictions'
@@ -141,6 +143,13 @@ export function EloHistoryChart({ history, teamName }: EloHistoryChartProps) {
     }
   }
 
+  // Dot-color key: game dots ink positive on wins, negative on losses --
+  // without a legend that encoding is invisible until first hover.
+  const legendItems: ChartLegendItem[] = [
+    { key: 'win', label: 'Win', swatch: 'solid', color: 'var(--color-positive)' },
+    { key: 'loss', label: 'Loss', swatch: 'solid', color: 'var(--color-negative)' },
+  ]
+
   return (
     <ChartFrame
       ariaLabel={ariaLabel}
@@ -210,6 +219,8 @@ export function EloHistoryChart({ history, teamName }: EloHistoryChartProps) {
               prompt="Hover a game for details"
               minRows={3}
             />
+
+            <ChartLegend items={legendItems} />
           </>
         )
       }}

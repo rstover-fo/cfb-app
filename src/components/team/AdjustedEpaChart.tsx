@@ -151,7 +151,8 @@ export function AdjustedEpaChart({ features, teamName }: AdjustedEpaChartProps) 
   if (hoveredWeek) {
     if (hoveredWeek.off_epa_per_play !== null) {
       tooltipRows.push({
-        swatch: 'dashed', color: 'var(--text-muted)', label: 'Raw:',
+        // Solid swatch: the raw line draws as a solid muted stroke, not dashed
+        swatch: 'solid', color: 'var(--text-muted)', label: 'Raw:',
         value: hoveredWeek.off_epa_per_play.toFixed(3),
       })
     }
@@ -167,7 +168,7 @@ export function AdjustedEpaChart({ features, teamName }: AdjustedEpaChartProps) 
   }
 
   const legendItems: ChartLegendItem[] = [
-    { key: 'raw', label: 'Raw', swatch: 'dashed', color: 'var(--text-muted)' },
+    { key: 'raw', label: 'Raw', swatch: 'solid', color: 'var(--text-muted)' },
     { key: 'adjusted', label: 'Opponent-adjusted', swatch: 'solid', color: 'var(--color-run)' },
   ]
 

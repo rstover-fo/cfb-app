@@ -56,8 +56,12 @@ export function ClassHistoryChart({ data, currentSeason, teamColor }: ClassHisto
 
   const getX = useCallback((i: number) => {
     if (sorted.length <= 1) return PADDING.left + CHART_W / 2
-    return PADDING.left + (i / (sorted.length - 1)) * CHART_W
-  }, [sorted.length])
+    // Inset the band by half a bar plus a hair: edge bars centered on the
+    // plot bounds otherwise run the last bar under the right-gutter rank
+    // tick labels (and the first bar past the left gutter).
+    const inset = barWidth / 2 + 4
+    return PADDING.left + inset + (i / (sorted.length - 1)) * (CHART_W - inset * 2)
+  }, [sorted.length, barWidth])
 
   const getRankY = useCallback((rank: number) => {
     // Rank 1 at top, maxRank at bottom
