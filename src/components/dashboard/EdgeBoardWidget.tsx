@@ -3,19 +3,11 @@ import { ArrowRight, ChartLineDown } from '@phosphor-icons/react/dist/ssr'
 import { Badge } from '@/components/ui/badge'
 import { getScoredMatchupEdges, type ScoredMatchupEdge } from '@/lib/queries/predictions'
 import { CURRENT_SEASON } from '@/lib/queries/constants'
+import { formatSpread } from '@/lib/format-odds'
 
 const TOP_EDGE_COUNT = 6
 
-// Signed spread formatter -- always shows the sign so "Ohio State -2.5" /
-// "Michigan +2.5" read unambiguously regardless of favorite/underdog. Mirrors
-// PredictionCard's formatter (src/components/game/PredictionCard.tsx); kept
-// local rather than shared since that file is off-limits to concurrent edits.
-function formatSpread(n: number): string {
-  const rounded = Math.round(n * 10) / 10
-  return rounded > 0 ? `+${rounded}` : `${rounded}`
-}
-
-function EdgeRow({ edge, index }: { edge: ScoredMatchupEdge; index: number }) {
+function EdgeRow({ edge }: { edge: ScoredMatchupEdge }) {
   const hasEdge = edge.edge_pick != null && edge.market_spread != null && edge.abs_edge != null
 
   const pickTeam = edge.edge_pick === 'home' ? edge.home_team : edge.away_team
@@ -29,7 +21,6 @@ function EdgeRow({ edge, index }: { edge: ScoredMatchupEdge; index: number }) {
     <Link
       href={`/games/${edge.game_id}`}
       className="flex items-center gap-3 py-2 px-1 -mx-1 rounded hover:bg-[var(--bg-surface-alt)] transition-colors"
-      style={{ animationDelay: `${index * 50}ms` }}
     >
       {/* Matchup + pick summary */}
       <div className="flex-1 min-w-0">
@@ -83,8 +74,8 @@ export async function EdgeBoardWidget() {
 
       {hasData ? (
         <div className="space-y-1">
-          {topEdges.map((edge, i) => (
-            <EdgeRow key={edge.game_id} edge={edge} index={i} />
+          {topEdges.map(edge => (
+            <EdgeRow key={edge.game_id} edge={edge} />
           ))}
         </div>
       ) : (

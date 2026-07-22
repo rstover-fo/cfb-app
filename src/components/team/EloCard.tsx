@@ -1,4 +1,4 @@
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent } from '@/components/ui/card'
 import { cn } from '@/lib/utils'
 import type { TeamElo, TeamEloGamePoint } from '@/lib/queries/predictions'
 
@@ -21,7 +21,9 @@ function seasonDelta(history: TeamEloGamePoint[]): number | null {
 // season delta computed from the game-by-game history. Renders nothing when
 // there's no Elo coverage for this team/season at all (elo null and history
 // empty) -- the team page's convention is to omit absent sections rather
-// than show an empty card.
+// than show an empty card. Deliberately untitled: it renders under
+// TeamPageClient's "Elo Rating" section heading (overview-tab convention --
+// section h2, untitled component), so a card title would duplicate it.
 export function EloCard({ elo, history }: EloCardProps) {
   if (!elo && history.length === 0) return null
 
@@ -31,13 +33,6 @@ export function EloCard({ elo, history }: EloCardProps) {
 
   return (
     <Card>
-      <CardHeader>
-        <CardTitle>
-          <h2 className="font-headline text-xl text-[var(--text-primary)]">
-            Elo Rating
-          </h2>
-        </CardTitle>
-      </CardHeader>
       <CardContent className="space-y-4">
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div>

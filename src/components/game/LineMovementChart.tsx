@@ -4,6 +4,7 @@ import { useState, useRef, useMemo, useCallback, useEffect } from 'react'
 import rough from 'roughjs'
 import type { LineMovementPoint } from '@/lib/queries/predictions'
 import { resolveColor, useChartTheme } from '@/lib/charts/theme'
+import { formatSpread, formatMoneyline } from '@/lib/format-odds'
 
 interface LineMovementChartProps {
   points: LineMovementPoint[]
@@ -29,16 +30,6 @@ const MAX_X_TICKS = 5
 // (provider-ascending) order; wraps if a game somehow carries more than
 // three books.
 const PROVIDER_COLOR_VARS = ['var(--color-run)', 'var(--color-pass)', 'var(--color-neutral)']
-
-// Signed spread formatter, matching PredictionCard's convention.
-function formatSpread(n: number): string {
-  const rounded = Math.round(n * 10) / 10
-  return rounded > 0 ? `+${rounded}` : `${rounded}`
-}
-
-function formatMoneyline(n: number): string {
-  return n > 0 ? `+${n}` : `${n}`
-}
 
 function formatDay(t: number): string {
   return new Date(t).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })

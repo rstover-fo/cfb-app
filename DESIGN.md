@@ -84,6 +84,11 @@ Rules:
 
 - **Phosphor Icons everywhere** in app code (`@phosphor-icons/react`), typically
   `weight="thin"`/`"regular"` to match the hand-drawn feel.
+- **Entry point follows the component boundary:** server components must import from
+  `@phosphor-icons/react/dist/ssr`; the root `@phosphor-icons/react` entry is
+  client-only (`'use client'` files). Importing the client entry in a server
+  component breaks the build (RSC boundary) — e.g. `PredictionCard`, `EdgeBoardWidget`
+  use the `/dist/ssr` entry; `TeamPageClient` uses the root entry.
 - **lucide-react is permitted only inside `src/components/ui/`** (shadcn internals:
   select chevrons, dialog close X). Never import lucide outside that directory.
 
@@ -124,6 +129,24 @@ Rules:
   `WidgetSkeleton.tsx` (title bar + logo-circle/text/value rows for dashboard widgets).
 - **Errors:** widgets fail independently — `WidgetErrorBoundary` + `WidgetError` inside a
   card shell, never a blank hole or a full-page crash (global fallback: `src/app/error.tsx`).
+
+## Odds & records (prediction surfaces)
+
+Betting/Elo surfaces (PredictionCard, LineMovementChart, EloCard, AtsCard,
+EdgeBoardWidget, predictions page) share one formatting vocabulary:
+
+- **Spreads are always signed** and come from `formatSpread` in
+  `src/lib/format-odds.ts` (one decimal, `+` prefix on positives:
+  "Ohio State -2.5", "Michigan +2.5"). Moneylines use `formatMoneyline` from the
+  same file. Do not re-implement these locally.
+- **Win probabilities** render as integer percentages ("62%"). Rate stats with
+  meaningful decimals (ATS cover rate) use `formatPercent` (one decimal).
+- **ATS records** are "W-L-P" (pushes always shown).
+- **Signed deltas where the sign means good/bad** (season Elo Δ, avg cover margin)
+  carry a `+`/`-` and are colored `--color-positive`/`--color-negative`.
+- **Edges are magnitude + side, not good/bad:** the sign of `edge` only encodes
+  which team the model likes, and the pick team is named in the copy — so edge
+  badges tint with `--color-positive` (or neutral) only, never `--color-negative`.
 
 ## Empty states
 

@@ -45,7 +45,10 @@ describe('EloCard', () => {
   it('renders season Elo, rank, and a positive season delta', () => {
     render(<EloCard elo={eloRow()} history={risingHistory} />)
 
-    expect(screen.getByText('Elo Rating')).toBeInTheDocument()
+    // Untitled by design -- the "Elo Rating" heading lives on TeamPageClient's
+    // section wrapper, not the card (avoids a duplicated h2).
+    expect(screen.queryByText('Elo Rating')).not.toBeInTheDocument()
+    expect(screen.getByText('Season Elo')).toBeInTheDocument()
     expect(screen.getByText('1902')).toBeInTheDocument() // Math.round(1901.7)
     expect(screen.getByText('#2')).toBeInTheDocument()
     // delta = last postgame (1901.7) - first pregame (1800) = +101.7 -> +102
@@ -85,7 +88,7 @@ describe('EloCard', () => {
   it('still renders using history alone when elo is null but history has rows', () => {
     render(<EloCard elo={null} history={risingHistory} />)
 
-    expect(screen.getByText('Elo Rating')).toBeInTheDocument()
+    expect(screen.getByText('Season Elo')).toBeInTheDocument()
     // current Elo falls back to last postgame_elo (1901.7 -> 1902)
     expect(screen.getByText('1902')).toBeInTheDocument()
     // no rank available without the elo row

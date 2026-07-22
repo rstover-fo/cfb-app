@@ -3,19 +3,13 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
+import { formatSpread } from '@/lib/format-odds'
 import type { GamePrediction } from '@/lib/queries/predictions'
 
 interface PredictionCardProps {
   prediction: GamePrediction | null
   homeTeam: string
   awayTeam: string
-}
-
-// Signed spread formatter -- always shows the sign so "Ohio State -2.5" /
-// "Michigan +2.5" read unambiguously regardless of favorite/underdog.
-function formatSpread(n: number): string {
-  const rounded = Math.round(n * 10) / 10
-  return rounded > 0 ? `+${rounded}` : `${rounded}`
 }
 
 function formatMargin(margin: number, homeTeam: string, awayTeam: string): string {
@@ -50,7 +44,12 @@ export function PredictionCard({ prediction, homeTeam, awayTeam }: PredictionCar
     ? (edge_pick === 'home' ? market_spread : -market_spread)
     : null
 
-  const edgeTone = edge == null || edge === 0 ? 'neutral' : edge > 0 ? 'positive' : 'negative'
+  // Edge is a magnitude-plus-side, not a good/bad delta: the sign of `edge`
+  // only encodes which team the model likes vs the market, and the pick team
+  // is already named in the badge. Tint any real edge with the positive token
+  // (matching EdgeBoardWidget); never the negative token -- an away-side edge
+  // is not a bad outcome.
+  const edgeTone = edge == null || edge === 0 ? 'neutral' : 'positive'
 
   return (
     <Card>
@@ -83,7 +82,7 @@ export function PredictionCard({ prediction, homeTeam, awayTeam }: PredictionCar
                     <Info size={14} className="text-[var(--text-muted)]" />
                   </TooltipTrigger>
                   <TooltipContent>
-                    home_win_prob is Elo-only, even for the EPA-blended margin model.
+                    Win probability comes from Elo ratings alone; the expected margin blends Elo with EPA.
                   </TooltipContent>
                 </Tooltip>
               </TooltipProvider>
@@ -117,7 +116,6 @@ export function PredictionCard({ prediction, homeTeam, awayTeam }: PredictionCar
             className={cn(
               'text-sm font-medium px-3 py-1',
               edgeTone === 'positive' && 'text-[var(--color-positive)] bg-[var(--color-positive)]/10 border-[var(--color-positive)]/30',
-              edgeTone === 'negative' && 'text-[var(--color-negative)] bg-[var(--color-negative)]/10 border-[var(--color-negative)]/30',
               edgeTone === 'neutral' && 'text-[var(--text-muted)] border-[var(--border)]'
             )}
           >
