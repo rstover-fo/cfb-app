@@ -118,3 +118,119 @@ describe('CompareView -- standalone /compare mode (allowTeam1Change=true)', () =
     expect(onSelectionChange).toHaveBeenCalledWith(1, 2)
   })
 })
+
+// Bar widths for rank metrics (Offensive Rank / Defensive Rank) must be
+// inverted relative to raw metrics: rank 1 is the *best* possible value, so
+// the lower rank needs to draw the *longer* bar. Reported live in prod as
+// OU #176 drawing a longer bar than OSU #24 -- the opposite of what
+// higherIsBetter={false} + naive `value / max` normalization produces.
+describe('CompareView -- rank metric bar widths', () => {
+  function barWidths(container: HTMLElement, label: string): [number, number] {
+    const labelNode = Array.from(container.querySelectorAll('div')).find(
+      el => el.textContent === label && el.className.includes('text-sm')
+    )
+    if (!labelNode || !labelNode.parentElement) {
+      throw new Error(`could not find metric row for label "${label}"`)
+    }
+    const bars = labelNode.parentElement.querySelectorAll<HTMLElement>('.transition-all')
+    expect(bars).toHaveLength(2)
+    return [parseFloat(bars[0].style.width), parseFloat(bars[1].style.width)]
+  }
+
+  it('draws a strictly wider bar for the better (lower) rank', () => {
+    const metrics1 = { ...METRICS, off_epa_rank: 24 } as unknown as TeamSeasonEpa
+    const metrics2 = { ...COMPARE_METRICS, off_epa_rank: 176 } as unknown as TeamSeasonEpa
+
+    const { container } = render(
+      <CompareView
+        team={OKLAHOMA}
+        metrics={metrics1}
+        style={STYLE}
+        allTeams={ALL_TEAMS}
+        currentSeason={2025}
+        compareTeam={TEXAS}
+        compareMetrics={metrics2}
+        compareStyle={COMPARE_STYLE}
+      />
+    )
+
+    const [width1, width2] = barWidths(container, 'Offensive Rank')
+
+    // Team 1 (#24, the better rank) should draw the much longer bar.
+    expect(width1).toBeGreaterThan(width2)
+    expect(width1).toBeGreaterThan(50)
+    expect(width1).toBeCloseTo(83, -1) // ~83%, tolerant to the nearest 10
+    expect(width2).toBeLessThan(5)
+    expect(width2).toBeCloseTo(0.6, 0) // ~0.6%
+  })
+
+  it('draws equal-width bars for equal ranks', () => {
+    const metrics1 = { ...METRICS, def_epa_rank: 50 } as unknown as TeamSeasonEpa
+    const metrics2 = { ...COMPARE_METRICS, def_epa_rank: 50 } as unknown as TeamSeasonEpa
+
+    const { container } = render(
+      <CompareView
+        team={OKLAHOMA}
+        metrics={metrics1}
+        style={STYLE}
+        allTeams={ALL_TEAMS}
+        currentSeason={2025}
+        compareTeam={TEXAS}
+        compareMetrics={metrics2}
+        compareStyle={COMPARE_STYLE}
+      />
+    )
+
+    const [width1, width2] = barWidths(container, 'Defensive Rank')
+    expect(width1).toBe(width2)
+    expect(width1).toBeGreaterThan(0)
+  })
+
+  it('keeps raw (non-rank) metric bar widths behaving as before -- higher value draws the longer bar', () => {
+    const { container } = render(
+      <CompareView
+        team={OKLAHOMA}
+        metrics={METRICS}
+        style={STYLE}
+        allTeams={ALL_TEAMS}
+        currentSeason={2025}
+        compareTeam={TEXAS}
+        compareMetrics={COMPARE_METRICS}
+        compareStyle={COMPARE_STYLE}
+      />
+    )
+
+    // METRICS.epa_per_play (0.25) > COMPARE_METRICS.epa_per_play (0.18)
+    const [width1, width2] = barWidths(container, 'EPA/Play')
+    expect(width1).toBeGreaterThan(width2)
+    expect(width1).toBe(100)
+  })
+})
+
+describe('CompareView -- metric bar overflow guard', () => {
+  it('keeps each bar half shrinkable so nothing escapes the card frame on narrow widths', () => {
+    const { container } = render(
+      <CompareView
+        team={OKLAHOMA}
+        metrics={METRICS}
+        style={STYLE}
+        allTeams={ALL_TEAMS}
+        currentSeason={2025}
+        compareTeam={TEXAS}
+        compareMetrics={COMPARE_METRICS}
+        compareStyle={COMPARE_STYLE}
+      />
+    )
+
+    const halves = container.querySelectorAll('.flex-1')
+    expect(halves.length).toBeGreaterThan(0)
+    halves.forEach(half => expect(half.className).toContain('min-w-0'))
+
+    const barTracks = container.querySelectorAll('.w-32')
+    expect(barTracks.length).toBeGreaterThan(0)
+    barTracks.forEach(track => {
+      expect(track.className).toContain('max-w-full')
+      expect(track.className).toContain('shrink')
+    })
+  })
+})
