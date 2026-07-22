@@ -125,6 +125,22 @@ describe('callCfbTool', () => {
     expect(callToolMock).toHaveBeenCalledTimes(2)
   })
 
+  it('maps a connect-time 401 to McpAuthError without retrying, and drops the memoized client', async () => {
+    // No numeric code on purpose -- exercises the message-based 401 fallback,
+    // matching how the streamable-HTTP transport reports connect rejections.
+    connectMock.mockRejectedValueOnce(new Error('Error POSTing to endpoint (HTTP 401): unauthorized'))
+
+    await expect(callCfbTool('get_rankings', {})).rejects.toBeInstanceOf(McpAuthError)
+    expect(callToolMock).not.toHaveBeenCalled()
+
+    // The rejected client promise must not stay memoized: the next call
+    // attempts a fresh connect (e.g. after the server-side token is fixed).
+    callToolMock.mockResolvedValueOnce(textResult(JSON.stringify({ _source: 's', count: 0, rows: [] })))
+    const result = await callCfbTool('get_rankings', {})
+    expect(result).toEqual({ kind: 'rows', source: 's', count: 0, rows: [] })
+    expect(clientConstructorMock).toHaveBeenCalledTimes(2)
+  })
+
   it('reuses the same client across calls until an error forces a reconnect', async () => {
     callToolMock.mockResolvedValue(textResult(JSON.stringify({ _source: 'api.poll_rankings', count: 0, rows: [] })))
 

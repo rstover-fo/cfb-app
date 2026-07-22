@@ -77,7 +77,10 @@ function extractStatusCode(err: unknown): number | undefined {
 const MCP_REQUEST_TIMEOUT_CODE = -32001 // ErrorCode.RequestTimeout from @modelcontextprotocol/sdk
 
 function isAuthError(err: unknown): boolean {
-  return extractStatusCode(err) === 401
+  if (extractStatusCode(err) === 401) return true
+  // Connect-time rejections from the streamable-HTTP transport don't always
+  // carry a numeric status -- fall back on the message.
+  return err instanceof Error && /\b401\b|unauthorized/i.test(err.message)
 }
 
 function isTimeoutError(err: unknown): boolean {
@@ -109,8 +112,27 @@ function parseToolText(text: string): ToolResult {
   return { kind: 'message', text }
 }
 
+/**
+ * Awaits the memoized client with the same auth/timeout mapping as tool
+ * calls: a connect() rejected by the server (e.g. 401 on a bad
+ * MCP_AUTH_TOKEN) must surface as McpAuthError, not a generic transport
+ * failure. Any connect failure also drops the memoized (permanently
+ * rejected) promise so the next call attempts a fresh connect -- otherwise
+ * a server-side token fix would never be picked up without a restart.
+ */
+async function getClientOrMapError(): Promise<Client> {
+  try {
+    return await getClient()
+  } catch (err) {
+    resetClient()
+    if (isAuthError(err)) throw new McpAuthError()
+    if (isTimeoutError(err)) throw new McpTimeoutError()
+    throw err
+  }
+}
+
 async function callOnce(name: string, args: Record<string, unknown>): Promise<ToolResult> {
-  const client = await getClient()
+  const client = await getClientOrMapError()
 
   let result: Awaited<ReturnType<Client['callTool']>>
   try {

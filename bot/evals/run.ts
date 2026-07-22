@@ -21,6 +21,7 @@ import type Anthropic from '@anthropic-ai/sdk'
 import { askClaude, type UsageSummary } from '../src/claude.js'
 import { getAnthropicClient } from '../src/anthropic-client.js'
 import { loadConfig } from '../src/config.js'
+import { loadEnvFileIfPresent } from '../src/env.js'
 import { costUsd } from '../src/limits.js'
 import { GoldenSetSchema, DEFAULT_MAX_CHARS, type GoldenEntry, type GoldenSet } from './schema.js'
 
@@ -222,6 +223,7 @@ export async function runEntry(entry: GoldenEntry, judgeFn: JudgeFn): Promise<{ 
 // ---------------------------------------------------------------------------
 
 async function main(): Promise<void> {
+  loadEnvFileIfPresent()
   const { only, dryRun } = parseArgs(process.argv.slice(2))
   const golden = await loadGoldenSet()
 

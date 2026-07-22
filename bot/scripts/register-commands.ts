@@ -6,9 +6,11 @@
  */
 import { REST, Routes } from 'discord.js'
 import { loadConfig } from '../src/config.js'
+import { loadEnvFileIfPresent } from '../src/env.js'
 import { commands } from '../src/commands/index.js'
 
 async function main(): Promise<void> {
+  loadEnvFileIfPresent()
   const config = loadConfig()
   const rest = new REST().setToken(config.discordToken)
   const body = commands.map(c => c.definition.toJSON())

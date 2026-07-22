@@ -16,6 +16,7 @@ import {
   type Message,
 } from 'discord.js'
 import { loadConfig } from './config.js'
+import { loadEnvFileIfPresent } from './env.js'
 import { commandsByName } from './commands/index.js'
 import { errorEmbed } from './format.js'
 import { handleMention } from './mention.js'
@@ -85,6 +86,7 @@ function wireProcessGuards(): void {
 
 async function main(): Promise<void> {
   wireProcessGuards()
+  loadEnvFileIfPresent()
   const config = loadConfig()
 
   const client = createClient()
