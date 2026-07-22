@@ -175,6 +175,14 @@ readable on every cell:
 - **Default viewBox:** 700 × 350 with `PADDING = { top: 30, right: 30, bottom: 50, left: 60 }`
   (TrajectoryChart's). Charts with intrinsic row counts (bar rows, heat grids) compute
   height from `rows.length` but keep the 700 width and left/right padding convention.
+  > **Gate B ruling (2026-07-22):** 700 × 350 is a *default*, not a mandate. Heights may
+  > vary with a chart's information density (e.g. EloHistory 300, AdjustedEpa 320,
+  > LineMovement/AccuracyTrend 280) and secondary-surface charts may proportionally
+  > tighten padding; both are conformant as long as the 700 width, `w-full h-auto`
+  > responsiveness, and the left-gutter/bottom-gutter axis conventions hold. Padding
+  > beyond the default in one direction (e.g. WinProbabilityChart's wider right gutter
+  > for edge labels) requires a code comment naming the reason, same as rough-value
+  > deviations. Do not churn existing bespoke heights back to 350.
 - **Responsive:** `className="w-full h-auto"` on the SVG. No fixed pixel width/height attrs.
 - **Stable wobble:** every chart declares `const ROUGH_SEED = <positive int>` (unique-ish
   per component) and passes `seed: ROUGH_SEED` in **every** rough options object, so theme

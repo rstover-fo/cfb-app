@@ -52,14 +52,14 @@ describe('DriveBarChart', () => {
     expect(screen.getByText('HOU')).toBeInTheDocument()
   })
 
-  it('renders an empty rough layer with no rows for an empty drive list', () => {
+  it('renders a framed EmptyState (no SVG) for an empty drive list', () => {
     render(<DriveBarChart drives={[]} game={GAME} />)
 
-    const svg = screen.getByRole('img', { name: 'Drive chart: 0 drives for Oklahoma vs Houston' })
-    expect(svg).toBeInTheDocument()
-
-    const roughLayer = screen.getByTestId('rough-layer')
-    expect(roughLayer.childElementCount).toBe(0)
+    // Spec §5: empty charts render EmptyState inside ChartFrame, never a
+    // bare zero-row SVG.
+    expect(screen.queryByRole('img')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('rough-layer')).not.toBeInTheDocument()
+    expect(screen.getByRole('status')).toHaveTextContent('No drives to chart')
   })
 
   it('redraws the rough layer (bars + dots) when the document theme flips', async () => {

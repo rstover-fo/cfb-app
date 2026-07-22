@@ -2,6 +2,7 @@
 
 import { useState, useRef, useMemo, useCallback, useEffect } from 'react'
 import rough from 'roughjs'
+import { ChartLineUp } from '@phosphor-icons/react'
 import type { LineMovementPoint } from '@/lib/queries/predictions'
 import { CHART_INK, resolveColor, useChartTheme } from '@/lib/charts/theme'
 import { inkFor } from '@/lib/charts/series'
@@ -72,11 +73,11 @@ interface PlottablePoint {
  * prop doc above). Over/under is deliberately kept off the axes and shown
  * as a muted first-to-last caption.
  *
- * Renders null with no plottable rows; with exactly one snapshot renders a
- * compact "line opened at ..." text row instead of a one-point SVG. Both
- * degenerate paths are bespoke (not framed) -- the parent (game detail page)
- * already gates whether this component renders at all on `lineMovement`
- * having rows.
+ * With no plottable rows this renders a framed EmptyState (the game detail
+ * page renders this component whenever a prediction OR line snapshots exist,
+ * so the empty path is reachable when a game has a model read but no market
+ * feed). With exactly one snapshot it renders a compact "line opened at ..."
+ * text row inside the frame instead of a one-point SVG.
  */
 export function LineMovementChart({ points, homeTeam, awayTeam, modelMargin }: LineMovementChartProps) {
   const [hoveredTime, setHoveredTime] = useState<number | null>(null)
@@ -229,19 +230,35 @@ export function LineMovementChart({ points, homeTeam, awayTeam, modelMargin }: L
     return first === last ? `O/U ${first}` : `O/U ${first} → ${last}`
   }, [plottable])
 
-  if (plottable.length === 0) return null
+  if (plottable.length === 0) {
+    return (
+      <ChartFrame
+        title="Line Movement"
+        empty
+        emptyState={{
+          icon: ChartLineUp,
+          title: 'No line movement to chart',
+          description: 'Sportsbook snapshots publish once a line is posted for this game.',
+        }}
+      >
+        {null}
+      </ChartFrame>
+    )
+  }
 
   // Single snapshot: a compact text row beats a one-point line chart.
   if (plottable.length === 1) {
     const only = plottable[0]
     const label = only.row.formatted_spread ?? `${homeTeam} ${formatSpread(only.spread)}`
     return (
-      <div className="bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg p-4 text-sm text-[var(--text-secondary)]">
-        Line opened at{' '}
-        <span className="text-[var(--text-primary)] font-medium tabular-nums">{label}</span>
-        {only.row.over_under != null && <> &middot; O/U {only.row.over_under}</>}
-        {' '}&middot; {only.row.provider}, {formatTimestamp(only.t)}
-      </div>
+      <ChartFrame title="Line Movement">
+        <p className="text-sm text-[var(--text-secondary)]">
+          Line opened at{' '}
+          <span className="text-[var(--text-primary)] font-medium tabular-nums">{label}</span>
+          {only.row.over_under != null && <> &middot; O/U {only.row.over_under}</>}
+          {' '}&middot; {only.row.provider}, {formatTimestamp(only.t)}
+        </p>
+      </ChartFrame>
     )
   }
 

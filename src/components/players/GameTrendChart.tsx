@@ -183,7 +183,7 @@ export function GameTrendChart({ gameLog, statKey = 'epa_per_play' }: GameTrendC
       empty={!chartGeometry}
       emptyState={{
         icon: ChartLineUp,
-        title: 'No game log data available',
+        title: 'No game log for this player yet',
         description: 'Game-by-game trends publish once the player has logged plays this season.',
       }}
     >
@@ -203,6 +203,20 @@ export function GameTrendChart({ gameLog, statKey = 'epa_per_play' }: GameTrendC
               {gridLinesY(yTicks, LAYOUT)}
               {axisLabelsY(yTicks, v => formatTick(statKey, v), LAYOUT)}
               {axisLabelsX(xTicks, LAYOUT)}
+
+              {/* Y-axis stat caption -- the parent heading is a generic
+                  "Season Trend", so the plotted stat's name must be visible
+                  without hovering (the tooltip/aria-label alone don't serve
+                  sighted users at a glance). */}
+              <text
+                x={14}
+                y={PADDING.top + CHART_HEIGHT / 2}
+                textAnchor="middle"
+                transform={`rotate(-90, 14, ${PADDING.top + CHART_HEIGHT / 2})`}
+                className="fill-[var(--text-muted)] text-xs"
+              >
+                {STAT_LABELS[statKey]}
+              </text>
 
               {/* Reference line (0 for EPA, season average otherwise) -- static, never rough */}
               {refInFrame && (

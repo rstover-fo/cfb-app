@@ -2,10 +2,12 @@
 
 import { useRef, useCallback, useEffect, useMemo } from 'react'
 import rough from 'roughjs'
+import { ChartBar } from '@phosphor-icons/react'
 import type { GameDrive } from '@/lib/types/database'
 import type { GameWithTeams } from '@/lib/queries/games'
 import { CHART_INK, resolveColor, useChartTheme } from '@/lib/charts/theme'
 import { teamInk } from '@/lib/charts/series'
+import { ChartFrame } from '@/lib/charts/ChartFrame'
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -181,15 +183,24 @@ export function DriveBarChart({ drives, game }: DriveBarChartProps) {
   const totalHeight = drives.length * ROW_HEIGHT
 
   return (
-    <div className="overflow-x-auto">
-      <div className="min-w-[600px]">
-        <svg
-          ref={svgRef}
-          viewBox={`0 0 ${TOTAL_WIDTH} ${headerHeight + totalHeight}`}
-          className="w-full block"
-          role="img"
-          aria-label={`Drive chart: ${drives.length} drives for ${game.home_team} vs ${game.away_team}`}
-        >
+    <ChartFrame
+      ariaLabel={`Drive chart: ${drives.length} drives for ${game.home_team} vs ${game.away_team}`}
+      empty={drives.length === 0}
+      emptyState={{
+        icon: ChartBar,
+        title: 'No drives to chart',
+        description: "Drive bars publish once this game's drive-by-drive data loads.",
+      }}
+    >
+      {a11y => (
+        <div className="overflow-x-auto">
+          <div className="min-w-[600px]">
+            <svg
+              ref={svgRef}
+              viewBox={`0 0 ${TOTAL_WIDTH} ${headerHeight + totalHeight}`}
+              className="w-full block"
+              {...a11y}
+            >
           {/* ===== HEADER ROW ===== */}
           {/* Bottom border for header */}
           <line
@@ -325,8 +336,10 @@ export function DriveBarChart({ drives, game }: DriveBarChartProps) {
             {/* Rough-drawn outcome bars + team-color dots */}
             <g ref={roughGroupRef} data-testid="rough-layer" />
           </g>
-        </svg>
-      </div>
-    </div>
+            </svg>
+          </div>
+        </div>
+      )}
+    </ChartFrame>
   )
 }

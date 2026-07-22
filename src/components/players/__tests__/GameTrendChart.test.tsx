@@ -83,7 +83,7 @@ describe('GameTrendChart', () => {
   it('renders the framed EmptyState when there is no game log data', () => {
     render(<GameTrendChart gameLog={[]} />)
 
-    expect(screen.getByRole('status')).toHaveTextContent('No game log data available')
+    expect(screen.getByRole('status')).toHaveTextContent('No game log for this player yet')
     expect(screen.queryByRole('img')).not.toBeInTheDocument()
   })
 
