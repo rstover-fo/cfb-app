@@ -1,6 +1,7 @@
 'use client'
 
 import type { Icon as PhosphorIcon } from '@phosphor-icons/react'
+import { cn } from '@/lib/utils'
 
 export interface EmptyStateAction {
   label: string
@@ -39,7 +40,7 @@ export function EmptyState({
     <div
       role="status"
       aria-live="polite"
-      className={`flex flex-col items-center justify-center text-center gap-3 py-10 px-4 ${className}`}
+      className={cn('flex flex-col items-center justify-center text-center gap-3 py-10 px-4', className)}
     >
       <Icon size={40} weight="thin" className="text-[var(--text-muted)]" aria-hidden="true" />
 

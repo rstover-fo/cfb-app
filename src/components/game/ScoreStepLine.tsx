@@ -5,6 +5,7 @@ import rough from 'roughjs'
 import type { GameDrive } from '@/lib/types/database'
 import type { GameWithTeams } from '@/lib/queries/games'
 import type { LineScores } from '@/lib/types/database'
+import { resolveColor, useChartTheme } from '@/lib/charts/theme'
 
 interface ScoreStepLineProps {
   drives: GameDrive[]
@@ -25,13 +26,6 @@ const PLOT_WIDTH = WIDTH - MARGIN.left - MARGIN.right
 const PLOT_HEIGHT = HEIGHT - MARGIN.top - MARGIN.bottom
 const TOTAL_MINUTES = 60
 const QUARTER_MINUTES = [15, 30, 45]
-
-function resolveColor(cssVar: string): string {
-  if (typeof document === 'undefined') return '#999'
-  const match = cssVar.match(/var\((.+)\)/)
-  if (!match) return cssVar
-  return getComputedStyle(document.documentElement).getPropertyValue(match[1]).trim() || '#999'
-}
 
 function buildScoreEvents(drives: GameDrive[]): ScoreEvent[] {
   const events: ScoreEvent[] = [{ gameMinute: 0, homeScore: 0, awayScore: 0 }]
@@ -203,16 +197,7 @@ export function ScoreStepLine({ drives, lineScores, game }: ScoreStepLineProps) 
   }, [drawLines])
 
   // Redraw on theme change
-  useEffect(() => {
-    const observer = new MutationObserver(() => {
-      requestAnimationFrame(drawLines)
-    })
-    observer.observe(document.documentElement, {
-      attributes: true,
-      attributeFilter: ['class', 'data-theme'],
-    })
-    return () => observer.disconnect()
-  }, [drawLines])
+  useChartTheme(drawLines)
 
   return (
     <div className="relative">

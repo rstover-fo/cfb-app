@@ -21,10 +21,10 @@ function MovementBadge({ movement }: { movement: number | null }) {
     )
   }
   if (movement > 0) {
-    return <span className="text-xs text-green-600 dark:text-green-400 tabular-nums" aria-label={`Up ${movement}`}>&#9650;{movement}</span>
+    return <span className="text-xs tabular-nums" style={{ color: 'var(--color-positive)' }} aria-label={`Up ${movement}`}>&#9650;{movement}</span>
   }
   if (movement < 0) {
-    return <span className="text-xs tabular-nums" style={{ color: 'var(--color-negative, #dc2626)' }} aria-label={`Down ${Math.abs(movement)}`}>&#9660;{Math.abs(movement)}</span>
+    return <span className="text-xs tabular-nums" style={{ color: 'var(--color-negative)' }} aria-label={`Down ${Math.abs(movement)}`}>&#9660;{Math.abs(movement)}</span>
   }
   return <span className="text-xs text-[var(--text-muted)]" aria-label="No change">&mdash;</span>
 }

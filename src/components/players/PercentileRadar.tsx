@@ -3,6 +3,7 @@
 import { useRef, useEffect, useCallback, useMemo } from 'react'
 import rough from 'roughjs'
 import type { PlayerPercentiles } from '@/lib/types/database'
+import { resolveColor, useChartTheme } from '@/lib/charts/theme'
 
 interface PercentileRadarProps {
   percentiles: PlayerPercentiles
@@ -78,13 +79,6 @@ function getAxesForPosition(positionGroup: string | null, position: string | nul
     if (upper === 'WR' || upper === 'TE') return AXES_BY_POSITION[upper]
   }
   return AXES_BY_POSITION.DEFAULT
-}
-
-function resolveColor(cssVar: string): string {
-  if (typeof document === 'undefined') return '#999'
-  const match = cssVar.match(/var\((.+)\)/)
-  if (!match) return cssVar
-  return getComputedStyle(document.documentElement).getPropertyValue(match[1]).trim() || '#999'
 }
 
 function angleForIndex(index: number, total: number): number {
@@ -165,17 +159,8 @@ export function PercentileRadar({ percentiles }: PercentileRadarProps) {
     drawRadar()
   }, [drawRadar])
 
-  // Theme change detection via MutationObserver
-  useEffect(() => {
-    const observer = new MutationObserver(() => {
-      requestAnimationFrame(drawRadar)
-    })
-    observer.observe(document.documentElement, {
-      attributes: true,
-      attributeFilter: ['class', 'data-theme'],
-    })
-    return () => observer.disconnect()
-  }, [drawRadar])
+  // Theme change detection
+  useChartTheme(drawRadar)
 
   return (
     <svg

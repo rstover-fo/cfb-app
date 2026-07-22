@@ -3,6 +3,7 @@
 import { useRef, useMemo, useCallback, useEffect, useState } from 'react'
 import rough from 'roughjs'
 import type { MatchupGame } from '@/lib/queries/matchups'
+import { resolveColor, useChartTheme } from '@/lib/charts/theme'
 
 interface TeamMeta {
   name: string
@@ -21,13 +22,6 @@ const HEIGHT = 320
 const PADDING = { top: 24, right: 24, bottom: 44, left: 44 }
 const CHART_WIDTH = WIDTH - PADDING.left - PADDING.right
 const CHART_HEIGHT = HEIGHT - PADDING.top - PADDING.bottom
-
-function resolveColor(cssVar: string): string {
-  if (typeof document === 'undefined') return '#999'
-  const match = cssVar.match(/var\((.+)\)/)
-  if (!match) return cssVar
-  return getComputedStyle(document.documentElement).getPropertyValue(match[1]).trim() || '#999'
-}
 
 // Points scored by each team in every meeting, plotted over time in the app's
 // hand-drawn (roughjs) chart idiom. Redraws on theme change like TrajectoryChart.
@@ -105,14 +99,7 @@ export function ScoringTrendChart({ games, teamAMeta, teamBMeta }: ScoringTrendC
     drawChart()
   }, [drawChart])
 
-  useEffect(() => {
-    const observer = new MutationObserver(() => requestAnimationFrame(drawChart))
-    observer.observe(document.documentElement, {
-      attributes: true,
-      attributeFilter: ['class', 'data-theme'],
-    })
-    return () => observer.disconnect()
-  }, [drawChart])
+  useChartTheme(drawChart)
 
   if (!geometry || series.length === 0) {
     return (

@@ -8,8 +8,20 @@ import { CalendarBlank } from '@phosphor-icons/react'
 import { fetchGames, fetchAvailableWeeks, fetchDefaultWeek } from '@/app/games/actions'
 import type { GamesFilter, GameWithTeams, SeasonPhase } from '@/app/games/actions'
 import { REGULAR_SEASON_MAX_WEEK, POSTSEASON_MIN_WEEK } from '@/lib/queries/constants'
-import { teamNameToSlug, selectClassName, selectStyle } from '@/lib/utils'
+import { teamNameToSlug } from '@/lib/utils'
 import { EmptyState } from '@/components/EmptyState'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+
+// Radix Select forbids an empty-string item value, so the "All Conferences" /
+// "All Teams" options use this sentinel and translate back to '' (the actual
+// filter state, matching GamesFilter's "unset" convention) on change.
+const ALL_SENTINEL = '__all__'
 
 interface GamesListProps {
   initialGames: GameWithTeams[]
@@ -234,42 +246,48 @@ export function GamesList({
         {/* Dropdowns Row */}
         <div className="flex gap-4 flex-wrap">
           {/* Year Filter */}
-          <select
-            value={season}
-            onChange={(e) => handleSeasonChange(Number(e.target.value))}
-            className={`${selectClassName} min-w-[100px]`}
-            style={selectStyle}
-          >
-            {availableSeasons.map(s => (
-              <option key={s} value={s}>{s}</option>
-            ))}
-          </select>
+          <Select value={String(season)} onValueChange={(v) => handleSeasonChange(Number(v))}>
+            <SelectTrigger className="min-w-[100px] text-sm" aria-label="Select season">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {availableSeasons.map(s => (
+                <SelectItem key={s} value={String(s)}>{s}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
 
           {/* Conference Filter */}
-          <select
-            value={conference}
-            onChange={(e) => handleFilterChange({ conference: e.target.value })}
-            className={`${selectClassName} min-w-[180px]`}
-            style={selectStyle}
+          <Select
+            value={conference || ALL_SENTINEL}
+            onValueChange={(v) => handleFilterChange({ conference: v === ALL_SENTINEL ? '' : v })}
           >
-            <option value="">All Conferences</option>
-            {conferences.map(conf => (
-              <option key={conf} value={conf}>{conf}</option>
-            ))}
-          </select>
+            <SelectTrigger className="min-w-[180px] text-sm" aria-label="Select conference">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL_SENTINEL}>All Conferences</SelectItem>
+              {conferences.map(conf => (
+                <SelectItem key={conf} value={conf}>{conf}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
 
           {/* Team Filter */}
-          <select
-            value={team}
-            onChange={(e) => handleFilterChange({ team: e.target.value })}
-            className={`${selectClassName} min-w-[180px]`}
-            style={selectStyle}
+          <Select
+            value={team || ALL_SENTINEL}
+            onValueChange={(v) => handleFilterChange({ team: v === ALL_SENTINEL ? '' : v })}
           >
-            <option value="">All Teams</option>
-            {teams.map(t => (
-              <option key={t} value={t}>{t}</option>
-            ))}
-          </select>
+            <SelectTrigger className="min-w-[180px] text-sm" aria-label="Select team">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL_SENTINEL}>All Teams</SelectItem>
+              {teams.map(t => (
+                <SelectItem key={t} value={t}>{t}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
 
           {/* Clear Filters */}
           {(conference || team) && (
