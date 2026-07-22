@@ -1,11 +1,13 @@
 import { describe, it, expect, afterEach, vi } from 'vitest'
 import { renderHook } from '@testing-library/react'
-import { resolveColor, useChartTheme } from '../theme'
+import { resolveColor, resolveHeatColor, useChartTheme } from '../theme'
+import type { HeatLevel } from '../theme'
 
 afterEach(() => {
   document.documentElement.removeAttribute('style')
   document.documentElement.removeAttribute('class')
   document.documentElement.removeAttribute('data-theme')
+  document.documentElement.removeAttribute('data-team-theme')
 })
 
 describe('resolveColor', () => {
@@ -28,6 +30,28 @@ describe('resolveColor', () => {
   })
 })
 
+describe('resolveHeatColor', () => {
+  it('maps each level 1..5 to its --heat-N token', () => {
+    const lightRamp = ['#D7B5B5', '#E9D6D6', '#E1E0DE', '#D2DED6', '#AEC3B6']
+    lightRamp.forEach((hex, i) => {
+      document.documentElement.style.setProperty(`--heat-${i + 1}`, hex)
+    })
+
+    for (const level of [1, 2, 3, 4, 5] as HeatLevel[]) {
+      expect(resolveHeatColor(level)).toBe(lightRamp[level - 1])
+    }
+  })
+
+  it('re-resolves to the current theme values after a flip', () => {
+    document.documentElement.style.setProperty('--heat-1', '#D7B5B5')
+    expect(resolveHeatColor(1)).toBe('#D7B5B5')
+
+    // Simulate the dark-theme declaration taking over the custom property.
+    document.documentElement.style.setProperty('--heat-1', '#523430')
+    expect(resolveHeatColor(1)).toBe('#523430')
+  })
+})
+
 describe('useChartTheme', () => {
   it('fires the callback (via requestAnimationFrame) when data-theme flips', async () => {
     vi.useFakeTimers()
@@ -46,6 +70,24 @@ describe('useChartTheme', () => {
 
     rafSpy.mockRestore()
     vi.useRealTimers()
+  })
+
+  it('fires the callback when data-team-theme flips (accent-token re-skin)', async () => {
+    const rafSpy = vi.spyOn(window, 'requestAnimationFrame').mockImplementation(cb => {
+      cb(0)
+      return 0
+    })
+    const onThemeChange = vi.fn()
+
+    renderHook(() => useChartTheme(onThemeChange))
+
+    // Team theming rewrites the --accent* tokens some charts bake into
+    // rough ink (accent selection rings), so it must trigger a redraw too.
+    document.documentElement.setAttribute('data-team-theme', 'ou')
+
+    await vi.waitFor(() => expect(onThemeChange).toHaveBeenCalledTimes(1))
+
+    rafSpy.mockRestore()
   })
 
   it('fires the callback when the class attribute changes', async () => {

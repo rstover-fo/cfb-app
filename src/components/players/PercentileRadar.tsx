@@ -1,24 +1,25 @@
 'use client'
 
-import { useRef, useEffect, useCallback, useMemo } from 'react'
-import rough from 'roughjs'
+/**
+ * Thin config module over RoughRadar (sweep C1): owns the position-group
+ * axis definitions; drawing, tooltip, and empty-state behavior live in the
+ * shared primitive. The old zero-polygon render for absent percentiles was
+ * a spec §5 defect -- missing data now yields the framed EmptyState.
+ */
+import { useMemo } from 'react'
+import { ChartPolar } from '@phosphor-icons/react'
 import type { PlayerPercentiles } from '@/lib/types/database'
-import { resolveColor, useChartTheme } from '@/lib/charts/theme'
+import { RoughRadar } from '@/lib/charts/RoughRadar'
 
 interface PercentileRadarProps {
-  percentiles: PlayerPercentiles
+  /** Null when no percentile row exists for the season -> framed EmptyState (spec §5). */
+  percentiles: PlayerPercentiles | null
 }
 
 interface RadarAxis {
   label: string
   pctlKey: keyof PlayerPercentiles
 }
-
-const CENTER_X = 200
-const CENTER_Y = 200
-const RADIUS = 140
-
-const GRID_LEVELS = [0.25, 0.5, 0.75, 1.0]
 
 const AXES_BY_POSITION: Record<string, RadarAxis[]> = {
   QB: [
@@ -81,184 +82,52 @@ function getAxesForPosition(positionGroup: string | null, position: string | nul
   return AXES_BY_POSITION.DEFAULT
 }
 
-function angleForIndex(index: number, total: number): number {
-  return (index / total) * 2 * Math.PI - Math.PI / 2
-}
-
-function pointOnCircle(angle: number, radius: number): [number, number] {
-  return [CENTER_X + Math.cos(angle) * radius, CENTER_Y + Math.sin(angle) * radius]
-}
-
 export function PercentileRadar({ percentiles }: PercentileRadarProps) {
-  const svgRef = useRef<SVGSVGElement>(null)
-  const roughGroupRef = useRef<SVGGElement>(null)
-
   const axes = useMemo(
-    () => getAxesForPosition(percentiles.position_group, percentiles.position),
-    [percentiles.position_group, percentiles.position]
+    () =>
+      percentiles
+        ? getAxesForPosition(percentiles.position_group, percentiles.position)
+        : [],
+    [percentiles]
   )
 
-  const drawRadar = useCallback(() => {
-    const svg = svgRef.current
-    const group = roughGroupRef.current
-    if (!svg || !group) return
-
-    // Clear previous rough drawings
-    while (group.firstChild) group.removeChild(group.firstChild)
-
-    const rc = rough.svg(svg)
-    const color = resolveColor('var(--color-run)')
-
-    // Calculate polygon points from percentile values
-    const points: [number, number][] = axes.map((axis, i) => {
-      const angle = angleForIndex(i, axes.length)
-      const value = (percentiles[axis.pctlKey] as number | null) ?? 0
-      const dist = value * RADIUS
-      return pointOnCircle(angle, dist)
-    })
-
-    // Draw filled polygon (semi-transparent)
-    const filledPolygon = rc.polygon(points, {
-      fill: color,
-      fillStyle: 'solid',
-      stroke: 'none',
-      strokeWidth: 0,
-      roughness: 1.0,
-      bowing: 0.3,
-    })
-    filledPolygon.style.opacity = '0.3'
-    group.appendChild(filledPolygon)
-
-    // Draw outline polygon
-    group.appendChild(
-      rc.polygon(points, {
-        stroke: color,
-        strokeWidth: 2,
-        roughness: 1.0,
-        bowing: 0.3,
-        fill: 'none',
-      })
-    )
-
-    // Draw data dots
-    for (const [x, y] of points) {
-      group.appendChild(
-        rc.circle(x, y, 8, {
-          fill: color,
-          fillStyle: 'solid',
-          stroke: color,
-          strokeWidth: 1,
-          roughness: 0.5,
-        })
-      )
-    }
-  }, [percentiles, axes])
-
-  // Initial draw and redraw on dependency changes
-  useEffect(() => {
-    drawRadar()
-  }, [drawRadar])
-
-  // Theme change detection
-  useChartTheme(drawRadar)
+  // Percentiles arrive on 0-1; RoughRadar's domain contract is 0-100.
+  const values = axes.map(axis => {
+    const value = percentiles?.[axis.pctlKey] as number | null
+    return value == null ? null : value * 100
+  })
 
   return (
-    <svg
-      ref={svgRef}
-      viewBox="0 0 400 400"
-      className="w-full max-w-md mx-auto"
-      role="img"
-      aria-label={`Percentile radar chart for ${percentiles.name}`}
-    >
-      {/* Concentric grid circles */}
-      {GRID_LEVELS.map((level) => (
-        <circle
-          key={level}
-          cx={CENTER_X}
-          cy={CENTER_Y}
-          r={RADIUS * level}
-          fill="none"
-          stroke="var(--border)"
-          strokeWidth={1}
-          opacity={0.5}
-        />
-      ))}
-
-      {/* Grid level labels */}
-      {GRID_LEVELS.map((level) => (
-        <text
-          key={`label-${level}`}
-          x={CENTER_X + 4}
-          y={CENTER_Y - RADIUS * level + 12}
-          fill="var(--text-muted)"
-          fontSize={9}
-          fontFamily="var(--font-body)"
-          opacity={0.6}
-        >
-          {Math.round(level * 100)}
-        </text>
-      ))}
-
-      {/* Radial axis lines and labels */}
-      {axes.map((axis, i) => {
-        const angle = angleForIndex(i, axes.length)
-        const [endX, endY] = pointOnCircle(angle, RADIUS)
-        const [labelX, labelY] = pointOnCircle(angle, RADIUS + 20)
-        const pctlValue = (percentiles[axis.pctlKey] as number | null) ?? 0
-        const pctlDisplay = `${Math.round(pctlValue * 100)}th`
-
-        // Determine text-anchor based on angle position
-        let textAnchor: 'start' | 'middle' | 'end' = 'middle'
-        const normalizedAngle = ((angle % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI)
-        if (normalizedAngle > Math.PI * 0.1 && normalizedAngle < Math.PI * 0.9) {
-          textAnchor = 'start'
-        } else if (normalizedAngle > Math.PI * 1.1 && normalizedAngle < Math.PI * 1.9) {
-          textAnchor = 'end'
-        }
-
-        return (
-          <g key={axis.label}>
-            {/* Axis line */}
-            <line
-              x1={CENTER_X}
-              y1={CENTER_Y}
-              x2={endX}
-              y2={endY}
-              stroke="var(--border)"
-              strokeWidth={1}
-              opacity={0.4}
-            />
-            {/* Axis label */}
-            <text
-              x={labelX}
-              y={labelY}
-              fill="var(--text-secondary)"
-              fontSize={11}
-              fontFamily="var(--font-body)"
-              textAnchor={textAnchor}
-              dominantBaseline="middle"
-            >
-              {axis.label}
-            </text>
-            {/* Percentile value label */}
-            <text
-              x={labelX}
-              y={labelY + 14}
-              fill="var(--text-muted)"
-              fontSize={10}
-              fontFamily="var(--font-body)"
-              textAnchor={textAnchor}
-              dominantBaseline="middle"
-              className="tabular-nums"
-            >
-              {pctlDisplay}
-            </text>
-          </g>
-        )
-      })}
-
-      {/* roughjs drawings go in this group */}
-      <g ref={roughGroupRef} />
-    </svg>
+    <RoughRadar
+      title="Percentile Rankings"
+      subtitle={
+        percentiles
+          ? `vs. ${percentiles.position_group ?? 'position group'} · ${percentiles.season}`
+          : undefined
+      }
+      ariaLabel={
+        percentiles
+          ? `Percentile radar chart for ${percentiles.name}`
+          : 'Percentile radar chart'
+      }
+      axes={axes.map(axis => ({ key: axis.pctlKey, label: axis.label }))}
+      series={
+        percentiles
+          ? [
+              {
+                label: percentiles.name,
+                color: 'var(--color-run)',
+                values,
+              },
+            ]
+          : []
+      }
+      empty={!percentiles}
+      emptyState={{
+        icon: ChartPolar,
+        title: 'No percentile data for this season',
+        description: 'Percentiles publish once a player has enough qualifying snaps at their position.',
+      }}
+    />
   )
 }

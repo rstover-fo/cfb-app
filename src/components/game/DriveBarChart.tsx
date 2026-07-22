@@ -1,10 +1,13 @@
 'use client'
 
-import { useEffect, useCallback } from 'react'
-import { useRoughSvg } from '@/hooks/useRoughSvg'
+import { useRef, useCallback, useEffect, useMemo } from 'react'
+import rough from 'roughjs'
+import { ChartBar } from '@phosphor-icons/react'
 import type { GameDrive } from '@/lib/types/database'
 import type { GameWithTeams } from '@/lib/queries/games'
-import { resolveColor, useChartTheme } from '@/lib/charts/theme'
+import { CHART_INK, resolveColor, useChartTheme } from '@/lib/charts/theme'
+import { teamInk } from '@/lib/charts/series'
+import { ChartFrame } from '@/lib/charts/ChartFrame'
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -18,6 +21,9 @@ const BAR_HEIGHT = 14
 const ROW_HEIGHT = 36
 const YARD_MARKERS = [20, 40, 50, 60, 80]
 const YARD_LABELS = ['Own 20', 'Own 40', '50', 'Opp 40', 'Opp 20']
+
+/** Stable wobble (spec §9): identical strokes across re-renders and theme flips. */
+const ROUGH_SEED = 47
 
 const OUTCOME_COLOR_MAP: Record<string, string> = {
   touchdown: 'var(--color-positive)',
@@ -59,7 +65,9 @@ function mapDriveResult(driveResult: string): string {
   return 'uncategorized'
 }
 
-function getOutcomeColor(outcome: string): string {
+/** Raw var(--token) reference — safe to assign directly to a native SVG
+ *  attribute in the static scaffold (theme-safe with no redraw needed). */
+function getOutcomeColorVar(outcome: string): string {
   return OUTCOME_COLOR_MAP[outcome] ?? 'var(--text-muted)'
 }
 
@@ -67,6 +75,21 @@ function abbreviateTeam(name: string): string {
   const words = name.split(/\s+/)
   if (words.length === 1) return name.slice(0, 3).toUpperCase()
   return words.slice(0, 4).map(w => w[0]).join('').toUpperCase()
+}
+
+// ---------------------------------------------------------------------------
+// Geometry (spec §1.3 — scales/points computed in useMemo, never in drawChart)
+// ---------------------------------------------------------------------------
+
+interface DriveBarGeometry {
+  driveNumber: number
+  outcome: string
+  x: number
+  y: number
+  width: number
+  cy: number
+  isHome: boolean
+  teamColor: string | null
 }
 
 // ---------------------------------------------------------------------------
@@ -79,61 +102,105 @@ interface DriveBarChartProps {
 }
 
 export function DriveBarChart({ drives, game }: DriveBarChartProps) {
-  const { svgRef, rc } = useRoughSvg()
+  const svgRef = useRef<SVGSVGElement>(null)
+  const roughGroupRef = useRef<SVGGElement>(null)
 
-  const drawBars = useCallback(() => {
-    if (!rc || !svgRef.current) return
-    const svg = svgRef.current
-
-    const existing = svg.querySelectorAll('.rough-bar')
-    existing.forEach(el => el.remove())
-
-    const chartArea = svg.querySelector('.chart-area')
-    if (!chartArea) return
-
-    drives.forEach((drive, i) => {
+  const barsGeometry = useMemo<DriveBarGeometry[]>(() => {
+    return drives.map((drive, i) => {
       const outcome = mapDriveResult(drive.drive_result)
-      const colorVar = getOutcomeColor(outcome)
-      const color = resolveColor(colorVar)
-
       const startX = (100 - drive.start_yards_to_goal) / 100
       const endX = (100 - drive.end_yards_to_goal) / 100
       const x = TEAM_COL_WIDTH + Math.min(startX, endX) * CHART_WIDTH
-      const w = Math.max(Math.abs(endX - startX) * CHART_WIDTH, 3)
+      const width = Math.max(Math.abs(endX - startX) * CHART_WIDTH, 3)
       const y = i * ROW_HEIGHT + (ROW_HEIGHT - BAR_HEIGHT) / 2
+      const cy = i * ROW_HEIGHT + ROW_HEIGHT / 2
+      return {
+        driveNumber: drive.drive_number,
+        outcome,
+        x,
+        y,
+        width,
+        cy,
+        isHome: drive.is_home_offense,
+        teamColor: drive.is_home_offense ? game.homeColor : game.awayColor,
+      }
+    })
+  }, [drives, game.homeColor, game.awayColor])
 
-      const rect = rc.rectangle(x, y, w, BAR_HEIGHT, {
+  // Draw roughjs chart elements: outcome bars + team-color dots.
+  const drawChart = useCallback(() => {
+    const svg = svgRef.current
+    const group = roughGroupRef.current
+    if (!svg || !group) return
+
+    while (group.firstChild) group.removeChild(group.firstChild)
+    if (barsGeometry.length === 0) return
+
+    const rc = rough.svg(svg)
+    const inkMap: Record<string, string> = Object.fromEntries(
+      Object.entries(OUTCOME_COLOR_MAP).map(([outcome, token]) => [outcome, resolveColor(token)]),
+    )
+    const mutedColor = resolveColor(CHART_INK.muted)
+
+    for (const bar of barsGeometry) {
+      const color = inkMap[bar.outcome] ?? mutedColor
+
+      const rect = rc.rectangle(bar.x, bar.y, bar.width, BAR_HEIGHT, {
         fill: color,
         fillStyle: 'solid',
         stroke: color,
-        strokeWidth: 1,
-        roughness: 1.2,
+        strokeWidth: 1.5,
+        roughness: 1.1,
+        bowing: 0.5,
+        seed: ROUGH_SEED,
       })
-      rect.classList.add('rough-bar')
-      chartArea.appendChild(rect)
-    })
-  }, [rc, svgRef, drives])
+      group.appendChild(rect)
+
+      // Team-color dot (left column), rough-drawn: teamInk() falls back to
+      // --text-primary (home) / --text-muted (away) per spec §6.
+      const dotColor = teamInk(bar.teamColor, bar.isHome ? 'primary' : 'muted')
+      const dot = rc.circle(10, bar.cy, 8, {
+        fill: dotColor,
+        fillStyle: 'solid',
+        stroke: dotColor,
+        strokeWidth: 1.5,
+        roughness: 0.5,
+        seed: ROUGH_SEED,
+      })
+      group.appendChild(dot)
+    }
+  }, [barsGeometry])
 
   useEffect(() => {
-    drawBars()
-  }, [drawBars])
+    drawChart()
+  }, [drawChart])
 
-  // Redraw on theme change
-  useChartTheme(drawBars)
+  // Redraw on theme change (also re-resolves team colors, which pass
+  // through resolveColor unchanged).
+  useChartTheme(drawChart)
 
   const headerHeight = 20
   const totalHeight = drives.length * ROW_HEIGHT
 
   return (
-    <div className="overflow-x-auto">
-      <div className="min-w-[600px]">
-        <svg
-          ref={svgRef}
-          viewBox={`0 0 ${TOTAL_WIDTH} ${headerHeight + totalHeight}`}
-          className="w-full block"
-          role="img"
-          aria-label={`Drive chart: ${drives.length} drives for ${game.home_team} vs ${game.away_team}`}
-        >
+    <ChartFrame
+      ariaLabel={`Drive chart: ${drives.length} drives for ${game.home_team} vs ${game.away_team}`}
+      empty={drives.length === 0}
+      emptyState={{
+        icon: ChartBar,
+        title: 'No drives to chart',
+        description: "Drive bars publish once this game's drive-by-drive data loads.",
+      }}
+    >
+      {a11y => (
+        <div className="overflow-x-auto">
+          <div className="min-w-[600px]">
+            <svg
+              ref={svgRef}
+              viewBox={`0 0 ${TOTAL_WIDTH} ${headerHeight + totalHeight}`}
+              className="w-full block"
+              {...a11y}
+            >
           {/* ===== HEADER ROW ===== */}
           {/* Bottom border for header */}
           <line
@@ -199,32 +266,24 @@ export function DriveBarChart({ drives, game }: DriveBarChartProps) {
               opacity={0.4}
             />
 
-            {/* Team indicators (left column) */}
+            {/* Team abbreviation labels (left column) — the team-color dot
+                itself is rough-drawn in the rough layer below, not a native
+                circle (spec §6: team brand ink only inside rough draws). */}
             {drives.map((drive, i) => {
-              const isHome = drive.is_home_offense
-              const color = isHome ? game.homeColor : game.awayColor
-              const teamName = drive.offense
               const cy = i * ROW_HEIGHT + ROW_HEIGHT / 2
               return (
-                <g key={`team-${drive.drive_number}`}>
-                  <circle
-                    cx={10}
-                    cy={cy}
-                    r={4}
-                    fill={color ?? 'var(--text-muted)'}
-                  />
-                  <text
-                    x={20}
-                    y={cy}
-                    dominantBaseline="central"
-                    fill="var(--text-secondary)"
-                    fontSize={11}
-                    fontWeight={500}
-                    fontFamily="var(--font-body)"
-                  >
-                    {abbreviateTeam(teamName)}
-                  </text>
-                </g>
+                <text
+                  key={`team-${drive.drive_number}`}
+                  x={20}
+                  y={cy}
+                  dominantBaseline="central"
+                  fill="var(--text-secondary)"
+                  fontSize={11}
+                  fontWeight={500}
+                  fontFamily="var(--font-body)"
+                >
+                  {abbreviateTeam(drive.offense)}
+                </text>
               )
             })}
 
@@ -232,8 +291,7 @@ export function DriveBarChart({ drives, game }: DriveBarChartProps) {
             {drives.map((drive, i) => {
               const outcome = mapDriveResult(drive.drive_result)
               const label = RESULT_LABELS[outcome] ?? drive.drive_result
-              const colorVar = getOutcomeColor(outcome)
-              const color = resolveColor(colorVar)
+              const colorVar = getOutcomeColorVar(outcome)
               const cy = i * ROW_HEIGHT + ROW_HEIGHT / 2
               const rightX = TEAM_COL_WIDTH + CHART_WIDTH + 6
 
@@ -246,14 +304,14 @@ export function DriveBarChart({ drives, game }: DriveBarChartProps) {
                     width={label.length * 7 + 8}
                     height={16}
                     rx={2}
-                    fill={color}
+                    fill={colorVar}
                     opacity={0.15}
                   />
                   <text
                     x={rightX + 4}
                     y={cy}
                     dominantBaseline="central"
-                    fill={color}
+                    fill={colorVar}
                     fontSize={10}
                     fontWeight={700}
                     fontFamily="var(--font-body)"
@@ -275,11 +333,13 @@ export function DriveBarChart({ drives, game }: DriveBarChartProps) {
               )
             })}
 
-            {/* Rough bars get appended here */}
-            <g className="chart-area" />
+            {/* Rough-drawn outcome bars + team-color dots */}
+            <g ref={roughGroupRef} data-testid="rough-layer" />
           </g>
-        </svg>
-      </div>
-    </div>
+            </svg>
+          </div>
+        </div>
+      )}
+    </ChartFrame>
   )
 }

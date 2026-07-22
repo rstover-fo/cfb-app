@@ -1,6 +1,7 @@
 'use client'
 
 import { useMemo } from 'react'
+import { StatBar } from '@/lib/charts/StatBar'
 import type { GameDrive } from '@/lib/types/database'
 import type { GameWithTeams } from '@/lib/queries/games'
 
@@ -90,15 +91,7 @@ function StatRow({ label, awayValue, homeValue, awayRaw, homeRaw, awayColor, hom
         >
           {awayValue}
         </span>
-        <div className="w-20 h-2 rounded-full bg-[var(--bg-surface-alt)] overflow-hidden flex justify-end" aria-hidden="true">
-          <div
-            className="h-full rounded-full transition-all"
-            style={{
-              width: `${awayBarWidth}%`,
-              backgroundColor: awayColor ?? 'var(--text-muted)',
-            }}
-          />
-        </div>
+        <StatBar value={awayBarWidth} direction="rtl" color={awayColor ?? 'var(--text-muted)'} className="w-20" />
       </div>
 
       {/* Label */}
@@ -106,15 +99,7 @@ function StatRow({ label, awayValue, homeValue, awayRaw, homeRaw, awayColor, hom
 
       {/* Home side */}
       <div className="flex items-center gap-2">
-        <div className="w-20 h-2 rounded-full bg-[var(--bg-surface-alt)] overflow-hidden" aria-hidden="true">
-          <div
-            className="h-full rounded-full transition-all"
-            style={{
-              width: `${homeBarWidth}%`,
-              backgroundColor: homeColor ?? 'var(--text-muted)',
-            }}
-          />
-        </div>
+        <StatBar value={homeBarWidth} color={homeColor ?? 'var(--text-muted)'} className="w-20" />
         <span
           className={`text-sm tabular-nums ${
             homeBetter ? 'font-bold text-[var(--text-primary)]' : 'text-[var(--text-secondary)]'

@@ -1,12 +1,17 @@
 'use client'
 
-import { useEffect, useCallback, useRef, useState, useMemo } from 'react'
+import { useEffect, useCallback, useRef, useMemo } from 'react'
 import rough from 'roughjs'
-import type { RoughSVG } from 'roughjs/bin/svg'
+import { ChartLine } from '@phosphor-icons/react'
 import { FootballField, yardToX } from '@/components/visualizations/FootballField'
 import type { GameDrive } from '@/lib/types/database'
 import type { GameWithTeams } from '@/lib/queries/games'
-import { resolveColor, useChartTheme } from '@/lib/charts/theme'
+import { CHART_INK, resolveColor, useChartTheme } from '@/lib/charts/theme'
+import { inkFor } from '@/lib/charts/series'
+import type { SeriesRole } from '@/lib/charts/series'
+import { ChartFrame } from '@/lib/charts/ChartFrame'
+import { ChartLegend } from '@/lib/charts/ChartLegend'
+import type { ChartLegendItem } from '@/lib/charts/ChartLegend'
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -28,6 +33,22 @@ const DIVIDER_Y = 200
 const ARROW_HEAD_LENGTH = 8
 const ARROW_HEAD_WIDTH = 5
 
+/** Stable wobble (spec §9): identical strokes across re-renders and theme flips. */
+const ROUGH_SEED = 53
+
+/** Outcomes with a direct SeriesRole ink match (spec §6/§10 inkFor). */
+const OUTCOME_ROLE_MAP: Partial<Record<string, SeriesRole>> = {
+  touchdown: 'positive',
+  safety: 'negative',
+  turnover: 'negative',
+  punt: 'neutral',
+  downs: 'run',
+  end_of_half: 'pass',
+}
+
+// Raw var(--token) references — for the HTML legend swatches (CSS handles
+// their theme flip) and for outcomes outside the SeriesRole vocabulary
+// (field_goal/missed_fg use --color-field-goal, which has no SeriesRole).
 const OUTCOME_COLOR_MAP: Record<string, string> = {
   touchdown: 'var(--color-positive)',
   field_goal: 'var(--color-field-goal)',
@@ -66,13 +87,39 @@ function mapDriveResult(driveResult: string): string {
   return 'uncategorized'
 }
 
-function getOutcomeColor(outcome: string): string {
-  return OUTCOME_COLOR_MAP[outcome] ?? 'var(--text-muted)'
-}
-
 /** Convert drive yards_to_goal to a 0-100 own-yard-line position */
 function toOwnYardLine(yardsToGoal: number): number {
   return 100 - yardsToGoal
+}
+
+// ---------------------------------------------------------------------------
+// Geometry (spec §1.3 — scales/points computed in useMemo, never in drawChart)
+// ---------------------------------------------------------------------------
+
+interface DriveArrowGeometry {
+  driveNumber: number
+  outcome: string
+  x1: number
+  x2: number
+  y: number
+}
+
+function layoutDriveSet(driveList: GameDrive[], yMin: number, yMax: number): DriveArrowGeometry[] {
+  const count = driveList.length
+  if (count === 0) return []
+  const ySpacing = count === 1 ? 0 : (yMax - yMin) / (count - 1)
+
+  return driveList.map((drive, i) => {
+    const startYard = toOwnYardLine(drive.start_yards_to_goal)
+    const endYard = toOwnYardLine(drive.end_yards_to_goal)
+    return {
+      driveNumber: drive.drive_number,
+      outcome: mapDriveResult(drive.drive_result),
+      x1: yardToX(startYard, PLAYABLE_WIDTH),
+      x2: yardToX(endYard, PLAYABLE_WIDTH),
+      y: count === 1 ? (yMin + yMax) / 2 : yMin + i * ySpacing,
+    }
+  })
 }
 
 // ---------------------------------------------------------------------------
@@ -86,155 +133,156 @@ interface DriveFieldOverlayProps {
 
 export function DriveFieldOverlay({ drives, game }: DriveFieldOverlayProps) {
   const fieldRef = useRef<SVGSVGElement>(null)
-  const [rc, setRc] = useState<RoughSVG | null>(null)
+  const roughGroupRef = useRef<SVGGElement>(null)
 
-  // Initialize roughjs on the FootballField SVG
-  useEffect(() => {
-    if (fieldRef.current && !rc) {
-      setRc(rough.svg(fieldRef.current))
-    }
-  }, [rc])
-
-  // Split drives by team (memoized to prevent unnecessary redraws)
   const homeDrives = useMemo(() => drives.filter(d => d.is_home_offense), [drives])
   const awayDrives = useMemo(() => drives.filter(d => !d.is_home_offense), [drives])
 
-  const drawDrives = useCallback(() => {
-    if (!rc || !fieldRef.current) return
+  const arrowGeometry = useMemo<DriveArrowGeometry[]>(
+    () => [
+      ...layoutDriveSet(homeDrives, HOME_Y_MIN, HOME_Y_MAX),
+      ...layoutDriveSet(awayDrives, AWAY_Y_MIN, AWAY_Y_MAX),
+    ],
+    [homeDrives, awayDrives],
+  )
+
+  // Draw roughjs chart elements: one line + arrowhead per drive.
+  const drawChart = useCallback(() => {
     const svg = fieldRef.current
+    const group = roughGroupRef.current
+    if (!svg || !group) return
 
-    // Clear old rough elements
-    svg.querySelectorAll('.rough-drive').forEach(el => el.remove())
+    while (group.firstChild) group.removeChild(group.firstChild)
+    if (arrowGeometry.length === 0) return
 
-    // Find the overlay group inside the FootballField children area
-    const overlayGroup = svg.querySelector('.drive-overlay-group')
-    if (!overlayGroup) return
-
-    function drawDriveSet(
-      driveList: GameDrive[],
-      yMin: number,
-      yMax: number,
-    ) {
-      const count = driveList.length
-      if (count === 0) return
-      const ySpacing = count === 1 ? 0 : (yMax - yMin) / (count - 1)
-
-      driveList.forEach((drive, i) => {
-        const outcome = mapDriveResult(drive.drive_result)
-        const colorVar = getOutcomeColor(outcome)
-        const color = resolveColor(colorVar)
-
-        const startYard = toOwnYardLine(drive.start_yards_to_goal)
-        const endYard = toOwnYardLine(drive.end_yards_to_goal)
-
-        const x1 = yardToX(startYard, PLAYABLE_WIDTH)
-        const x2 = yardToX(endYard, PLAYABLE_WIDTH)
-        const y = count === 1 ? (yMin + yMax) / 2 : yMin + i * ySpacing
-
-        // Draw the rough line for this drive
-        const line = rc!.line(x1, y, x2, y, {
-          stroke: color,
-          strokeWidth: 2.5,
-          roughness: 1.0,
-        })
-        line.classList.add('rough-drive')
-        overlayGroup!.appendChild(line)
-
-        // Draw arrowhead at end position
-        const direction = x2 >= x1 ? 1 : -1
-        const arrowTipX = x2
-        const arrowBaseX = x2 - direction * ARROW_HEAD_LENGTH
-
-        const arrowPath = `M ${arrowTipX} ${y} L ${arrowBaseX} ${y - ARROW_HEAD_WIDTH} L ${arrowBaseX} ${y + ARROW_HEAD_WIDTH} Z`
-        const arrowEl = document.createElementNS('http://www.w3.org/2000/svg', 'path')
-        arrowEl.setAttribute('d', arrowPath)
-        arrowEl.setAttribute('fill', color)
-        arrowEl.setAttribute('opacity', '0.9')
-        arrowEl.classList.add('rough-drive')
-        overlayGroup!.appendChild(arrowEl)
-      })
+    const rc = rough.svg(svg)
+    const fieldGoalColor = resolveColor('var(--color-field-goal)')
+    const mutedColor = resolveColor(CHART_INK.muted)
+    const inkMap: Record<string, string> = {
+      field_goal: fieldGoalColor,
+      missed_fg: fieldGoalColor,
+    }
+    for (const [outcome, role] of Object.entries(OUTCOME_ROLE_MAP)) {
+      if (role) inkMap[outcome] = inkFor(role)
     }
 
-    drawDriveSet(homeDrives, HOME_Y_MIN, HOME_Y_MAX)
-    drawDriveSet(awayDrives, AWAY_Y_MIN, AWAY_Y_MAX)
-  }, [rc, homeDrives, awayDrives])
+    for (const drive of arrowGeometry) {
+      const color = inkMap[drive.outcome] ?? mutedColor
+      const { x1, x2, y } = drive
+
+      const line = rc.line(x1, y, x2, y, {
+        stroke: color,
+        strokeWidth: 2.5,
+        roughness: 1.0,
+        bowing: 0.4,
+        seed: ROUGH_SEED,
+      })
+      group.appendChild(line)
+
+      // Arrowhead at the end position — rough-drawn (spec: no un-rough data
+      // marks), not a native path with a baked-in fill.
+      const direction = x2 >= x1 ? 1 : -1
+      const arrowTipX = x2
+      const arrowBaseX = x2 - direction * ARROW_HEAD_LENGTH
+      const arrow = rc.polygon(
+        [
+          [arrowTipX, y],
+          [arrowBaseX, y - ARROW_HEAD_WIDTH],
+          [arrowBaseX, y + ARROW_HEAD_WIDTH],
+        ],
+        {
+          fill: color,
+          fillStyle: 'solid',
+          stroke: color,
+          strokeWidth: 1,
+          roughness: 0.5,
+          seed: ROUGH_SEED,
+        },
+      )
+      group.appendChild(arrow)
+    }
+  }, [arrowGeometry])
 
   useEffect(() => {
-    drawDrives()
-  }, [drawDrives])
+    drawChart()
+  }, [drawChart])
 
   // Redraw on theme change
-  useChartTheme(drawDrives)
+  useChartTheme(drawChart)
+
+  const legendItems: ChartLegendItem[] = LEGEND_ITEMS.map(item => ({
+    key: item.key,
+    label: item.label,
+    swatch: 'solid',
+    color: OUTCOME_COLOR_MAP[item.key] ?? 'var(--text-muted)',
+  }))
+
+  const ariaLabel = `Field view of ${drives.length} drives for ${game.home_team} vs ${game.away_team}, plotted by starting and ending field position`
 
   return (
-    <div className="space-y-3">
-      {/* Field with drive overlays */}
-      <FootballField
-        ref={fieldRef}
-        width={FIELD_WIDTH_DEFAULT}
-        height={FIELD_HEIGHT}
-        id="drive-field-overlay"
-        ariaLabel={`Field view of ${drives.length} drives for ${game.home_team} vs ${game.away_team}, plotted by starting and ending field position`}
-      >
-        {/* Team labels */}
-        <text
-          x={-4}
-          y={(HOME_Y_MIN + HOME_Y_MAX) / 2}
-          fill="var(--field-line)"
-          fontSize={12}
-          fontWeight={600}
-          textAnchor="end"
-          dominantBaseline="middle"
-          opacity={0.8}
+    <ChartFrame
+      ariaLabel={ariaLabel}
+      empty={drives.length === 0}
+      emptyState={{
+        icon: ChartLine,
+        title: 'No drives to plot',
+        description: "Field position charts publish once this game's drive-by-drive data loads.",
+      }}
+    >
+      <div className="space-y-3">
+        {/* Field with drive overlays. FootballField manages its own SVG
+            role/aria-label (spec §2) — not modified here. */}
+        <FootballField
+          ref={fieldRef}
+          width={FIELD_WIDTH_DEFAULT}
+          height={FIELD_HEIGHT}
+          id="drive-field-overlay"
+          ariaLabel={ariaLabel}
         >
-          {game.home_team}
-        </text>
-        <text
-          x={-4}
-          y={(AWAY_Y_MIN + AWAY_Y_MAX) / 2}
-          fill="var(--field-line)"
-          fontSize={12}
-          fontWeight={600}
-          textAnchor="end"
-          dominantBaseline="middle"
-          opacity={0.8}
-        >
-          {game.away_team}
-        </text>
+          {/* Team labels */}
+          <text
+            x={-4}
+            y={(HOME_Y_MIN + HOME_Y_MAX) / 2}
+            fill="var(--field-line)"
+            fontSize={12}
+            fontWeight={600}
+            textAnchor="end"
+            dominantBaseline="middle"
+            opacity={0.8}
+          >
+            {game.home_team}
+          </text>
+          <text
+            x={-4}
+            y={(AWAY_Y_MIN + AWAY_Y_MAX) / 2}
+            fill="var(--field-line)"
+            fontSize={12}
+            fontWeight={600}
+            textAnchor="end"
+            dominantBaseline="middle"
+            opacity={0.8}
+          >
+            {game.away_team}
+          </text>
 
-        {/* Divider between home and away */}
-        <line
-          x1={0}
-          y1={DIVIDER_Y}
-          x2={PLAYABLE_WIDTH}
-          y2={DIVIDER_Y}
-          stroke="var(--field-line)"
-          strokeWidth={1}
-          strokeDasharray="6 4"
-          opacity={0.4}
-        />
+          {/* Divider between home and away */}
+          <line
+            x1={0}
+            y1={DIVIDER_Y}
+            x2={PLAYABLE_WIDTH}
+            y2={DIVIDER_Y}
+            stroke="var(--field-line)"
+            strokeWidth={1}
+            strokeDasharray="6 4"
+            opacity={0.4}
+          />
 
-        {/* Group for rough-drawn drives */}
-        <g className="drive-overlay-group" />
-      </FootballField>
+          {/* Rough-drawn drive lines + arrowheads */}
+          <g ref={roughGroupRef} data-testid="rough-layer" />
+        </FootballField>
 
-      {/* Legend */}
-      <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1">
-        {LEGEND_ITEMS.map(item => {
-          const colorVar = OUTCOME_COLOR_MAP[item.key] ?? 'var(--text-muted)'
-          return (
-            <div key={item.key} className="flex items-center gap-1.5">
-              <span
-                className="w-3 h-1 rounded-sm inline-block"
-                style={{ backgroundColor: colorVar }}
-              />
-              <span className="text-[11px] text-[var(--text-muted)]">
-                {item.label}
-              </span>
-            </div>
-          )
-        })}
+        <ChartLegend items={legendItems} />
       </div>
-    </div>
+    </ChartFrame>
   )
 }

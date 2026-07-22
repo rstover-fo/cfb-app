@@ -2,7 +2,9 @@
  * Unit tests for LineMovementChart's rendering paths:
  *  - full chart: >= 2 plottable snapshots draw the rough time-series SVG
  *  - single snapshot: compact "line opened at ..." text row, no SVG
- *  - empty (or all-null-spread) input: renders nothing
+ *  - empty (or all-null-spread) input: framed EmptyState (spec §5) -- the
+ *    game page renders this component when a prediction exists even with
+ *    no snapshots, so the empty path must be designed, not blank
  *  - modelMargin sign reconciliation: market spread is home-relative
  *    (negative = home favored) while expected_home_margin is positive when
  *    home is favored, so the dashed reference plots at -modelMargin
@@ -68,18 +70,20 @@ describe('LineMovementChart', () => {
     expect(screen.getByText('Ohio State -1.5')).toBeInTheDocument()
   })
 
-  it('renders nothing with no rows', () => {
-    const { container } = render(<LineMovementChart points={[]} homeTeam={HOME} awayTeam={AWAY} />)
-    expect(container).toBeEmptyDOMElement()
+  it('renders a framed EmptyState with no rows', () => {
+    render(<LineMovementChart points={[]} homeTeam={HOME} awayTeam={AWAY} />)
+    expect(screen.queryByRole('img')).not.toBeInTheDocument()
+    expect(screen.getByRole('status')).toHaveTextContent('No line movement to chart')
   })
 
-  it('renders nothing when every row has a null spread', () => {
+  it('renders a framed EmptyState when every row has a null spread', () => {
     const points = [
       createLineMovementRow({ spread: null, formatted_spread: null }),
       createLineMovementRow({ captured_at: '2025-11-26T08:00:00+00:00', spread: null, formatted_spread: null }),
     ]
-    const { container } = render(<LineMovementChart points={points} homeTeam={HOME} awayTeam={AWAY} />)
-    expect(container).toBeEmptyDOMElement()
+    render(<LineMovementChart points={points} homeTeam={HOME} awayTeam={AWAY} />)
+    expect(screen.queryByRole('img')).not.toBeInTheDocument()
+    expect(screen.getByRole('status')).toHaveTextContent('No line movement to chart')
   })
 
   it('plots the model reference at -modelMargin (sign reconciliation onto the spread axis)', () => {

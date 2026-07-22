@@ -27,18 +27,27 @@ describe('AccuracyTrendChart', () => {
     expect(screen.getByText('Elo (v1)')).toBeInTheDocument()
   })
 
-  it('renders null when there are no rows', () => {
-    const { container } = render(<AccuracyTrendChart rows={[]} />)
-    expect(container).toBeEmptyDOMElement()
+  it('renders a framed empty state when there are no rows', () => {
+    // The models page renders this section unconditionally once `rows` is
+    // non-empty overall (its own gate is on the unfiltered array), so an
+    // empty `baseRows` here must still render a framed EmptyState rather
+    // than bare null -- an ungated bare `null` would leave the "Accuracy
+    // Over Time" heading orphaned above nothing.
+    render(<AccuracyTrendChart rows={[]} />)
+    expect(screen.queryByRole('img')).not.toBeInTheDocument()
+    expect(screen.getByRole('status')).toBeInTheDocument()
+    expect(screen.getByText('No accuracy trend to show')).toBeInTheDocument()
   })
 
-  it('renders null when every row is edge-threshold-filtered or missing a hit rate', () => {
+  it('renders a framed empty state when every row is edge-threshold-filtered or missing a hit rate', () => {
     const rows = [
       createPredictionAccuracyRow({ edge_threshold: 6 }),
       createPredictionAccuracyRow({ edge_threshold: 0, ats_hit_rate: null }),
     ]
-    const { container } = render(<AccuracyTrendChart rows={rows} />)
-    expect(container).toBeEmptyDOMElement()
+    render(<AccuracyTrendChart rows={rows} />)
+    expect(screen.queryByRole('img')).not.toBeInTheDocument()
+    expect(screen.getByRole('status')).toBeInTheDocument()
+    expect(screen.getByText('No accuracy trend to show')).toBeInTheDocument()
   })
 
   it('draws the coin-flip and break-even reference lines', () => {

@@ -28,6 +28,14 @@
   --color-neutral: #6B635A;
   --color-field-goal: #5A7AC4;
 
+  /* Heat ramp (worst -> best): semantic-family tints mixed over the mode's
+     --bg-surface so --text-primary stays readable on every cell. */
+  --heat-1: #D7B5B5;
+  --heat-2: #E9D6D6;
+  --heat-3: #E1E0DE;
+  --heat-4: #D2DED6;
+  --heat-5: #AEC3B6;
+
   /* Field colors */
   --field-green: #2d5a27;
   --field-endzone: #1e3d1a;
@@ -149,6 +157,12 @@
 
     --border: #3D362E;
 
+    --heat-1: #523430;
+    --heat-2: #3F2C26;
+    --heat-3: #332D26;
+    --heat-4: #2C3226;
+    --heat-5: #324030;
+
     --accent: #D08A6A;
     --accent-hover: #E09A7A;
     /* Dark ink on the lightened dark-mode accent (~6.5:1); paper-white
@@ -173,6 +187,11 @@
   --text-secondary: #4A4740;
   --text-muted: #6B635A;
   --border: #D9D2C7;
+  --heat-1: #D7B5B5;
+  --heat-2: #E9D6D6;
+  --heat-3: #E1E0DE;
+  --heat-4: #D2DED6;
+  --heat-5: #AEC3B6;
   --field-green: #2d5a27;
   --field-endzone: #1e3d1a;
   --field-line: #ffffff;
@@ -191,6 +210,11 @@
   --text-secondary: #C9C2B7;
   --text-muted: #8A847A;
   --border: #3D362E;
+  --heat-1: #523430;
+  --heat-2: #3F2C26;
+  --heat-3: #332D26;
+  --heat-4: #2C3226;
+  --heat-5: #324030;
   --accent: #D08A6A;
   --accent-hover: #E09A7A;
   --accent-foreground: #1A1814;

@@ -1,10 +1,25 @@
 'use client'
 
 import { useState, useRef, useMemo, useCallback, useEffect } from 'react'
-import { CaretDown } from '@phosphor-icons/react'
+import { ChartLine } from '@phosphor-icons/react'
 import rough from 'roughjs'
 import { TeamSeasonTrajectory, TrajectoryAverages } from '@/lib/types/database'
-import { resolveColor, useChartTheme } from '@/lib/charts/theme'
+import { CHART_INK, resolveColor, useChartTheme } from '@/lib/charts/theme'
+import { inkFor } from '@/lib/charts/series'
+import { ChartFrame } from '@/lib/charts/ChartFrame'
+import { ChartTooltip } from '@/lib/charts/ChartTooltip'
+import type { ChartTooltipRow } from '@/lib/charts/ChartTooltip'
+import { ChartLegend } from '@/lib/charts/ChartLegend'
+import type { ChartLegendItem } from '@/lib/charts/ChartLegend'
+import { gridLinesY, axisLabelsY, axisLabelsX } from '@/lib/charts/axes'
+import type { ChartLayout } from '@/lib/charts/axes'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 
 interface TrajectoryChartProps {
   trajectory: TeamSeasonTrajectory[]
@@ -110,10 +125,15 @@ const HEIGHT = 350
 const PADDING = { top: 30, right: 30, bottom: 50, left: 60 }
 const CHART_WIDTH = WIDTH - PADDING.left - PADDING.right
 const CHART_HEIGHT = HEIGHT - PADDING.top - PADDING.bottom
+const LAYOUT: ChartLayout = { width: WIDTH, height: HEIGHT, padding: PADDING }
+
+/** Stable wobble (spec §9): identical strokes across re-renders and theme flips. */
+const ROUGH_SEED = 24
+
+type LineKey = 'team' | 'conf' | 'fbs'
 
 export function TrajectoryChart({ trajectory, averages, conference, teamName }: TrajectoryChartProps) {
   const [selectedMetric, setSelectedMetric] = useState<MetricKey>('wins')
-  const [dropdownOpen, setDropdownOpen] = useState(false)
   const [hoveredSeason, setHoveredSeason] = useState<number | null>(null)
   const [visibleLines, setVisibleLines] = useState({ team: true, conf: true, fbs: true })
   const svgRef = useRef<SVGSVGElement>(null)
@@ -202,13 +222,13 @@ export function TrajectoryChart({ trajectory, averages, conference, teamName }: 
     while (group.firstChild) group.removeChild(group.firstChild)
 
     const rc = rough.svg(svg)
-    const runColor = resolveColor('var(--color-run)')
-    const mutedColor = resolveColor('var(--text-muted)')
-    const surfaceColor = resolveColor('var(--bg-surface)')
+    const runColor = inkFor('run')
+    const mutedColor = resolveColor(CHART_INK.muted)
+    const surfaceColor = resolveColor(CHART_INK.surface)
 
     const { teamPoints, confPoints, fbsPoints } = chartGeometry
 
-    // Area fill under team line
+    // Area fill under team line (solid @ 0.1 opacity, roughness 0 — spec §6)
     if (visibleLines.team && teamPoints.length >= 2) {
       const areaCoords: [number, number][] = [
         ...teamPoints.map(p => [p.x, p.y] as [number, number]),
@@ -221,68 +241,69 @@ export function TrajectoryChart({ trajectory, averages, conference, teamName }: 
         stroke: 'none',
         strokeWidth: 0,
         roughness: 0,
+        seed: ROUGH_SEED,
       })
       area.style.opacity = '0.1'
       group.appendChild(area)
     }
 
-    // FBS average line (lightest)
+    // FBS average line (tertiary/context weight)
     if (visibleLines.fbs && fbsPoints.length >= 2) {
       const line = rc.linearPath(
         fbsPoints.map(p => [p.x, p.y] as [number, number]),
-        { stroke: mutedColor, strokeWidth: 1.5, roughness: 0.5, bowing: 0.2 },
+        { stroke: mutedColor, strokeWidth: 1.5, roughness: 0.5, bowing: 0.2, seed: ROUGH_SEED },
       )
       line.style.opacity = '0.45'
       group.appendChild(line)
     }
 
-    // Conference average line (medium)
+    // Conference average line (secondary weight)
     if (visibleLines.conf && confPoints.length >= 2) {
       const line = rc.linearPath(
         confPoints.map(p => [p.x, p.y] as [number, number]),
-        { stroke: mutedColor, strokeWidth: 2, roughness: 0.7, bowing: 0.3 },
+        { stroke: mutedColor, strokeWidth: 2, roughness: 0.7, bowing: 0.3, seed: ROUGH_SEED },
       )
       line.style.opacity = '0.65'
       group.appendChild(line)
     }
 
-    // Team line (boldest)
+    // Team line (primary weight)
     if (visibleLines.team && teamPoints.length >= 2) {
       const line = rc.linearPath(
         teamPoints.map(p => [p.x, p.y] as [number, number]),
-        { stroke: runColor, strokeWidth: 3, roughness: 1.0, bowing: 0.4 },
+        { stroke: runColor, strokeWidth: 3, roughness: 1.0, bowing: 0.4, seed: ROUGH_SEED },
       )
       group.appendChild(line)
     }
 
-    // Data dots — team
+    // Data dots. Roughness 0.5 throughout (below the series hierarchy
+    // defaults, spec §9): the default roughness distorts 5–10px circles
+    // into scribbles.
     if (visibleLines.team) {
       for (const p of teamPoints) {
         group.appendChild(rc.circle(p.x, p.y, 10, {
           fill: surfaceColor, fillStyle: 'solid',
-          stroke: runColor, strokeWidth: 2, roughness: 0.5,
+          stroke: runColor, strokeWidth: 2, roughness: 0.5, seed: ROUGH_SEED,
         }))
       }
     }
 
-    // Data dots — conference
     if (visibleLines.conf) {
       for (const p of confPoints) {
         const dot = rc.circle(p.x, p.y, 6, {
           fill: surfaceColor, fillStyle: 'solid',
-          stroke: mutedColor, strokeWidth: 1.5, roughness: 0.5,
+          stroke: mutedColor, strokeWidth: 1.5, roughness: 0.5, seed: ROUGH_SEED,
         })
         dot.style.opacity = '0.7'
         group.appendChild(dot)
       }
     }
 
-    // Data dots — FBS
     if (visibleLines.fbs) {
       for (const p of fbsPoints) {
         const dot = rc.circle(p.x, p.y, 5, {
           fill: surfaceColor, fillStyle: 'solid',
-          stroke: mutedColor, strokeWidth: 1, roughness: 0.5,
+          stroke: mutedColor, strokeWidth: 1, roughness: 0.5, seed: ROUGH_SEED,
         })
         dot.style.opacity = '0.5'
         group.appendChild(dot)
@@ -297,18 +318,6 @@ export function TrajectoryChart({ trajectory, averages, conference, teamName }: 
   // Redraw on theme change
   useChartTheme(drawChart)
 
-  if (!chartGeometry || teamData.length === 0) {
-    return (
-      <div className="bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg p-4">
-        <p className="text-[var(--text-muted)] text-center py-8">
-          Historical data not available for this team.
-        </p>
-      </div>
-    )
-  }
-
-  const { seasons, getX, yTicks } = chartGeometry
-
   const getHoverData = (season: number) => {
     const teamVal = teamData.find(d => d.season === season)?.value
     const confVal = confData.find(d => d.season === season)?.value
@@ -316,187 +325,130 @@ export function TrajectoryChart({ trajectory, averages, conference, teamName }: 
     return { teamVal, confVal, fbsVal }
   }
 
-  const toggleLine = (line: 'team' | 'conf' | 'fbs') => {
+  const toggleLine = (line: LineKey) => {
     setVisibleLines(prev => ({ ...prev, [line]: !prev[line] }))
   }
 
+  const tooltipRows: ChartTooltipRow[] = []
+  if (hoveredSeason !== null) {
+    const { teamVal, confVal, fbsVal } = getHoverData(hoveredSeason)
+    if (visibleLines.team && teamVal !== undefined) {
+      tooltipRows.push({ swatch: 'solid', color: 'var(--color-run)', label: 'Team:', value: metric.format(teamVal) })
+    }
+    if (visibleLines.conf && confVal !== undefined) {
+      tooltipRows.push({ swatch: 'dashed', color: 'var(--text-muted)', label: `${conference} avg:`, value: metric.format(confVal) })
+    }
+    if (visibleLines.fbs && fbsVal !== undefined) {
+      tooltipRows.push({ swatch: 'dashed', color: 'var(--text-muted)', label: 'FBS avg:', value: metric.format(fbsVal) })
+    }
+  }
+
+  const legendItems: ChartLegendItem[] = [
+    { key: 'team', label: 'Team', swatch: 'solid', color: 'var(--color-run)' },
+    { key: 'conf', label: `${conference} avg`, swatch: 'dashed', color: 'var(--text-muted)' },
+    { key: 'fbs', label: 'FBS avg', swatch: 'dashed', color: 'var(--text-muted)' },
+  ]
+
+  const seasons = chartGeometry?.seasons ?? []
+
   return (
-    <div className="bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg p-4">
-      {/* Metric Dropdown */}
-      <div className="relative mb-2">
-        <button
-          onClick={() => setDropdownOpen(!dropdownOpen)}
-          className="flex items-center gap-2 px-3 py-2 border border-[var(--border)] rounded text-sm text-[var(--text-primary)] hover:border-[var(--text-muted)] transition-colors"
-        >
-          {metric.label}
-          <CaretDown size={14} weight="bold" className={`transition-transform ${dropdownOpen ? 'rotate-180' : ''}`} />
-        </button>
+    <ChartFrame
+      ariaLabel={`${metric.label} by season for ${teamName || 'this team'} from ${seasons[0]} to ${seasons[seasons.length - 1]}, compared to ${conference} and FBS averages`}
+      empty={!chartGeometry}
+      emptyState={{
+        icon: ChartLine,
+        title: 'No trajectory data for this team',
+        description: "Historical data publishes after a team's first FBS season.",
+      }}
+    >
+      {a11y => {
+        const { getX, yTicks } = chartGeometry!
+        const step = seasons.length > 16 ? 3 : seasons.length > 10 ? 2 : 1
+        const xTicks = seasons
+          .filter((_, i) => i % step === 0 || i === seasons.length - 1)
+          .map(season => ({ x: getX(season), label: season }))
 
-        {dropdownOpen && (
-          <div className="absolute top-full left-0 mt-1 bg-[var(--bg-surface)] border border-[var(--border)] rounded shadow-lg z-10 min-w-[200px]">
-            {METRICS.map(m => (
-              <button
-                key={m.key}
-                onClick={() => {
-                  setSelectedMetric(m.key)
-                  setDropdownOpen(false)
-                }}
-                className={`w-full text-left px-3 py-2 text-sm hover:bg-[var(--bg-surface-alt)] transition-colors ${
-                  selectedMetric === m.key ? 'text-[var(--color-run)] font-medium' : 'text-[var(--text-secondary)]'
-                }`}
-              >
-                {m.label}
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
+        return (
+          <>
+            {/* Metric Dropdown */}
+            <div className="mb-2">
+              <Select value={selectedMetric} onValueChange={v => setSelectedMetric(v as MetricKey)}>
+                <SelectTrigger className="text-sm" aria-label="Select metric">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {METRICS.map(m => (
+                    <SelectItem key={m.key} value={m.key}>
+                      {m.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
 
-      <p className="text-xs text-[var(--text-muted)] mb-3">{metric.definition}</p>
+            <p className="text-xs text-[var(--text-muted)] mb-3">{metric.definition}</p>
 
-      {/* Chart */}
-      <svg
-        ref={svgRef}
-        viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
-        className="w-full h-auto"
-        role="img"
-        aria-label={`${metric.label} by season for ${teamName || 'this team'} from ${seasons[0]} to ${seasons[seasons.length - 1]}, compared to ${conference} and FBS averages`}
-        onMouseLeave={() => setHoveredSeason(null)}
-      >
-        {/* Horizontal grid lines */}
-        {yTicks.map(({ pct }) => (
-          <line
-            key={pct}
-            x1={PADDING.left}
-            y1={PADDING.top + pct * CHART_HEIGHT}
-            x2={WIDTH - PADDING.right}
-            y2={PADDING.top + pct * CHART_HEIGHT}
-            stroke="var(--border)"
-            strokeWidth={1}
-            opacity={0.4}
-          />
-        ))}
-
-        {/* Y-axis labels */}
-        {yTicks.map(({ pct, val }) => (
-          <text
-            key={pct}
-            x={PADDING.left - 10}
-            y={PADDING.top + pct * CHART_HEIGHT}
-            textAnchor="end"
-            dominantBaseline="middle"
-            className="fill-[var(--text-muted)] text-xs"
-          >
-            {metric.format(val)}
-          </text>
-        ))}
-
-        {/* X-axis labels — show every Nth to prevent overlap */}
-        {(() => {
-          const step = seasons.length > 16 ? 3 : seasons.length > 10 ? 2 : 1
-          return seasons.filter((_, i) => i % step === 0 || i === seasons.length - 1).map(season => (
-            <text
-              key={season}
-              x={getX(season)}
-              y={HEIGHT - 15}
-              textAnchor="middle"
-              className="fill-[var(--text-muted)] text-xs"
+            {/* Chart */}
+            <svg
+              ref={svgRef}
+              viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
+              className="w-full h-auto"
+              {...a11y}
+              onMouseLeave={() => setHoveredSeason(null)}
             >
-              {season}
-            </text>
-          ))
-        })()}
+              {/* Static scaffold: grid + axis labels */}
+              {gridLinesY(yTicks, LAYOUT)}
+              {axisLabelsY(yTicks, metric.format, LAYOUT)}
+              {axisLabelsX(xTicks, LAYOUT)}
 
-        {/* Rough-drawn chart elements */}
-        <g ref={roughGroupRef} />
+              {/* Rough-drawn chart elements */}
+              <g ref={roughGroupRef} data-testid="rough-layer" />
 
-        {/* Interactive hover areas */}
-        {seasons.map(season => (
-          <rect
-            key={season}
-            x={getX(season) - CHART_WIDTH / seasons.length / 2}
-            y={PADDING.top}
-            width={CHART_WIDTH / seasons.length}
-            height={CHART_HEIGHT}
-            fill="transparent"
-            onMouseEnter={() => setHoveredSeason(season)}
-          />
-        ))}
+              {/* Interactive hover areas */}
+              {seasons.map(season => (
+                <rect
+                  key={season}
+                  x={getX(season) - CHART_WIDTH / seasons.length / 2}
+                  y={PADDING.top}
+                  width={CHART_WIDTH / seasons.length}
+                  height={CHART_HEIGHT}
+                  fill="transparent"
+                  onMouseEnter={() => setHoveredSeason(season)}
+                />
+              ))}
 
-        {/* Hover crosshair */}
-        {hoveredSeason && (
-          <line
-            x1={getX(hoveredSeason)}
-            y1={PADDING.top}
-            x2={getX(hoveredSeason)}
-            y2={PADDING.top + CHART_HEIGHT}
-            stroke="var(--text-muted)"
-            strokeWidth={1}
-            strokeDasharray="4 2"
-            opacity={0.6}
-          />
-        )}
-      </svg>
+              {/* Hover crosshair */}
+              {hoveredSeason && (
+                <line
+                  x1={getX(hoveredSeason)}
+                  y1={PADDING.top}
+                  x2={getX(hoveredSeason)}
+                  y2={PADDING.top + CHART_HEIGHT}
+                  stroke="var(--text-muted)"
+                  strokeWidth={1}
+                  strokeDasharray="4 2"
+                  opacity={0.6}
+                />
+              )}
+            </svg>
 
-      {/* Tooltip */}
-      {hoveredSeason && (
-        <div className="mt-2 p-3 bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg text-sm">
-          <p className="font-headline text-base text-[var(--text-primary)] mb-2">{hoveredSeason}</p>
-          {(() => {
-            const { teamVal, confVal, fbsVal } = getHoverData(hoveredSeason)
-            return (
-              <div className="space-y-1">
-                {visibleLines.team && teamVal !== undefined && (
-                  <p className="flex items-center gap-2">
-                    <span className="w-3 h-0.5 bg-[var(--color-run)]" />
-                    <span className="text-[var(--text-secondary)]">Team:</span>
-                    <span className="text-[var(--text-primary)] font-medium">{metric.format(teamVal)}</span>
-                  </p>
-                )}
-                {visibleLines.conf && confVal !== undefined && (
-                  <p className="flex items-center gap-2">
-                    <span className="w-3 h-0.5 bg-[var(--text-muted)] opacity-70" style={{ backgroundImage: 'repeating-linear-gradient(90deg, var(--text-muted) 0, var(--text-muted) 4px, transparent 4px, transparent 6px)' }} />
-                    <span className="text-[var(--text-secondary)]">{conference} avg:</span>
-                    <span className="text-[var(--text-primary)]">{metric.format(confVal)}</span>
-                  </p>
-                )}
-                {visibleLines.fbs && fbsVal !== undefined && (
-                  <p className="flex items-center gap-2">
-                    <span className="w-3 h-0.5 opacity-50" style={{ backgroundImage: 'repeating-linear-gradient(90deg, var(--text-muted) 0, var(--text-muted) 2px, transparent 2px, transparent 4px)' }} />
-                    <span className="text-[var(--text-secondary)]">FBS avg:</span>
-                    <span className="text-[var(--text-primary)]">{metric.format(fbsVal)}</span>
-                  </p>
-                )}
-              </div>
-            )
-          })()}
-        </div>
-      )}
+            <ChartTooltip
+              header={hoveredSeason !== null ? String(hoveredSeason) : undefined}
+              rows={tooltipRows}
+              prompt="Hover a season for details"
+              minRows={3}
+            />
 
-      {/* Legend */}
-      <div className="flex items-center justify-center gap-6 mt-3 pt-2 border-t border-[var(--border)]">
-        <button
-          onClick={() => toggleLine('team')}
-          className={`flex items-center gap-2 text-xs transition-opacity ${visibleLines.team ? '' : 'opacity-40'}`}
-        >
-          <span className="w-4 h-0.5 bg-[var(--color-run)]" />
-          <span className="text-[var(--text-secondary)]">Team</span>
-        </button>
-        <button
-          onClick={() => toggleLine('conf')}
-          className={`flex items-center gap-2 text-xs transition-opacity ${visibleLines.conf ? '' : 'opacity-40'}`}
-        >
-          <span className="w-4 h-0.5 bg-[var(--text-muted)]" style={{ backgroundImage: 'repeating-linear-gradient(90deg, var(--text-muted) 0, var(--text-muted) 4px, transparent 4px, transparent 6px)' }} />
-          <span className="text-[var(--text-secondary)]">{conference} avg</span>
-        </button>
-        <button
-          onClick={() => toggleLine('fbs')}
-          className={`flex items-center gap-2 text-xs transition-opacity ${visibleLines.fbs ? '' : 'opacity-40'}`}
-        >
-          <span className="w-4 h-0.5 opacity-50" style={{ backgroundImage: 'repeating-linear-gradient(90deg, var(--text-muted) 0, var(--text-muted) 2px, transparent 2px, transparent 4px)' }} />
-          <span className="text-[var(--text-secondary)]">FBS avg</span>
-        </button>
-      </div>
-    </div>
+            <ChartLegend
+              items={legendItems}
+              interactive={{
+                visible: visibleLines,
+                onToggle: key => toggleLine(key as LineKey),
+              }}
+            />
+          </>
+        )
+      }}
+    </ChartFrame>
   )
 }

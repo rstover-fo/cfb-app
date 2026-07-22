@@ -1,8 +1,15 @@
 'use client'
 
 import { useRef, useMemo, useCallback, useEffect } from 'react'
+import { TrendUp } from '@phosphor-icons/react'
 import rough from 'roughjs'
-import { resolveColor, useChartTheme } from '@/lib/charts/theme'
+import { CHART_INK, resolveColor, useChartTheme } from '@/lib/charts/theme'
+import { inkFor } from '@/lib/charts/series'
+import { ChartFrame } from '@/lib/charts/ChartFrame'
+import { ChartLegend } from '@/lib/charts/ChartLegend'
+import type { ChartLegendItem } from '@/lib/charts/ChartLegend'
+import { gridLinesY, axisLabelsY, axisLabelsX } from '@/lib/charts/axes'
+import type { ChartLayout } from '@/lib/charts/axes'
 import type { PredictionAccuracyRow } from '@/lib/queries/predictions'
 import { PREDICTION_MODEL_VERSIONS, DEFAULT_PREDICTION_MODEL } from '@/lib/queries/constants'
 
@@ -24,8 +31,11 @@ const MODEL_LABELS: Record<string, string> = {
 // accent; the pure-Elo baseline gets the secondary semantic color. Neither
 // model actually concerns run/pass play-calling -- this just reuses the
 // app's two-series semantic palette per the chart-engineer convention.
+function modelRole(model: string): 'run' | 'pass' {
+  return model === DEFAULT_PREDICTION_MODEL ? 'run' : 'pass'
+}
 function modelColorVar(model: string): string {
-  return model === DEFAULT_PREDICTION_MODEL ? 'var(--color-run)' : 'var(--color-pass)'
+  return modelRole(model) === 'run' ? 'var(--color-run)' : 'var(--color-pass)'
 }
 
 const WIDTH = 700
@@ -33,6 +43,10 @@ const HEIGHT = 280
 const PADDING = { top: 24, right: 24, bottom: 40, left: 48 }
 const CHART_WIDTH = WIDTH - PADDING.left - PADDING.right
 const CHART_HEIGHT = HEIGHT - PADDING.top - PADDING.bottom
+const LAYOUT: ChartLayout = { width: WIDTH, height: HEIGHT, padding: PADDING }
+
+/** Stable wobble (spec §9): identical strokes across re-renders and theme flips. */
+const ROUGH_SEED = 52
 
 export function AccuracyTrendChart({ rows }: AccuracyTrendChartProps) {
   const svgRef = useRef<SVGSVGElement>(null)
@@ -97,7 +111,8 @@ export function AccuracyTrendChart({ rows }: AccuracyTrendChartProps) {
     return { seasons, getX, getY, seriesPoints, yTicks }
   }, [baseRows])
 
-  // Draw roughjs chart elements
+  // Draw roughjs chart elements. Both model lines are peer series (no
+  // primary/secondary weighting), so both use the spec §9 primary weight.
   const drawChart = useCallback(() => {
     const svg = svgRef.current
     const group = roughGroupRef.current
@@ -106,15 +121,15 @@ export function AccuracyTrendChart({ rows }: AccuracyTrendChartProps) {
     while (group.firstChild) group.removeChild(group.firstChild)
 
     const rc = rough.svg(svg)
-    const surfaceColor = resolveColor('var(--bg-surface)')
+    const surfaceColor = resolveColor(CHART_INK.surface)
 
     for (const s of chartGeometry.seriesPoints) {
-      const color = resolveColor(modelColorVar(s.model))
+      const color = inkFor(modelRole(s.model))
 
       if (s.points.length >= 2) {
         const line = rc.linearPath(
           s.points.map(p => [p.x, p.y] as [number, number]),
-          { stroke: color, strokeWidth: 3, roughness: 1.0, bowing: 0.4 },
+          { stroke: color, strokeWidth: 3, roughness: 1.0, bowing: 0.4, seed: ROUGH_SEED },
         )
         group.appendChild(line)
       }
@@ -122,7 +137,7 @@ export function AccuracyTrendChart({ rows }: AccuracyTrendChartProps) {
       for (const p of s.points) {
         group.appendChild(rc.circle(p.x, p.y, 9, {
           fill: surfaceColor, fillStyle: 'solid',
-          stroke: color, strokeWidth: 2, roughness: 0.5,
+          stroke: color, strokeWidth: 2, roughness: 0.5, seed: ROUGH_SEED,
         }))
       }
     }
@@ -135,114 +150,94 @@ export function AccuracyTrendChart({ rows }: AccuracyTrendChartProps) {
   // Redraw on theme change
   useChartTheme(drawChart)
 
-  if (!chartGeometry) return null
-
-  const { seasons, getX, getY, yTicks, seriesPoints } = chartGeometry
+  const seasons = chartGeometry?.seasons ?? []
 
   return (
-    <div className="bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg p-4">
-      <svg
-        ref={svgRef}
-        viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
-        className="w-full h-auto"
-        role="img"
-        aria-label={`Against-the-spread hit rate by season, one line per prediction model, from ${seasons[0]} to ${seasons[seasons.length - 1]}, against a 50% coin-flip reference`}
-      >
-        {/* Horizontal grid lines */}
-        {yTicks.map(({ pct }) => (
-          <line
-            key={pct}
-            x1={PADDING.left}
-            y1={PADDING.top + pct * CHART_HEIGHT}
-            x2={WIDTH - PADDING.right}
-            y2={PADDING.top + pct * CHART_HEIGHT}
-            stroke="var(--border)"
-            strokeWidth={1}
-            opacity={0.4}
-          />
-        ))}
+    <ChartFrame
+      ariaLabel={
+        seasons.length > 0
+          ? `Against-the-spread hit rate by season, one line per prediction model, from ${seasons[0]} to ${seasons[seasons.length - 1]}, against a 50% coin-flip reference`
+          : 'Against-the-spread hit rate by season'
+      }
+      empty={!chartGeometry}
+      emptyState={{
+        icon: TrendUp,
+        title: 'No accuracy trend to show',
+        description: 'Season-over-season hit rates publish once a model has a full season of backtested picks.',
+      }}
+    >
+      {a11y => {
+        const { getX, getY, yTicks, seriesPoints } = chartGeometry!
 
-        {/* Y-axis labels */}
-        {yTicks.map(({ pct, val }) => (
-          <text
-            key={pct}
-            x={PADDING.left - 8}
-            y={PADDING.top + pct * CHART_HEIGHT}
-            textAnchor="end"
-            dominantBaseline="middle"
-            className="fill-[var(--text-muted)] text-xs"
-          >
-            {`${Math.round(val * 100)}%`}
-          </text>
-        ))}
+        const legendItems: ChartLegendItem[] = seriesPoints.map(s => ({
+          key: s.model,
+          label: MODEL_LABELS[s.model] ?? s.model,
+          swatch: 'solid',
+          color: modelColorVar(s.model),
+        }))
 
-        {/* X-axis labels */}
-        {seasons.map(season => (
-          <text
-            key={season}
-            x={getX(season)}
-            y={HEIGHT - 12}
-            textAnchor="middle"
-            className="fill-[var(--text-muted)] text-xs"
-          >
-            {season}
-          </text>
-        ))}
+        return (
+          <>
+            <svg
+              ref={svgRef}
+              viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
+              className="w-full h-auto"
+              {...a11y}
+            >
+              {/* Static scaffold: grid + axis labels */}
+              {gridLinesY(yTicks, LAYOUT)}
+              {axisLabelsY(yTicks, v => `${Math.round(v * 100)}%`, LAYOUT)}
+              {axisLabelsX(seasons.map(season => ({ x: getX(season), label: season })), LAYOUT)}
 
-        {/* Coin-flip reference line (50%) */}
-        <line
-          x1={PADDING.left}
-          x2={WIDTH - PADDING.right}
-          y1={getY(COIN_FLIP)}
-          y2={getY(COIN_FLIP)}
-          stroke="var(--text-muted)"
-          strokeWidth={1.5}
-          strokeDasharray="5 3"
-          opacity={0.7}
-        />
-        <text
-          x={WIDTH - PADDING.right}
-          y={getY(COIN_FLIP) - 6}
-          textAnchor="end"
-          className="fill-[var(--text-muted)] text-[10px]"
-        >
-          Coin flip (50%)
-        </text>
+              {/* Coin-flip reference line (50%) -- static scaffold, per spec */}
+              <line
+                x1={PADDING.left}
+                x2={WIDTH - PADDING.right}
+                y1={getY(COIN_FLIP)}
+                y2={getY(COIN_FLIP)}
+                stroke="var(--text-muted)"
+                strokeWidth={1.5}
+                strokeDasharray="5 3"
+                opacity={0.7}
+              />
+              <text
+                x={WIDTH - PADDING.right}
+                y={getY(COIN_FLIP) - 6}
+                textAnchor="end"
+                className="fill-[var(--text-muted)] text-[10px]"
+              >
+                Coin flip (50%)
+              </text>
 
-        {/* Break-even reference line (-110 juice) */}
-        <line
-          x1={PADDING.left}
-          x2={WIDTH - PADDING.right}
-          y1={getY(BREAK_EVEN_MINUS_110)}
-          y2={getY(BREAK_EVEN_MINUS_110)}
-          stroke="var(--text-muted)"
-          strokeWidth={1}
-          strokeDasharray="2 3"
-          opacity={0.45}
-        />
-        <text
-          x={WIDTH - PADDING.right}
-          y={getY(BREAK_EVEN_MINUS_110) - 6}
-          textAnchor="end"
-          className="fill-[var(--text-muted)] text-[10px]"
-          opacity={0.7}
-        >
-          Break-even at -110 (52.4%)
-        </text>
+              {/* Break-even reference line (-110 juice) -- static scaffold, per spec */}
+              <line
+                x1={PADDING.left}
+                x2={WIDTH - PADDING.right}
+                y1={getY(BREAK_EVEN_MINUS_110)}
+                y2={getY(BREAK_EVEN_MINUS_110)}
+                stroke="var(--text-muted)"
+                strokeWidth={1}
+                strokeDasharray="2 3"
+                opacity={0.45}
+              />
+              <text
+                x={WIDTH - PADDING.right}
+                y={getY(BREAK_EVEN_MINUS_110) - 6}
+                textAnchor="end"
+                className="fill-[var(--text-muted)] text-[10px]"
+                opacity={0.7}
+              >
+                Break-even at -110 (52.4%)
+              </text>
 
-        {/* Rough-drawn chart elements */}
-        <g ref={roughGroupRef} />
-      </svg>
+              {/* Rough-drawn chart elements */}
+              <g ref={roughGroupRef} data-testid="rough-layer" />
+            </svg>
 
-      {/* Legend */}
-      <div className="flex items-center justify-center gap-6 mt-3 pt-2 border-t border-[var(--border)]">
-        {seriesPoints.map(s => (
-          <span key={s.model} className="flex items-center gap-2 text-xs">
-            <span className="w-4 h-0.5" style={{ backgroundColor: modelColorVar(s.model) }} />
-            <span className="text-[var(--text-secondary)]">{MODEL_LABELS[s.model] ?? s.model}</span>
-          </span>
-        ))}
-      </div>
-    </div>
+            <ChartLegend items={legendItems} />
+          </>
+        )
+      }}
+    </ChartFrame>
   )
 }

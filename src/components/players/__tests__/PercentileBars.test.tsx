@@ -94,9 +94,12 @@ describe('PercentileBars', () => {
     // 50th-percentile reference captions.
     expect(screen.getAllByText('50th pctl')).toHaveLength(2)
 
-    // Rough bars drawn: 2 legend swatches + 2 bars per full row (4 rows).
+    // Rough bars drawn: 2 bars per full row (4 rows). Player names render in
+    // the HTML ChartLegend above the SVG, not as in-SVG text or rough swatches.
     const roughLayer = screen.getByTestId('rough-layer')
-    expect(roughLayer.childNodes.length).toBe(2 + 4 * 2)
+    expect(roughLayer.childNodes.length).toBe(4 * 2)
+    expect(screen.getByText('Jackson Arnold')).toBeInTheDocument()
+    expect(screen.getByText('Arch Manning')).toBeInTheDocument()
   })
 
   it('shows the union of both stat sets for a mixed QB vs RB pairing', () => {

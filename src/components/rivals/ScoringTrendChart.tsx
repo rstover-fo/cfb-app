@@ -2,8 +2,17 @@
 
 import { useRef, useMemo, useCallback, useEffect, useState } from 'react'
 import rough from 'roughjs'
+import { Football } from '@phosphor-icons/react'
 import type { MatchupGame } from '@/lib/queries/matchups'
-import { resolveColor, useChartTheme } from '@/lib/charts/theme'
+import { CHART_INK, resolveColor, useChartTheme } from '@/lib/charts/theme'
+import { teamInk } from '@/lib/charts/series'
+import { ChartFrame } from '@/lib/charts/ChartFrame'
+import { ChartTooltip } from '@/lib/charts/ChartTooltip'
+import type { ChartTooltipRow } from '@/lib/charts/ChartTooltip'
+import { ChartLegend } from '@/lib/charts/ChartLegend'
+import type { ChartLegendItem } from '@/lib/charts/ChartLegend'
+import { gridLinesY, axisLabelsY, axisLabelsX } from '@/lib/charts/axes'
+import type { ChartLayout } from '@/lib/charts/axes'
 
 interface TeamMeta {
   name: string
@@ -18,10 +27,14 @@ interface ScoringTrendChartProps {
 }
 
 const WIDTH = 700
-const HEIGHT = 320
-const PADDING = { top: 24, right: 24, bottom: 44, left: 44 }
+const HEIGHT = 350
+const PADDING = { top: 30, right: 30, bottom: 50, left: 60 }
 const CHART_WIDTH = WIDTH - PADDING.left - PADDING.right
 const CHART_HEIGHT = HEIGHT - PADDING.top - PADDING.bottom
+const LAYOUT: ChartLayout = { width: WIDTH, height: HEIGHT, padding: PADDING }
+
+/** Stable wobble (spec §9): identical strokes across re-renders and theme flips. */
+const ROUGH_SEED = 52
 
 // Points scored by each team in every meeting, plotted over time in the app's
 // hand-drawn (roughjs) chart idiom. Redraws on theme change like TrajectoryChart.
@@ -36,10 +49,11 @@ export function ScoringTrendChart({ games, teamAMeta, teamBMeta }: ScoringTrendC
       [...games]
         .reverse()
         .map(g => ({ season: g.season, a: g.teamAScore, b: g.teamBScore })),
-    [games]
+    [games],
   )
 
-  const geometry = useMemo(() => {
+  // Chart geometry: scales, points, ticks
+  const chartGeometry = useMemo(() => {
     if (series.length === 0) return null
 
     const maxScore = Math.max(...series.flatMap(d => [d.a, d.b]), 10)
@@ -54,28 +68,41 @@ export function ScoringTrendChart({ games, teamAMeta, teamBMeta }: ScoringTrendC
 
     const yTicks = [0, 0.25, 0.5, 0.75, 1].map(pct => ({ pct, val: Math.round(yMax * (1 - pct)) }))
 
-    return { getX, getY, aPoints, bPoints, yMax, yTicks }
+    const labelStep = series.length > 16 ? 3 : series.length > 8 ? 2 : 1
+    const xTicks = series
+      .map((d, i) => ({ x: getX(i), label: d.season, i }))
+      .filter(({ i }) => i % labelStep === 0 || i === series.length - 1)
+      .map(({ x, label }) => ({ x, label }))
+
+    return { getX, aPoints, bPoints, yTicks, xTicks }
   }, [series])
 
+  // Draw roughjs chart elements
   const drawChart = useCallback(() => {
     const svg = svgRef.current
     const group = roughGroupRef.current
-    if (!svg || !group || !geometry) return
+    if (!svg || !group || !chartGeometry) return
 
     while (group.firstChild) group.removeChild(group.firstChild)
 
     const rc = rough.svg(svg)
-    const surfaceColor = resolveColor('var(--bg-surface)')
-    const colorA = teamAMeta.color || resolveColor('var(--color-run)')
-    const colorB = teamBMeta.color || resolveColor('var(--color-pass)')
+    const surfaceColor = resolveColor(CHART_INK.surface)
+    // Team brand colors pass through resolveColor unchanged; missing colors
+    // fall back to --text-primary (A) / --text-muted (B) per spec §6.
+    const colorA = teamInk(teamAMeta.color, 'primary')
+    const colorB = teamInk(teamBMeta.color, 'muted')
 
-    const drawLine = (points: { x: number; y: number }[], color: string) => {
+    const drawLine = (points: { x: number; y: number }[], color: string, hierarchy: 'primary' | 'secondary') => {
+      const opts =
+        hierarchy === 'primary'
+          ? { strokeWidth: 3, roughness: 1.0, bowing: 0.4 }
+          : { strokeWidth: 2, roughness: 0.7, bowing: 0.3 }
       if (points.length >= 2) {
         group.appendChild(
           rc.linearPath(
             points.map(p => [p.x, p.y] as [number, number]),
-            { stroke: color, strokeWidth: 2.5, roughness: 0.9, bowing: 0.4 }
-          )
+            { stroke: color, seed: ROUGH_SEED, ...opts },
+          ),
         )
       }
       for (const p of points) {
@@ -86,14 +113,17 @@ export function ScoringTrendChart({ games, teamAMeta, teamBMeta }: ScoringTrendC
             stroke: color,
             strokeWidth: 2,
             roughness: 0.5,
-          })
+            seed: ROUGH_SEED,
+          }),
         )
       }
     }
 
-    drawLine(geometry.bPoints, colorB)
-    drawLine(geometry.aPoints, colorA)
-  }, [geometry, teamAMeta.color, teamBMeta.color])
+    // Team B drawn first (recessive), Team A on top (signature), matching
+    // the TrajectoryChart hierarchy convention.
+    drawLine(chartGeometry.bPoints, colorB, 'secondary')
+    drawLine(chartGeometry.aPoints, colorA, 'primary')
+  }, [chartGeometry, teamAMeta.color, teamBMeta.color])
 
   useEffect(() => {
     drawChart()
@@ -101,139 +131,93 @@ export function ScoringTrendChart({ games, teamAMeta, teamBMeta }: ScoringTrendC
 
   useChartTheme(drawChart)
 
-  if (!geometry || series.length === 0) {
-    return (
-      <p className="text-sm text-[var(--text-muted)] py-8 text-center">
-        Not enough scoring data to chart this matchup.
-      </p>
-    )
-  }
+  // HTML surfaces (tooltip/legend swatches) use the raw var(--…) token or the
+  // resolved team hex directly -- CSS handles the theme flip, no resolveColor.
+  const swatchColorA = teamAMeta.color || 'var(--text-primary)'
+  const swatchColorB = teamBMeta.color || 'var(--text-muted)'
 
-  const { getX, yTicks } = geometry
-  const labelStep = series.length > 16 ? 3 : series.length > 8 ? 2 : 1
   const hovered = hoveredIdx != null ? series[hoveredIdx] : null
 
+  const tooltipRows: ChartTooltipRow[] = []
+  if (hovered) {
+    tooltipRows.push({ swatch: 'solid', color: swatchColorA, label: `${teamAMeta.name}:`, value: String(hovered.a) })
+    tooltipRows.push({ swatch: 'solid', color: swatchColorB, label: `${teamBMeta.name}:`, value: String(hovered.b) })
+  }
+
+  const legendItems: ChartLegendItem[] = [
+    { key: 'a', label: teamAMeta.name, swatch: 'solid', color: swatchColorA },
+    { key: 'b', label: teamBMeta.name, swatch: 'solid', color: swatchColorB },
+  ]
+
   return (
-    <div>
-      <svg
-        ref={svgRef}
-        viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
-        className="w-full h-auto"
-        role="img"
-        aria-label={`Points scored by ${teamAMeta.name} and ${teamBMeta.name} in each meeting`}
-        onMouseLeave={() => setHoveredIdx(null)}
-      >
-        {/* Grid + Y labels */}
-        {yTicks.map(({ pct, val }) => (
-          <g key={pct}>
-            <line
-              x1={PADDING.left}
-              y1={PADDING.top + pct * CHART_HEIGHT}
-              x2={WIDTH - PADDING.right}
-              y2={PADDING.top + pct * CHART_HEIGHT}
-              stroke="var(--border)"
-              strokeWidth={1}
-              opacity={0.4}
+    <ChartFrame
+      ariaLabel={`Points scored by ${teamAMeta.name} and ${teamBMeta.name} in each meeting`}
+      empty={!chartGeometry}
+      emptyState={{
+        icon: Football,
+        title: 'Not enough scoring data to chart this matchup',
+        description: 'Scoring trends publish once these teams have met on the field.',
+      }}
+    >
+      {a11y => {
+        const { getX, yTicks, xTicks } = chartGeometry!
+
+        return (
+          <>
+            <svg
+              ref={svgRef}
+              viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
+              className="w-full h-auto"
+              {...a11y}
+              onMouseLeave={() => setHoveredIdx(null)}
+            >
+              {/* Static scaffold: grid + axis labels */}
+              {gridLinesY(yTicks, LAYOUT)}
+              {axisLabelsY(yTicks, v => String(v), LAYOUT)}
+              {axisLabelsX(xTicks, LAYOUT)}
+
+              {/* Rough-drawn chart elements */}
+              <g ref={roughGroupRef} data-testid="rough-layer" />
+
+              {/* Interactive hover areas */}
+              {series.map((_, i) => (
+                <rect
+                  key={i}
+                  x={getX(i) - CHART_WIDTH / series.length / 2}
+                  y={PADDING.top}
+                  width={CHART_WIDTH / series.length}
+                  height={CHART_HEIGHT}
+                  fill="transparent"
+                  onMouseEnter={() => setHoveredIdx(i)}
+                />
+              ))}
+
+              {/* Hover crosshair */}
+              {hoveredIdx != null && (
+                <line
+                  x1={getX(hoveredIdx)}
+                  y1={PADDING.top}
+                  x2={getX(hoveredIdx)}
+                  y2={PADDING.top + CHART_HEIGHT}
+                  stroke="var(--text-muted)"
+                  strokeWidth={1}
+                  strokeDasharray="4 2"
+                  opacity={0.6}
+                />
+              )}
+            </svg>
+
+            <ChartTooltip
+              header={hovered ? String(hovered.season) : undefined}
+              rows={tooltipRows}
+              prompt="Hover a meeting for details"
+              minRows={2}
             />
-            <text
-              x={PADDING.left - 8}
-              y={PADDING.top + pct * CHART_HEIGHT}
-              textAnchor="end"
-              dominantBaseline="middle"
-              className="fill-[var(--text-muted)] text-xs"
-            >
-              {val}
-            </text>
-          </g>
-        ))}
 
-        {/* X labels */}
-        {series.map((d, i) =>
-          i % labelStep === 0 || i === series.length - 1 ? (
-            <text
-              key={i}
-              x={getX(i)}
-              y={HEIGHT - 14}
-              textAnchor="middle"
-              className="fill-[var(--text-muted)] text-xs"
-            >
-              {d.season}
-            </text>
-          ) : null
-        )}
-
-        <g ref={roughGroupRef} />
-
-        {/* Hover targets + crosshair */}
-        {series.map((_, i) => (
-          <rect
-            key={i}
-            x={getX(i) - CHART_WIDTH / series.length / 2}
-            y={PADDING.top}
-            width={CHART_WIDTH / series.length}
-            height={CHART_HEIGHT}
-            fill="transparent"
-            onMouseEnter={() => setHoveredIdx(i)}
-          />
-        ))}
-        {hoveredIdx != null && (
-          <line
-            x1={getX(hoveredIdx)}
-            y1={PADDING.top}
-            x2={getX(hoveredIdx)}
-            y2={PADDING.top + CHART_HEIGHT}
-            stroke="var(--text-muted)"
-            strokeWidth={1}
-            strokeDasharray="4 2"
-            opacity={0.6}
-          />
-        )}
-      </svg>
-
-      {/* Tooltip */}
-      {hovered && (
-        <div className="mt-2 p-3 bg-[var(--bg-surface)] border border-[var(--border)] rounded-sm text-sm">
-          <p className="font-headline text-base text-[var(--text-primary)] mb-2 tabular-nums">
-            {hovered.season}
-          </p>
-          <div className="space-y-1">
-            <p className="flex items-center gap-2">
-              <span
-                className="w-3 h-0.5"
-                style={{ backgroundColor: teamAMeta.color || 'var(--color-run)' }}
-              />
-              <span className="text-[var(--text-secondary)]">{teamAMeta.name}:</span>
-              <span className="text-[var(--text-primary)] font-medium tabular-nums">{hovered.a}</span>
-            </p>
-            <p className="flex items-center gap-2">
-              <span
-                className="w-3 h-0.5"
-                style={{ backgroundColor: teamBMeta.color || 'var(--color-pass)' }}
-              />
-              <span className="text-[var(--text-secondary)]">{teamBMeta.name}:</span>
-              <span className="text-[var(--text-primary)] font-medium tabular-nums">{hovered.b}</span>
-            </p>
-          </div>
-        </div>
-      )}
-
-      {/* Legend */}
-      <div className="flex items-center justify-center gap-6 mt-3 pt-2 border-t border-[var(--border)]">
-        <span className="flex items-center gap-2 text-xs">
-          <span
-            className="w-4 h-0.5"
-            style={{ backgroundColor: teamAMeta.color || 'var(--color-run)' }}
-          />
-          <span className="text-[var(--text-secondary)]">{teamAMeta.name}</span>
-        </span>
-        <span className="flex items-center gap-2 text-xs">
-          <span
-            className="w-4 h-0.5"
-            style={{ backgroundColor: teamBMeta.color || 'var(--color-pass)' }}
-          />
-          <span className="text-[var(--text-secondary)]">{teamBMeta.name}</span>
-        </span>
-      </div>
-    </div>
+            <ChartLegend items={legendItems} />
+          </>
+        )
+      }}
+    </ChartFrame>
   )
 }

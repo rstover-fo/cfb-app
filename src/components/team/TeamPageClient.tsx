@@ -187,15 +187,13 @@ export function TeamPageClient({
           {/* Drive Patterns */}
           <section className="mb-10">
             <h2 className="font-headline text-2xl text-[var(--text-primary)] mb-4">Drive Patterns</h2>
-            {offenseDrives && offenseDrives.length > 0 ? (
-              <DrivePatterns
-                offenseDrives={offenseDrives}
-                defenseDrives={defenseDrives ?? []}
-                teamName={team.school ?? ''}
-              />
-            ) : (
-              <p className="text-[var(--text-muted)]">No drive data available</p>
-            )}
+            {/* DrivePatterns owns its empty state (framed EmptyState, spec §5)
+                -- no bare-string fallback here. */}
+            <DrivePatterns
+              offenseDrives={offenseDrives ?? []}
+              defenseDrives={defenseDrives ?? []}
+              teamName={team.school ?? ''}
+            />
           </section>
 
           {/* Performance Metrics */}

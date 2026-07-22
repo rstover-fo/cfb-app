@@ -221,23 +221,13 @@ export function RankingsClient({
         <PollTable rankings={rankings} poll={poll} />
       </div>
 
-      {/* Bumps Chart */}
+      {/* Bumps Chart: brings its own ChartFrame shell, title, and hint */}
       {allWeeksData.length > 1 && (
-        <div className="card p-4">
-          <div className="mb-4 pb-3 border-b border-[var(--border)]">
-            <h2 className="text-sm font-medium text-[var(--text-muted)]">
-              Season Trajectory — {poll}
-            </h2>
-            <p className="text-xs text-[var(--text-muted)] mt-1">
-              Hover to highlight a team. Click team name to view details.
-            </p>
-          </div>
-          <BumpsChart
-            data={allWeeksData}
-            poll={poll}
-            onTeamClick={handleTeamClick}
-          />
-        </div>
+        <BumpsChart
+          data={allWeeksData}
+          poll={poll}
+          onTeamClick={handleTeamClick}
+        />
       )}
     </div>
   )

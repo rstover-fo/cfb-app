@@ -1,11 +1,16 @@
 'use client'
 
 import { useMemo, useEffect, useRef, useCallback } from 'react'
+import { Percent } from '@phosphor-icons/react'
 import rough from 'roughjs'
 import type { GameDrive, GameWinProbability } from '@/lib/types/database'
 import type { LineScores } from '@/lib/types/database'
 import type { GameWithTeams } from '@/lib/queries/games'
-import { resolveColor, useChartTheme } from '@/lib/charts/theme'
+import { useChartTheme } from '@/lib/charts/theme'
+import { teamInk } from '@/lib/charts/series'
+import { ChartFrame } from '@/lib/charts/ChartFrame'
+import { ChartLegend } from '@/lib/charts/ChartLegend'
+import type { ChartLegendItem } from '@/lib/charts/ChartLegend'
 
 interface WinProbabilityChartProps {
   drives: GameDrive[]
@@ -24,13 +29,18 @@ interface WPDataPoint {
   awayScore: number
 }
 
-const WIDTH = 800
-const HEIGHT = 300
-const MARGIN = { top: 24, right: 56, bottom: 44, left: 44 }
+const WIDTH = 700
+const HEIGHT = 350
+// Right padding wider than the canonical 30 (spec §9) to fit the home/away
+// name labels drawn at the plot's right edge -- documented deviation.
+const MARGIN = { top: 30, right: 56, bottom: 50, left: 60 }
 const PLOT_WIDTH = WIDTH - MARGIN.left - MARGIN.right
 const PLOT_HEIGHT = HEIGHT - MARGIN.top - MARGIN.bottom
 const TOTAL_MINUTES = 60
 const Y_TICKS = [0, 25, 50, 75, 100]
+
+/** Stable wobble (spec §9): identical strokes across re-renders and theme flips. */
+const ROUGH_SEED = 42
 
 // Nominal minutes per period, used to build the server-data time axis below
 // (regulation quarters are 15 minutes; OT periods are given the same
@@ -185,9 +195,6 @@ export function WinProbabilityChart({ drives, lineScores, game, serverWP }: WinP
   const finalHome = lineScores.home.reduce((s, q) => s + q, 0)
   const finalAway = lineScores.away.reduce((s, q) => s + q, 0)
 
-  const homeColor = game.homeColor || '#333333'
-  const awayColor = game.awayColor || '#666666'
-
   const wpData = useMemo(() => buildWPData(drives, finalHome, finalAway), [drives, finalHome, finalAway])
   const serverData = useMemo(() => buildServerWPData(serverWP), [serverWP])
 
@@ -202,6 +209,10 @@ export function WinProbabilityChart({ drives, lineScores, game, serverWP }: WinP
     const source = usingServerData ? serverData.points : wpData
     return source.map(p => ({ x: xScale(p.gameMinute, totalMinutes), y: yScale(p.homeWP), wp: p.homeWP }))
   }, [usingServerData, serverData, wpData, totalMinutes])
+
+  // A flat line at exactly 50% the whole way (no score ever changed hands,
+  // no server-model signal) is a genuinely bare render (spec §5).
+  const isEmpty = screenPoints.length < 2 || screenPoints.every(p => p.wp === 50)
 
   // Period dividers/labels, generalized from the original fixed 4-quarter
   // layout so OT periods (5+) extend the axis instead of being clipped.
@@ -220,44 +231,84 @@ export function WinProbabilityChart({ drives, lineScores, game, serverWP }: WinP
     [periodCount]
   )
 
-  // Simple area fill SVG paths (straight segments between data points)
-  const { abovePath, belowPath } = useMemo(() => {
-    if (screenPoints.length < 2) return { abovePath: '', belowPath: '' }
-    const midY = yScale(50)
-    const aboveCoords = screenPoints.map(p => `${p.x},${Math.min(p.y, midY)}`).join(' L')
-    const belowCoords = screenPoints.map(p => `${p.x},${Math.max(p.y, midY)}`).join(' L')
-    return {
-      abovePath: `M${screenPoints[0].x},${midY} L${aboveCoords} L${screenPoints[screenPoints.length - 1].x},${midY} Z`,
-      belowPath: `M${screenPoints[0].x},${midY} L${belowCoords} L${screenPoints[screenPoints.length - 1].x},${midY} Z`,
-    }
-  }, [screenPoints])
-
   // roughjs line points
   const linePoints = useMemo(() =>
     screenPoints.map(p => [p.x, p.y] as [number, number]),
   [screenPoints])
 
-  // Draw roughjs WP line
+  // Advantage-band polygon coordinates (screen space), one per side of the
+  // 50% midline -- drawn as rough hachure fills in drawChart (spec §6),
+  // replacing the old native <path fill={color}> area fills.
+  const { aboveCoords, belowCoords } = useMemo(() => {
+    if (screenPoints.length < 2) return { aboveCoords: null, belowCoords: null }
+    const midY = yScale(50)
+    const first = screenPoints[0]
+    const last = screenPoints[screenPoints.length - 1]
+    const above: [number, number][] = [
+      [first.x, midY],
+      ...screenPoints.map(p => [p.x, Math.min(p.y, midY)] as [number, number]),
+      [last.x, midY],
+    ]
+    const below: [number, number][] = [
+      [first.x, midY],
+      ...screenPoints.map(p => [p.x, Math.max(p.y, midY)] as [number, number]),
+      [last.x, midY],
+    ]
+    return { aboveCoords: above, belowCoords: below }
+  }, [screenPoints])
+
+  // Draw roughjs WP line + advantage-band hachure fills
   const drawChart = useCallback(() => {
     const svg = svgRef.current
     const group = roughGroupRef.current
-    if (!svg || !group) return
+    if (!svg || !group || isEmpty) return
 
     while (group.firstChild) group.removeChild(group.firstChild)
 
     const rc = rough.svg(svg)
-    const resolvedHome = resolveColor(homeColor)
+    const homeColor = teamInk(game.homeColor, 'primary')
+    const awayColor = teamInk(game.awayColor, 'muted')
+
+    // Advantage bands: rough hachure polygons in team ink (spec §6), not
+    // native SVG fills.
+    if (aboveCoords) {
+      const above = rc.polygon(aboveCoords, {
+        fill: homeColor,
+        fillStyle: 'hachure',
+        fillWeight: 0.8,
+        hachureGap: 8,
+        stroke: 'none',
+        strokeWidth: 0,
+        roughness: 0.5,
+        seed: ROUGH_SEED,
+      })
+      group.appendChild(above)
+    }
+    if (belowCoords) {
+      const below = rc.polygon(belowCoords, {
+        fill: awayColor,
+        fillStyle: 'hachure',
+        fillWeight: 0.8,
+        hachureGap: 8,
+        stroke: 'none',
+        strokeWidth: 0,
+        roughness: 0.5,
+        seed: ROUGH_SEED,
+      })
+      group.appendChild(below)
+    }
 
     if (linePoints.length >= 2) {
       const line = rc.linearPath(linePoints, {
-        stroke: resolvedHome,
-        strokeWidth: 2.5,
-        roughness: 0.8,
-        bowing: 0.3,
+        stroke: homeColor,
+        strokeWidth: 3,
+        roughness: 1.0,
+        bowing: 0.4,
+        seed: ROUGH_SEED,
       })
       group.appendChild(line)
     }
-  }, [linePoints, homeColor])
+  }, [linePoints, aboveCoords, belowCoords, game.homeColor, game.awayColor, isEmpty])
 
   useEffect(() => {
     drawChart()
@@ -266,174 +317,124 @@ export function WinProbabilityChart({ drives, lineScores, game, serverWP }: WinP
   // Redraw on theme change
   useChartTheme(drawChart)
 
+  const legendItems: ChartLegendItem[] = [
+    { key: 'home', label: game.home_team, swatch: 'solid', color: game.homeColor ?? 'var(--text-primary)' },
+    { key: 'away', label: game.away_team, swatch: 'solid', color: game.awayColor ?? 'var(--text-muted)' },
+  ]
+
   return (
-    <div className="relative">
-      <svg
-        ref={svgRef}
-        viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
-        className="w-full"
-        role="img"
-        aria-label={`Win probability (${usingServerData ? 'CFBD win probability model' : 'estimated from scores'}): ${game.home_team} ${finalHome}, ${game.away_team} ${finalAway}`}
-      >
-        {/* Horizontal gridlines at percentage ticks */}
-        {Y_TICKS.map(tick => (
-          <line
-            key={`grid-${tick}`}
-            x1={MARGIN.left}
-            y1={yScale(tick)}
-            x2={WIDTH - MARGIN.right}
-            y2={yScale(tick)}
-            stroke="var(--border)"
-            strokeWidth={tick === 50 ? 0 : 0.5}
-            strokeDasharray="4,4"
-          />
-        ))}
+    <ChartFrame
+      ariaLabel={`Win probability (${usingServerData ? 'CFBD win probability model' : 'estimated from scores'}): ${game.home_team} ${finalHome}, ${game.away_team} ${finalAway}`}
+      empty={isEmpty}
+      emptyState={{
+        icon: Percent,
+        title: 'No win probability swing to show',
+        description: 'This game never left a 50/50 read — the chart populates once a real edge emerges.',
+      }}
+    >
+      {a11y => (
+        <>
+          <svg ref={svgRef} viewBox={`0 0 ${WIDTH} ${HEIGHT}`} className="w-full h-auto" {...a11y}>
+            {/* Horizontal gridlines at percentage ticks */}
+            {Y_TICKS.map(tick => (
+              <line
+                key={`grid-${tick}`}
+                x1={MARGIN.left}
+                y1={yScale(tick)}
+                x2={WIDTH - MARGIN.right}
+                y2={yScale(tick)}
+                stroke="var(--border)"
+                strokeWidth={tick === 50 ? 0 : 0.5}
+                strokeDasharray="4,4"
+              />
+            ))}
 
-        {/* 50% dashed reference line */}
-        <line
-          x1={MARGIN.left}
-          y1={yScale(50)}
-          x2={WIDTH - MARGIN.right}
-          y2={yScale(50)}
-          stroke="var(--text-muted)"
-          strokeWidth={1}
-          strokeDasharray="6,4"
-          opacity={0.6}
-        />
+            {/* 50% dashed reference line */}
+            <line
+              x1={MARGIN.left}
+              y1={yScale(50)}
+              x2={WIDTH - MARGIN.right}
+              y2={yScale(50)}
+              stroke="var(--text-muted)"
+              strokeWidth={1}
+              strokeDasharray="6,4"
+              opacity={0.6}
+            />
 
-        {/* Period dividers (quarter dividers, plus OT dividers when the
-            server-data path reports more than 4 periods) */}
-        {dividerMinutes.map(m => (
-          <line
-            key={`q-${m}`}
-            x1={xScale(m, totalMinutes)}
-            y1={MARGIN.top}
-            x2={xScale(m, totalMinutes)}
-            y2={HEIGHT - MARGIN.bottom}
-            stroke="var(--border)"
-            strokeWidth={1}
-            strokeDasharray="6,4"
-          />
-        ))}
+            {/* Period dividers (quarter dividers, plus OT dividers when the
+                server-data path reports more than 4 periods) */}
+            {dividerMinutes.map(m => (
+              <line
+                key={`q-${m}`}
+                x1={xScale(m, totalMinutes)}
+                y1={MARGIN.top}
+                x2={xScale(m, totalMinutes)}
+                y2={HEIGHT - MARGIN.bottom}
+                stroke="var(--border)"
+                strokeWidth={1}
+                strokeDasharray="6,4"
+              />
+            ))}
 
-        {/* Period labels (Q1-Q4, then OT1/OT2/... beyond regulation) */}
-        {periodLabels.map(({ index, centerMinute, label }) => (
-          <text
-            key={`qlabel-${index}`}
-            x={xScale(centerMinute, totalMinutes)}
-            y={HEIGHT - MARGIN.bottom + 16}
-            textAnchor="middle"
-            fill="var(--text-muted)"
-            fontSize={11}
-            fontFamily="var(--font-body)"
-          >
-            {label}
-          </text>
-        ))}
+            {/* Period labels (Q1-Q4, then OT1/OT2/... beyond regulation) */}
+            {periodLabels.map(({ index, centerMinute, label }) => (
+              <text
+                key={`qlabel-${index}`}
+                x={xScale(centerMinute, totalMinutes)}
+                y={HEIGHT - MARGIN.bottom + 16}
+                textAnchor="middle"
+                className="fill-[var(--text-muted)] text-xs"
+              >
+                {label}
+              </text>
+            ))}
 
-        {/* Y-axis labels */}
-        {Y_TICKS.map(tick => (
-          <text
-            key={`ylabel-${tick}`}
-            x={MARGIN.left - 8}
-            y={yScale(tick)}
-            textAnchor="end"
-            dominantBaseline="middle"
-            fill="var(--text-muted)"
-            fontSize={10}
-            fontFamily="var(--font-body)"
-          >
-            {tick}%
-          </text>
-        ))}
+            {/* Y-axis labels */}
+            {Y_TICKS.map(tick => (
+              <text
+                key={`ylabel-${tick}`}
+                x={MARGIN.left - 8}
+                y={yScale(tick)}
+                textAnchor="end"
+                dominantBaseline="middle"
+                className="fill-[var(--text-muted)] text-xs"
+              >
+                {tick}%
+              </text>
+            ))}
 
-        {/* Team name labels on right edge */}
-        <text
-          x={WIDTH - MARGIN.right + 4}
-          y={yScale(100)}
-          textAnchor="start"
-          dominantBaseline="middle"
-          fill={homeColor}
-          fontSize={9}
-          fontFamily="var(--font-body)"
-          fontWeight={600}
-        >
-          {game.home_team?.split(' ').pop()}
-        </text>
-        <text
-          x={WIDTH - MARGIN.right + 4}
-          y={yScale(0)}
-          textAnchor="start"
-          dominantBaseline="middle"
-          fill={awayColor}
-          fontSize={9}
-          fontFamily="var(--font-body)"
-          fontWeight={600}
-        >
-          {game.away_team?.split(' ').pop()}
-        </text>
+            {/* Team name labels on right edge -- static ink tokens, not raw
+                team hex, per spec §6 (team color is rough-draw-only). */}
+            <text
+              x={WIDTH - MARGIN.right + 4}
+              y={yScale(100)}
+              textAnchor="start"
+              dominantBaseline="middle"
+              className="fill-[var(--text-primary)] text-xs font-medium"
+            >
+              {game.home_team?.split(' ').pop()}
+            </text>
+            <text
+              x={WIDTH - MARGIN.right + 4}
+              y={yScale(0)}
+              textAnchor="start"
+              dominantBaseline="middle"
+              className="fill-[var(--text-muted)] text-xs font-medium"
+            >
+              {game.away_team?.split(' ').pop()}
+            </text>
 
-        {/* Area fill: home advantage (above 50%) */}
-        {abovePath && (
-          <path
-            d={abovePath}
-            fill={homeColor}
-            opacity={0.15}
-          />
-        )}
+            {/* Rough-drawn WP line + advantage-band hachure fills */}
+            <g ref={roughGroupRef} data-testid="rough-layer" />
+          </svg>
 
-        {/* Area fill: away advantage (below 50%) */}
-        {belowPath && (
-          <path
-            d={belowPath}
-            fill={awayColor}
-            opacity={0.15}
-          />
-        )}
+          <p className="mt-1 text-right text-[10px] text-[var(--text-muted)]">
+            {usingServerData ? 'Source: CFBD win probability model' : 'Estimated from scores (CFBD win probability data unavailable for this game)'}
+          </p>
 
-        {/* Rough-drawn WP line */}
-        <g ref={roughGroupRef} />
-
-        {/* Legend */}
-        <rect
-          x={MARGIN.left}
-          y={HEIGHT - 14}
-          width={10}
-          height={3}
-          fill={homeColor}
-          rx={1}
-        />
-        <text
-          x={MARGIN.left + 14}
-          y={HEIGHT - 10}
-          fill="var(--text-secondary)"
-          fontSize={10}
-          fontFamily="var(--font-body)"
-        >
-          {game.home_team}
-        </text>
-
-        <rect
-          x={MARGIN.left + 120}
-          y={HEIGHT - 14}
-          width={10}
-          height={3}
-          fill={awayColor}
-          rx={1}
-        />
-        <text
-          x={MARGIN.left + 134}
-          y={HEIGHT - 10}
-          fill="var(--text-secondary)"
-          fontSize={10}
-          fontFamily="var(--font-body)"
-        >
-          {game.away_team}
-        </text>
-      </svg>
-      <p className="mt-1 text-right text-[10px] text-[var(--text-muted)]">
-        {usingServerData ? 'Source: CFBD win probability model' : 'Estimated from scores (CFBD win probability data unavailable for this game)'}
-      </p>
-    </div>
+          <ChartLegend items={legendItems} />
+        </>
+      )}
+    </ChartFrame>
   )
 }
