@@ -18,6 +18,7 @@ import {
 import { loadConfig } from './config.js'
 import { commandsByName } from './commands/index.js'
 import { errorEmbed } from './format.js'
+import { handleMention } from './mention.js'
 
 export function createClient(): Client {
   return new Client({
@@ -61,11 +62,15 @@ export async function handleInteraction(interaction: Interaction): Promise<void>
   }
 }
 
-// @-mention conversational handling lands in Phase B (claude.ts + mention.ts
-// -- strip the mention, run the conversational Claude path, reply/typing
-// loop). This stub keeps the wiring point visible without doing anything yet.
-async function handleMessageCreate(_message: Message): Promise<void> {
-  // Intentionally empty until Phase B.
+export async function handleMessageCreate(message: Message): Promise<void> {
+  try {
+    // handleMention catches its own errors and replies with a friendly
+    // message -- this is the last-resort backstop (mirrors handleInteraction)
+    // so a messageCreate can never take the process down.
+    await handleMention(message)
+  } catch (err) {
+    console.error('[bot] Unhandled messageCreate error:', err)
+  }
 }
 
 function wireProcessGuards(): void {

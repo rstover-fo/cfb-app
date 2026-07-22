@@ -270,12 +270,12 @@ describe('buildPlayerEmbed', () => {
 })
 
 describe('buildHelpEmbed', () => {
-  it('lists every deterministic command plus the /ask placeholder', () => {
+  it('lists every deterministic command plus /ask', () => {
     const json = buildHelpEmbed().toJSON()
     for (const cmd of ['/rankings', '/scores', '/team', '/matchup', '/edges', '/leaders', '/player', '/ask']) {
       expect(json.description).toContain(cmd)
     }
-    expect(json.description).toContain('coming online soon')
+    expect(json.description).toContain('@-mention')
   })
 })
 

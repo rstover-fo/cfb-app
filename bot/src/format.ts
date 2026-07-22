@@ -504,7 +504,7 @@ export function buildHelpEmbed(): EmbedBuilder {
         '**/edges** `[week] [limit]` — Model-vs-market betting edges.',
         '**/leaders** `<metric> [limit]` — Team leaderboards.',
         '**/player** `<name> [team]` — Player search + season stats.',
-        '**/ask** `<question>` — Conversational Q&A (coming online soon).',
+        '**/ask** `<question>` — Ask the AI stats analyst anything (you can also @-mention the bot).',
       ].join('\n')
     )
     .setFooter({ text: 'Data from the CFB Team 360 MCP server' })

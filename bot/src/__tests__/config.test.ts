@@ -59,6 +59,46 @@ describe('loadConfig', () => {
   it('rejects a non-numeric CFB_SEASON', () => {
     expect(() => loadConfig({ ...VALID_ENV, CFB_SEASON: 'not-a-year' })).toThrowError(/CFB_SEASON/)
   })
+
+  it('parses without ANTHROPIC_API_KEY (Phase-A commands keep working)', () => {
+    const config = loadConfig(VALID_ENV)
+    expect(config.anthropicApiKey).toBeUndefined()
+  })
+
+  it('picks up ANTHROPIC_API_KEY when set', () => {
+    const config = loadConfig({ ...VALID_ENV, ANTHROPIC_API_KEY: 'sk-ant-test' })
+    expect(config.anthropicApiKey).toBe('sk-ant-test')
+  })
+
+  it('treats an empty-string ANTHROPIC_API_KEY as unset', () => {
+    const config = loadConfig({ ...VALID_ENV, ANTHROPIC_API_KEY: '  ' })
+    expect(config.anthropicApiKey).toBeUndefined()
+  })
+
+  it('defaults the three model IDs when unset', () => {
+    const config = loadConfig(VALID_ENV)
+    expect(config.modelDefault).toBe('claude-sonnet-5')
+    expect(config.modelAdvisor).toBe('claude-opus-4-8')
+    expect(config.modelRouter).toBe('claude-haiku-4-5')
+  })
+
+  it('honors MODEL_DEFAULT / MODEL_ADVISOR / MODEL_ROUTER overrides', () => {
+    const config = loadConfig({
+      ...VALID_ENV,
+      MODEL_DEFAULT: 'model-a',
+      MODEL_ADVISOR: 'model-b',
+      MODEL_ROUTER: 'model-c',
+    })
+    expect(config.modelDefault).toBe('model-a')
+    expect(config.modelAdvisor).toBe('model-b')
+    expect(config.modelRouter).toBe('model-c')
+  })
+
+  it('treats empty-string model overrides as unset (falls back to defaults)', () => {
+    const config = loadConfig({ ...VALID_ENV, MODEL_DEFAULT: '', MODEL_ROUTER: ' ' })
+    expect(config.modelDefault).toBe('claude-sonnet-5')
+    expect(config.modelRouter).toBe('claude-haiku-4-5')
+  })
 })
 
 describe('deriveDefaultSeason', () => {

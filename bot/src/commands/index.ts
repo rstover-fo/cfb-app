@@ -23,6 +23,7 @@ import { matchupCommand } from './matchup.js'
 import { edgesCommand } from './edges.js'
 import { leadersCommand } from './leaders.js'
 import { playerCommand } from './player.js'
+import { askCommand } from './ask.js'
 import { helpCommand } from './help.js'
 
 export const commands: Command[] = [
@@ -33,6 +34,7 @@ export const commands: Command[] = [
   edgesCommand,
   leadersCommand,
   playerCommand,
+  askCommand,
   helpCommand,
 ]
 
