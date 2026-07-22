@@ -80,6 +80,9 @@ function TeamTable({ stats, team, color }: { stats: ZoneStats[]; team: string; c
           <h4 className="text-sm font-semibold text-[var(--text-primary)]">{team}</h4>
         </div>
 
+        {/* overflow-x-auto: five stat columns scroll inside the card on
+            narrow viewports, never the page (DESIGN.md "Responsive rows"). */}
+        <div className="overflow-x-auto">
         <table className="w-full" aria-label={`${team} field position splits`}>
           <thead>
             <tr className="border-b border-[var(--border)]">
@@ -132,6 +135,7 @@ function TeamTable({ stats, team, color }: { stats: ZoneStats[]; team: string; c
             })}
           </tbody>
         </table>
+        </div>
       </div>
     </div>
   )

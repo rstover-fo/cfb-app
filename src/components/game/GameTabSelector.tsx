@@ -21,7 +21,13 @@ interface GameTabSelectorProps {
 export function GameTabSelector({ tabs, activeTab, onTabChange, ariaLabel, children }: GameTabSelectorProps) {
   return (
     <Tabs value={activeTab} onValueChange={onTabChange} className="gap-0">
-      <TabsList aria-label={ariaLabel} className="mb-4">
+      {/* Scrollable tab row (DESIGN.md "Responsive rows"): three chart tabs
+          can exceed a mobile viewport -- scroll, don't clip. py-1.5 keeps the
+          active accent bar and focus ring inside the scroll box. */}
+      <TabsList
+        aria-label={ariaLabel}
+        className="mb-4 w-full justify-start overflow-x-auto scrollbar-hide py-1.5"
+      >
         {tabs.map(tab => (
           <TabsTrigger key={tab.id} value={tab.id}>
             {tab.label}

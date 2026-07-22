@@ -525,13 +525,15 @@ export function ScatterPlotClient({ teams, metrics, styles, havoc, tempo, record
 
       {viewMode === 'scatter' && (
         <>
-      {/* Plot Type Selector */}
-      <div className="flex gap-2 mb-6">
+      {/* Plot Type Selector -- an ordered chip row (DESIGN.md "Responsive
+          rows"): scrolls horizontally on narrow viewports instead of
+          overflowing the page. py-1 keeps the focus ring inside the scroll box. */}
+      <div className="flex gap-2 mb-6 overflow-x-auto scrollbar-hide py-1">
         {PLOT_OPTIONS.map(option => (
           <button
             key={option.id}
             onClick={() => setActivePlot(option.id)}
-            className={`px-4 py-2 border-[1.5px] rounded-sm text-sm transition-all ${
+            className={`shrink-0 whitespace-nowrap px-4 py-2 border-[1.5px] rounded-sm text-sm transition-all ${
               activePlot === option.id
                 ? 'bg-[var(--bg-surface)] border-[var(--color-run)] text-[var(--text-primary)]'
                 : 'border-[var(--border)] text-[var(--text-secondary)] hover:border-[var(--text-muted)]'
@@ -569,8 +571,9 @@ export function ScatterPlotClient({ teams, metrics, styles, havoc, tempo, record
         ))}
       </div>
 
-      {/* Stats Summary, Search & Logo Toggle */}
-      <div className="flex items-center justify-between mb-4 gap-4">
+      {/* Stats Summary, Search & Logo Toggle -- unordered control cluster:
+          wraps on narrow viewports (DESIGN.md "Responsive rows"). */}
+      <div className="flex flex-wrap items-center justify-between mb-4 gap-4">
         <div className="flex gap-4 text-sm text-[var(--text-muted)]">
           <span>{plotData.length} teams plotted</span>
           <span>·</span>
@@ -628,7 +631,10 @@ export function ScatterPlotClient({ teams, metrics, styles, havoc, tempo, record
       )}
 
       {viewMode === 'rankings' && (
-        <div className="flex gap-8">
+        // Table + radar sit side by side on desktop and stack on narrow
+        // viewports -- a fixed w-80 sidebar cannot fit next to the table at
+        // mobile widths (DESIGN.md "Responsive rows").
+        <div className="flex flex-col lg:flex-row gap-8">
           <div className="flex-1 card p-6">
             <RankedTable
               data={rankedTeams}
@@ -638,7 +644,7 @@ export function ScatterPlotClient({ teams, metrics, styles, havoc, tempo, record
           </div>
           {selectedTeamForRadar && (
             // No card wrapper here: each radar brings its own ChartFrame shell.
-            <div className="w-80">
+            <div className="w-full lg:w-80">
               {/* Radar View Toggle */}
               <div className="flex gap-1 mb-4">
                 {(['combined', 'offense', 'defense'] as const).map((mode) => (

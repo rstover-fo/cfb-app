@@ -165,6 +165,28 @@ Rules:
   forces `overflow-y` to auto, and without the vertical padding the active tab's accent bar
   (`after:bottom-[-5px]`) and the 3px focus ring are clipped by the scroll container. The
   scrollbar stays hidden; the partially clipped last tab is the scroll affordance.
+- **Responsive rows (mobile overflow):** the page body must never scroll
+  horizontally — every horizontal row resolves narrow viewports one of three ways:
+  1. **Ordered tab/chip rows** (metric tabs, plot-type selectors, sub-nav) where
+     every option must stay reachable in order → `overflow-x-auto scrollbar-hide`
+     on the row, plus a `py` clip-guard (`py-1.5` for `TabsList` with the active
+     accent bar, `py-1` for plain bordered-button rows) so the accent bar/focus
+     ring isn't clipped by the scroll container; row children get
+     `shrink-0 whitespace-nowrap` (built into `TabsTrigger`). The partially
+     clipped last chip is the scroll affordance (see the Tabs rule below).
+     Examples: `StatLeadersTabs`, `GameTabSelector`, `SituationalView`,
+     ScatterPlotClient's plot-type row.
+  2. **Unordered control clusters** (filter selects, toggle groups, legends,
+     search rows) → `flex-wrap`. Examples: `ChartLegend`, GamesList's dropdown
+     row, EdgeBoardTable's filter row.
+  3. **Wide tables** → an `overflow-x-auto` wrapper so the *table* scrolls
+     inside its card, never the page (the shadcn `Table` ships its own wrapper;
+     raw `<table>`s need an explicit `<div className="overflow-x-auto">`).
+     Pair with `min-w-[…]` on the table only when columns would otherwise crush
+     (see `PlayerGameLog`, `CoachesClient`).
+  Fixed-width panels beside fluid content stack on mobile instead
+  (`flex-col lg:flex-row` + `w-full lg:w-80` — see ScatterPlotClient's
+  rankings view). Charts stay `w-full h-auto` with a `viewBox`.
 - **Selects:** new work uses the shadcn `Select` (see `SeasonSelector.tsx`); GamesList,
   TeamList, and RankingsClient migrated in the Phase 4 sweep. The last native `<select>`s
   (players, comparison, rivals — styled via `selectClassName`/`selectStyle` in

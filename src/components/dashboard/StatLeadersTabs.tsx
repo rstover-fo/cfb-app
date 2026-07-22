@@ -76,7 +76,13 @@ export function StatLeadersTabs({ data }: StatLeadersTabsProps) {
 
   return (
     <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as TabKey)} className="gap-0">
-      <TabsList aria-label="Stat leader category" className="mb-4 gap-1">
+      {/* Scrollable tab row (DESIGN.md "Responsive rows"): five chips overflow
+          the dashboard card at mobile widths -- scroll, don't clip. py-1.5
+          keeps the active accent bar and focus ring inside the scroll box. */}
+      <TabsList
+        aria-label="Stat leader category"
+        className="mb-4 gap-1 w-full justify-start overflow-x-auto scrollbar-hide py-1.5"
+      >
         {TABS.map((tab) => (
           <TabsTrigger key={tab.key} value={tab.key} className="px-3 py-1.5 text-xs">
             {tab.label}

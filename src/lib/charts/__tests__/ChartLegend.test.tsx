@@ -17,6 +17,9 @@ describe('ChartLegend', () => {
     expect(legend.className).toContain('mt-3')
     expect(legend.className).toContain('pt-2')
     expect(legend.className).toContain('border-t')
+    // Legends wrap on narrow viewports instead of overflowing the frame
+    // (DESIGN.md "Responsive rows").
+    expect(legend.className).toContain('flex-wrap')
 
     expect(screen.getByText('Team')).toBeInTheDocument()
     expect(screen.getByText('SEC avg')).toBeInTheDocument()

@@ -43,7 +43,9 @@ export function PollTable({ rankings, poll }: PollTableProps) {
   }
 
   return (
-    <div>
+    // overflow-x-auto: wide poll weeks scroll inside this wrapper on narrow
+    // viewports, never the page (DESIGN.md "Responsive rows").
+    <div className="overflow-x-auto">
       <table className="w-full text-sm" aria-label={`${poll} rankings`}>
         <thead>
           <tr className="text-[10px] uppercase tracking-wider text-[var(--text-muted)]">
