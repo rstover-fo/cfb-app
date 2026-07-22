@@ -36,6 +36,8 @@ const baseProps = {
   roi: null,
   signees: null,
   portalActivity: null,
+  teamElo: null,
+  teamEloHistory: [],
 }
 
 describe('TeamPageClient — team theme UI', () => {

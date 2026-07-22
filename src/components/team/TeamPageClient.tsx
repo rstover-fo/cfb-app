@@ -9,6 +9,8 @@ import { MetricsCards } from '@/components/team/MetricsCards'
 import { StyleProfile } from '@/components/team/StyleProfile'
 import { DrivePatterns } from '@/components/visualizations/DrivePatterns'
 import { TrajectoryChart } from '@/components/team/TrajectoryChart'
+import { EloCard } from '@/components/team/EloCard'
+import { EloHistoryChart } from '@/components/team/EloHistoryChart'
 import { SituationalView } from '@/components/team/SituationalView'
 import { SeasonSelector } from '@/components/SeasonSelector'
 import { TeamThemeToggle } from '@/components/team/TeamThemeToggle'
@@ -17,6 +19,7 @@ import { ScheduleView } from './ScheduleView'
 import { CompareView } from './CompareView'
 import { RecruitingView } from './RecruitingView'
 import type { TeamThemeConfig } from '@/lib/theme/team-theme'
+import type { TeamElo, TeamEloGamePoint } from '@/lib/queries/predictions'
 
 type TabId = 'overview' | 'situational' | 'schedule' | 'roster' | 'compare' | 'recruiting'
 
@@ -62,6 +65,8 @@ interface TeamPageClientProps {
   teamTheme: TeamThemeConfig | null
   /** The theme key currently active site-wide, per the visitor's cookie. */
   activeThemeKey: string | null
+  teamElo: TeamElo | null
+  teamEloHistory: TeamEloGamePoint[]
 }
 
 export function TeamPageClient({
@@ -88,7 +93,9 @@ export function TeamPageClient({
   signees,
   portalActivity,
   teamTheme,
-  activeThemeKey
+  activeThemeKey,
+  teamElo,
+  teamEloHistory
 }: TeamPageClientProps) {
   const [activeTab, setActiveTab] = useState<TabId>('overview')
 
@@ -204,6 +211,17 @@ export function TeamPageClient({
                 <p className="text-[var(--text-muted)]">No metrics available for this season</p>
               )}
             </section>
+
+            {/* Elo Rating */}
+            {(teamElo || teamEloHistory.length > 0) && (
+              <section className="mb-10">
+                <h2 className="font-headline text-2xl text-[var(--text-primary)] mb-4">Elo Rating</h2>
+                <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,320px)_1fr] gap-4 items-start">
+                  <EloCard elo={teamElo} history={teamEloHistory} />
+                  <EloHistoryChart history={teamEloHistory} teamName={team.school ?? ''} />
+                </div>
+              </section>
+            )}
 
             {/* Style Profile */}
             <section className="mb-10">
