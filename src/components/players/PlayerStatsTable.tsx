@@ -170,6 +170,10 @@ export function PlayerStatsTable({ player }: PlayerStatsTableProps) {
             <h3 className="text-xs font-medium text-[var(--text-secondary)] mb-2">
               {section.title}
             </h3>
+            {/* overflow-x-auto: single-row stat strips can exceed a mobile
+                viewport -- the table scrolls inside the card, never the page
+                (DESIGN.md "Responsive rows"). */}
+            <div className="overflow-x-auto">
             <table className="w-full text-sm" aria-label={`${player.season} ${section.title} stats`}>
               <thead>
                 <tr>
@@ -197,6 +201,7 @@ export function PlayerStatsTable({ player }: PlayerStatsTableProps) {
                 </tr>
               </tbody>
             </table>
+            </div>
           </div>
         ))}
       </div>

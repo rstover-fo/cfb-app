@@ -46,8 +46,10 @@ export function SituationalView({
 
   return (
     <div>
-      {/* Sub-navigation */}
-      <nav className="flex gap-2 mb-6" role="tablist" aria-label="Situational analysis views">
+      {/* Sub-navigation -- ordered tab row (DESIGN.md "Responsive rows"):
+          five tabs overflow at mobile widths, so the row scrolls. py-1 keeps
+          the focus ring inside the scroll box. */}
+      <nav className="flex gap-2 mb-6 overflow-x-auto scrollbar-hide py-1" role="tablist" aria-label="Situational analysis views">
         {SUB_TABS.map(tab => {
           const isActive = activeSubTab === tab.id
           const isDisabled = !tab.enabled
@@ -59,7 +61,7 @@ export function SituationalView({
               aria-selected={isActive}
               disabled={isDisabled}
               onClick={() => tab.enabled && setActiveSubTab(tab.id)}
-              className={`px-4 py-2 border-[1.5px] rounded-sm text-sm transition-all ${
+              className={`shrink-0 whitespace-nowrap px-4 py-2 border-[1.5px] rounded-sm text-sm transition-all ${
                 isActive
                   ? 'bg-[var(--bg-surface)] border-[var(--color-run)] text-[var(--text-primary)]'
                   : isDisabled

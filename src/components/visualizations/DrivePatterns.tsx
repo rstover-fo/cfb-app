@@ -471,6 +471,9 @@ export function DrivePatterns({ offenseDrives, defenseDrives, teamName }: DriveP
           <summary className="cursor-pointer text-sm text-[var(--text-muted)] hover:text-[var(--text-secondary)]">
             View {teamName} drive data as table
           </summary>
+          {/* overflow-x-auto: the table scrolls inside the card on narrow
+              viewports, never the page (DESIGN.md "Responsive rows"). */}
+          <div className="overflow-x-auto">
           <table className="mt-2 w-full text-sm border-collapse" aria-label={`${teamName} ${side} drive data`}>
             <thead>
               <tr className="border-b border-[var(--border)]">
@@ -495,6 +498,7 @@ export function DrivePatterns({ offenseDrives, defenseDrives, teamName }: DriveP
               ))}
             </tbody>
           </table>
+          </div>
         </details>
       </div>
     </ChartFrame>
