@@ -2,6 +2,7 @@ import { cache } from 'react'
 import { createClient } from '@/lib/supabase/server'
 import type { PollRanking, EnrichedPollRanking } from '@/lib/types/database'
 import { getTeamLookup } from './shared'
+import { CURRENT_SEASON } from './constants'
 
 const FBS_POLLS = ['AP Top 25', 'Coaches Poll', 'Playoff Committee Rankings'] as const
 
@@ -11,24 +12,51 @@ const FBS_POLLS = ['AP Top 25', 'Coaches Poll', 'Playoff Committee Rankings'] as
 // Tied teams share a rank (next rank skipped) — the dedupe/sort logic tolerates this.
 const REGULAR_SEASON = 'regular'
 
-// Get all seasons that have ranking data
+// Get all seasons that have ranking data.
+//
+// Deliberately NOT "select season from every ranking row, dedupe
+// client-side": api.poll_rankings has ~17K rows and PostgREST silently caps
+// unbounded responses at 1,000 rows, so that approach only ever saw
+// 2003-2014 in prod and the dropdown never offered the current season.
+// Poll data exists every season (no gaps), so two bounded (limit=1)
+// max/min-season queries plus a generated contiguous range are correct and
+// avoid ever pulling a row set that could be truncated.
 export const getAvailableRankingSeasons = cache(async (): Promise<number[]> => {
   const supabase = await createClient()
 
-  const { data, error } = await supabase
-    .schema('api')
-    .from('poll_rankings')
-    .select('season')
-    .eq('season_type', REGULAR_SEASON)
-    .in('poll', FBS_POLLS as unknown as string[])
+  const [maxResult, minResult] = await Promise.all([
+    supabase
+      .schema('api')
+      .from('poll_rankings')
+      .select('season')
+      .eq('season_type', REGULAR_SEASON)
+      .in('poll', FBS_POLLS as unknown as string[])
+      .order('season', { ascending: false })
+      .limit(1),
+    supabase
+      .schema('api')
+      .from('poll_rankings')
+      .select('season')
+      .eq('season_type', REGULAR_SEASON)
+      .in('poll', FBS_POLLS as unknown as string[])
+      .order('season', { ascending: true })
+      .limit(1),
+  ])
 
-  if (error || !data) {
-    console.error('[rankings] getAvailableRankingSeasons error:', error)
-    return []
+  const maxSeason = maxResult.data?.[0]?.season as number | undefined
+  const minSeason = minResult.data?.[0]?.season as number | undefined
+
+  if (maxResult.error || minResult.error || maxSeason == null || minSeason == null) {
+    console.error('[rankings] getAvailableRankingSeasons error:', maxResult.error ?? minResult.error)
+    // Always include the season the page actually renders, rather than an
+    // empty dropdown.
+    return [CURRENT_SEASON]
   }
 
-  const seasons = [...new Set(data.map(r => r.season as number))].filter(Boolean)
-  seasons.sort((a, b) => b - a)
+  const seasons: number[] = []
+  for (let season = maxSeason; season >= minSeason; season--) {
+    seasons.push(season)
+  }
   return seasons
 })
 
