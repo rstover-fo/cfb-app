@@ -19,6 +19,7 @@ import {
   Megaphone,
   Target,
   TrendUp,
+  UsersThree,
   List,
   X,
 } from '@phosphor-icons/react'
@@ -27,6 +28,7 @@ import { ThemeToggle } from './ThemeToggle'
 const navItems = [
   { href: '/', label: 'Home', icon: House },
   { href: '/teams', label: 'Teams', icon: Football },
+  { href: '/conferences', label: 'Conferences', icon: UsersThree },
   { href: '/compare', label: 'Compare', icon: ArrowsLeftRight },
   { href: '/games', label: 'Games', icon: CalendarBlank },
   { href: '/rivals', label: 'Rivals', icon: Sword },
