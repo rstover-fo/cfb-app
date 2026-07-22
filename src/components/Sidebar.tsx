@@ -18,6 +18,7 @@ import {
   ArrowsLeftRight,
   Megaphone,
   Target,
+  TrendUp,
   List,
   X,
 } from '@phosphor-icons/react'
@@ -34,6 +35,7 @@ const navItems = [
   { href: '/rankings', label: 'Rankings', icon: Trophy },
   { href: '/analytics', label: 'Analytics', icon: ChartScatter },
   { href: '/models', label: 'Models', icon: Target },
+  { href: '/predictions', label: 'Edge Board', icon: TrendUp },
 ]
 
 export function Sidebar() {

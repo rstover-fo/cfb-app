@@ -6,8 +6,8 @@ import { getScoredMatchupEdges, getPredictionAccuracy } from '@/lib/queries/pred
 // This avoids client components importing from server-only modules
 export type { ScoredMatchupEdge, PredictionAccuracyRow, EdgePick } from '@/lib/queries/predictions'
 
-export async function fetchScoredMatchupEdges(season: number, week?: number): Promise<import('@/lib/queries/predictions').ScoredMatchupEdge[]> {
-  return getScoredMatchupEdges(season, week)
+export async function fetchScoredMatchupEdges(season: number, week?: number, modelVersion?: string): Promise<import('@/lib/queries/predictions').ScoredMatchupEdge[]> {
+  return getScoredMatchupEdges(season, week, modelVersion)
 }
 
 export async function fetchPredictionAccuracy(): Promise<import('@/lib/queries/predictions').PredictionAccuracyRow[]> {
