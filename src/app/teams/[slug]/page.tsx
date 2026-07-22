@@ -7,6 +7,7 @@ import { CURRENT_SEASON } from '@/lib/queries/constants'
 import { TEAM_THEME_COOKIE, parseTeamThemeCookie, themeConfigForSlug } from '@/lib/theme/team-theme'
 import { getTeamElo, getTeamEloHistory, getTeamAts } from '@/lib/queries/predictions'
 import { getPlaycallingProfile, getTeamWeekFeatures } from '@/lib/queries/playcalling'
+import { getReturningProduction, getTransferPortalImpact } from '@/lib/queries/roster-context'
 
 interface TeamPageProps {
   params: Promise<{ slug: string }>
@@ -157,12 +158,14 @@ export default async function TeamPage({ params, searchParams }: TeamPageProps) 
   // All fns are self-guarded (return null/[] on error/no coverage), matching
   // this page's convention of never failing the whole page render on one
   // widget's data.
-  const [teamElo, teamEloHistory, teamAts, playcallingProfile, teamWeekFeatures] = await Promise.all([
+  const [teamElo, teamEloHistory, teamAts, playcallingProfile, teamWeekFeatures, returningProduction, transferPortalImpact] = await Promise.all([
     getTeamElo(team.school ?? '', currentSeason),
     getTeamEloHistory(team.school ?? '', currentSeason),
     getTeamAts(team.school ?? '', currentSeason),
     getPlaycallingProfile(team.school ?? '', currentSeason),
     getTeamWeekFeatures(team.school ?? '', currentSeason),
+    getReturningProduction(team.school ?? '', currentSeason),
+    getTransferPortalImpact(team.school ?? '', currentSeason),
   ])
 
   // Fetch all teams (for schedule logos and Compare tab)
@@ -224,6 +227,8 @@ export default async function TeamPage({ params, searchParams }: TeamPageProps) 
       roi={roi}
       signees={signees}
       portalActivity={portalActivity}
+      returningProduction={returningProduction}
+      transferPortalImpact={transferPortalImpact}
       teamTheme={teamTheme}
       activeThemeKey={activeThemeKey}
       teamElo={teamElo}

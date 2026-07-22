@@ -36,6 +36,8 @@ const baseProps = {
   roi: null,
   signees: null,
   portalActivity: null,
+  returningProduction: null,
+  transferPortalImpact: null,
   teamElo: null,
   teamEloHistory: [],
   teamAts: null,

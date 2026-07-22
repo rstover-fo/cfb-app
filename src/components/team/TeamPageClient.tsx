@@ -24,6 +24,7 @@ import { RecruitingView } from './RecruitingView'
 import type { TeamThemeConfig } from '@/lib/theme/team-theme'
 import type { TeamElo, TeamEloGamePoint, TeamAts } from '@/lib/queries/predictions'
 import type { PlaycallingProfile as PlaycallingProfileData, TeamWeekFeature } from '@/lib/queries/playcalling'
+import type { ReturningProduction, TransferPortalImpact } from '@/lib/queries/roster-context'
 
 type TabId = 'overview' | 'situational' | 'playcalling' | 'schedule' | 'roster' | 'compare' | 'recruiting'
 
@@ -66,6 +67,8 @@ interface TeamPageClientProps {
   roi: RecruitingROI | null
   signees: Signee[] | null
   portalActivity: PortalActivity | null
+  returningProduction: ReturningProduction | null
+  transferPortalImpact: TransferPortalImpact | null
   /** Theme this team offers (e.g. OU "Sooner Mode"), or null if it has none. */
   teamTheme: TeamThemeConfig | null
   /** The theme key currently active site-wide, per the visitor's cookie. */
@@ -100,6 +103,8 @@ export function TeamPageClient({
   roi,
   signees,
   portalActivity,
+  returningProduction,
+  transferPortalImpact,
   teamTheme,
   activeThemeKey,
   teamElo,
@@ -287,6 +292,8 @@ export function TeamPageClient({
             roi={roi}
             signees={signees}
             portalActivity={portalActivity}
+            returningProduction={returningProduction}
+            transferPortalImpact={transferPortalImpact}
             teamColor={team.color}
             currentSeason={currentSeason}
           />
