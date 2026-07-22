@@ -349,6 +349,118 @@ export const getPlayerSeasons = cache(async (
 })
 
 // ---------------------------------------------------------------------------
+// api.player_wepa_leaders -- one row per (season, athlete_id, category):
+// weighted EPA (wepa) and points-above-average-replacement (paar) leaders,
+// pre-ranked league-wide per category via season_rank. See
+// src/lib/types/api.generated.ts's `player_wepa_leaders` Row for the full
+// generated shape (every column nullable there) -- kept hand-typed here
+// narrowing the grain/identity columns (season, athlete_id, athlete_name,
+// team, category, season_rank) non-null, since a row can't exist without
+// them; position/conference/wepa/paar/metric/plays stay nullable to match
+// the generated shape. Player-level EPA attribution (like getPlayerGameLog
+// above) only exists from PBP_MIN_SEASON onward -- callers are expected to
+// only request seasons at or above that floor (see getLeaderboardSeasons
+// below, which is the season list this app's UI actually offers).
+// ---------------------------------------------------------------------------
+
+export type WepaCategory = 'passing' | 'rushing' | 'kicking'
+
+export interface WepaLeader {
+  season: number
+  athlete_id: string
+  athlete_name: string
+  position: string | null
+  team: string
+  conference: string | null
+  category: string
+  wepa: number | null
+  paar: number | null
+  metric: number | null
+  plays: number | null
+  season_rank: number
+}
+
+export const getWepaLeaders = cache(async (
+  season: number,
+  category?: WepaCategory,
+  limit: number = 25
+): Promise<WepaLeader[]> => {
+  const supabase = await createClient()
+
+  let query = supabase
+    .schema('api')
+    .from('player_wepa_leaders')
+    .select('season, athlete_id, athlete_name, position, team, conference, category, wepa, paar, metric, plays, season_rank')
+    .eq('season', season)
+
+  if (category) {
+    query = query.eq('category', category)
+  }
+
+  const { data, error } = await query
+    .order('season_rank', { ascending: true })
+    .limit(limit)
+
+  if (error || !data) {
+    console.error('getWepaLeaders error:', error?.message)
+    return []
+  }
+
+  return data as WepaLeader[]
+})
+
+// ---------------------------------------------------------------------------
+// api.player_usage_leaders -- one row per (season, athlete_id): overall
+// snap-share usage plus pass/rush/down-type situational splits. See
+// src/lib/types/api.generated.ts's `player_usage_leaders` Row for the full
+// generated shape (every column nullable there) -- kept hand-typed here
+// narrowing grain/identity columns (season, athlete_id, player_name, team)
+// non-null; every usage_* split stays nullable (a player can qualify for
+// overall usage with a null situational split, e.g. no passing-downs snaps
+// charted). Same PBP_MIN_SEASON floor as WepaLeader above -- this view is
+// also derived from play-by-play.
+// ---------------------------------------------------------------------------
+
+export interface UsageLeader {
+  season: number
+  athlete_id: string
+  player_name: string
+  position: string | null
+  team: string
+  conference: string | null
+  usage_overall: number | null
+  usage_pass: number | null
+  usage_rush: number | null
+  usage_first_down: number | null
+  usage_second_down: number | null
+  usage_third_down: number | null
+  usage_standard_downs: number | null
+  usage_passing_downs: number | null
+}
+
+export const getUsageLeaders = cache(async (
+  season: number,
+  limit: number = 25
+): Promise<UsageLeader[]> => {
+  const supabase = await createClient()
+
+  const { data, error } = await supabase
+    .schema('api')
+    .from('player_usage_leaders')
+    .select('season, athlete_id, player_name, position, team, conference, usage_overall, usage_pass, usage_rush, usage_first_down, usage_second_down, usage_third_down, usage_standard_downs, usage_passing_downs')
+    .eq('season', season)
+    .order('usage_overall', { ascending: false })
+    .limit(limit)
+
+  if (error || !data) {
+    console.error('getUsageLeaders error:', error?.message)
+    return []
+  }
+
+  return data as UsageLeader[]
+})
+
+// ---------------------------------------------------------------------------
 // Available seasons for leaderboard (from stats table)
 // ---------------------------------------------------------------------------
 

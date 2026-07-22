@@ -1,8 +1,9 @@
 import type { Metadata } from 'next'
-import { getPlayerSeasonLeaders, getLeaderboardSeasons } from '@/lib/queries/players'
+import { getPlayerSeasonLeaders, getLeaderboardSeasons, getWepaLeaders, getUsageLeaders } from '@/lib/queries/players'
 import { CURRENT_SEASON } from '@/lib/queries/constants'
 import { FBS_CONFERENCES } from '@/lib/queries/shared'
 import { PlayersClient } from '@/components/players/PlayersClient'
+import { AdvancedLeaders } from '@/components/players/AdvancedLeaders'
 
 export const metadata: Metadata = {
   title: 'Player Leaderboards | CFB Team 360',
@@ -10,9 +11,11 @@ export const metadata: Metadata = {
 }
 
 export default async function PlayersPage() {
-  const [initialLeaders, availableSeasons] = await Promise.all([
+  const [initialLeaders, availableSeasons, initialWepaLeaders, initialUsageLeaders] = await Promise.all([
     getPlayerSeasonLeaders(CURRENT_SEASON, 'passing'),
     getLeaderboardSeasons(),
+    getWepaLeaders(CURRENT_SEASON, 'passing'),
+    getUsageLeaders(CURRENT_SEASON),
   ])
 
   return (
@@ -32,6 +35,12 @@ export default async function PlayersPage() {
         initialCategory="passing"
         availableSeasons={availableSeasons}
         conferences={[...FBS_CONFERENCES]}
+      />
+
+      <AdvancedLeaders
+        initialWepaLeaders={initialWepaLeaders}
+        initialUsageLeaders={initialUsageLeaders}
+        season={CURRENT_SEASON}
       />
     </div>
   )
