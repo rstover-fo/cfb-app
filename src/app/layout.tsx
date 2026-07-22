@@ -37,8 +37,8 @@ export default async function RootLayout({
 
   // Marts refresh on a schedule, not in real time -- surface the most recent
   // update across tracked tables as a subtle relative-time note in the
-  // sidebar footer (see SystemStatusWidget, which is not mounted anywhere on
-  // the dashboard grid, so there is no widget slot to attach this to).
+  // sidebar footer (there is no dashboard widget slot for this; the old
+  // SystemStatusWidget was removed in the Phase 4 sweep).
   const freshnessRows = await getDataFreshness();
   const freshestDays = getFreshestUpdateDays(freshnessRows);
   const dataUpdatedLabel = freshestDays == null ? null : formatRelativeDays(freshestDays);

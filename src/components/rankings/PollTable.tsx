@@ -15,7 +15,7 @@ interface PollTableProps {
 function MovementBadge({ movement }: { movement: number | null }) {
   if (movement === null) {
     return (
-      <span className="inline-block px-1.5 py-0.5 text-[10px] font-medium rounded bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" aria-label="New to rankings">
+      <span className="inline-block px-1.5 py-0.5 text-[10px] font-medium rounded text-[var(--color-positive)] bg-[var(--color-positive)]/10" aria-label="New to rankings">
         NEW
       </span>
     )

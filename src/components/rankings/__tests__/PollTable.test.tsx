@@ -49,6 +49,15 @@ describe('PollTable', () => {
     expect(badge).toHaveStyle({ color: 'var(--color-negative)' })
   })
 
+  it('renders the NEW badge without raw palette classes when movement is null', () => {
+    render(<PollTable rankings={[ranking({ movement: null, prev_rank: null })]} poll="AP Top 25" />)
+
+    const badge = screen.getByLabelText('New to rankings')
+    expect(badge).toBeInTheDocument()
+    expect(badge.className).not.toMatch(/green|dark:/)
+    expect(badge.className).toContain('var(--color-positive)')
+  })
+
   it('renders the empty state when there are no rankings', () => {
     render(<PollTable rankings={[]} poll="AP Top 25" />)
 

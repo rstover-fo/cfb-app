@@ -80,7 +80,7 @@ function StatusLine({ game }: { game: LiveScoreboardGame }) {
     return (
       <span className="flex items-center gap-1.5 text-xs text-[var(--text-muted)]">
         <span className="tabular-nums">
-          Q{game.period ?? '-'}{game.clock ? ` ${game.clock}` : ''}
+          {game.period != null ? `Q${game.period}` : '—'}{game.clock ? ` ${game.clock}` : ''}
         </span>
         {game.possession && (
           <Football

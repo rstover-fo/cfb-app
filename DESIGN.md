@@ -128,9 +128,11 @@ Rules:
   forces `overflow-y` to auto, and without the vertical padding the active tab's accent bar
   (`after:bottom-[-5px]`) and the 3px focus ring are clipped by the scroll container. The
   scrollbar stays hidden; the partially clipped last tab is the scroll affordance.
-- **Selects:** new work uses the shadcn `Select` (see `SeasonSelector.tsx`). Several native
-  `<select>`s remain (GamesList, TeamList, RankingsClient, players, comparison, rivals) —
-  the `select option` rule in globals.css supports them until they migrate.
+- **Selects:** new work uses the shadcn `Select` (see `SeasonSelector.tsx`); GamesList,
+  TeamList, and RankingsClient migrated in the Phase 4 sweep. The last native `<select>`s
+  (players, comparison, rivals — styled via `selectClassName`/`selectStyle` in
+  `src/lib/utils.ts`) are supported by the `select option` rule in globals.css until
+  they migrate.
 - **Dialogs/popovers:** card surface, 1.5px border, token shadows (`--shadow-hover` for
   dialogs, `--shadow-soft` for dropdowns). Motion is restrained: fade/position transitions
   only; no animation library is installed — do not paste stock shadcn `animate-in`/
