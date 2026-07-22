@@ -11,6 +11,7 @@ import { DrivePatterns } from '@/components/visualizations/DrivePatterns'
 import { TrajectoryChart } from '@/components/team/TrajectoryChart'
 import { EloCard } from '@/components/team/EloCard'
 import { EloHistoryChart } from '@/components/team/EloHistoryChart'
+import { AtsCard } from '@/components/team/AtsCard'
 import { SituationalView } from '@/components/team/SituationalView'
 import { SeasonSelector } from '@/components/SeasonSelector'
 import { TeamThemeToggle } from '@/components/team/TeamThemeToggle'
@@ -19,7 +20,7 @@ import { ScheduleView } from './ScheduleView'
 import { CompareView } from './CompareView'
 import { RecruitingView } from './RecruitingView'
 import type { TeamThemeConfig } from '@/lib/theme/team-theme'
-import type { TeamElo, TeamEloGamePoint } from '@/lib/queries/predictions'
+import type { TeamElo, TeamEloGamePoint, TeamAts } from '@/lib/queries/predictions'
 
 type TabId = 'overview' | 'situational' | 'schedule' | 'roster' | 'compare' | 'recruiting'
 
@@ -67,6 +68,7 @@ interface TeamPageClientProps {
   activeThemeKey: string | null
   teamElo: TeamElo | null
   teamEloHistory: TeamEloGamePoint[]
+  teamAts: TeamAts | null
 }
 
 export function TeamPageClient({
@@ -95,7 +97,8 @@ export function TeamPageClient({
   teamTheme,
   activeThemeKey,
   teamElo,
-  teamEloHistory
+  teamEloHistory,
+  teamAts
 }: TeamPageClientProps) {
   const [activeTab, setActiveTab] = useState<TabId>('overview')
 
@@ -266,7 +269,12 @@ export function TeamPageClient({
         )}
 
         {activeTab === 'schedule' && (
-          <ScheduleView schedule={schedule} teamColor={team.color} />
+          <>
+            <div className="mb-6">
+              <AtsCard ats={teamAts} />
+            </div>
+            <ScheduleView schedule={schedule} teamColor={team.color} />
+          </>
         )}
 
         {activeTab === 'compare' && (

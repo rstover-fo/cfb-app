@@ -5,7 +5,7 @@ import { Team, TeamSeasonEpa, TeamStyleProfile, TeamSeasonTrajectory, DrivePatte
 import { TeamPageClient } from '@/components/team/TeamPageClient'
 import { CURRENT_SEASON } from '@/lib/queries/constants'
 import { TEAM_THEME_COOKIE, parseTeamThemeCookie, themeConfigForSlug } from '@/lib/theme/team-theme'
-import { getTeamElo, getTeamEloHistory } from '@/lib/queries/predictions'
+import { getTeamElo, getTeamEloHistory, getTeamAts } from '@/lib/queries/predictions'
 
 interface TeamPageProps {
   params: Promise<{ slug: string }>
@@ -152,12 +152,14 @@ export default async function TeamPage({ params, searchParams }: TeamPageProps) 
   const signees = signeesResult.error ? null : (signeesResult.data as Signee[] | null)
   const portalActivity = portalResult.error ? null : (portalResult.data as PortalActivity | null)
 
-  // Fetch Elo rating (season-end + game-by-game history). Both fns are
-  // self-guarded (return null/[] on error/no coverage), matching this page's
-  // convention of never failing the whole page render on one widget's data.
-  const [teamElo, teamEloHistory] = await Promise.all([
+  // Fetch Elo rating (season-end + game-by-game history) and ATS record.
+  // All fns are self-guarded (return null/[] on error/no coverage), matching
+  // this page's convention of never failing the whole page render on one
+  // widget's data.
+  const [teamElo, teamEloHistory, teamAts] = await Promise.all([
     getTeamElo(team.school ?? '', currentSeason),
     getTeamEloHistory(team.school ?? '', currentSeason),
+    getTeamAts(team.school ?? '', currentSeason),
   ])
 
   // Fetch all teams (for schedule logos and Compare tab)
@@ -223,6 +225,7 @@ export default async function TeamPage({ params, searchParams }: TeamPageProps) 
       activeThemeKey={activeThemeKey}
       teamElo={teamElo}
       teamEloHistory={teamEloHistory}
+      teamAts={teamAts}
     />
   )
 }

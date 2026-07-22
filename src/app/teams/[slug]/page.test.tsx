@@ -52,9 +52,10 @@ function fromMock(table: string) {
 vi.mock('@/lib/supabase/server', () => ({
   createClient: vi.fn().mockResolvedValue({
     from: vi.fn().mockImplementation(fromMock),
-    // Elo widgets (getTeamElo/getTeamEloHistory) read from the `api` schema
-    // via .schema('api').from(...) -- mirror the same chainable builder so
-    // those calls resolve to an empty/no-row result instead of throwing.
+    // Elo and ATS widgets (getTeamElo/getTeamEloHistory/getTeamAts) read from
+    // the `api` schema via .schema('api').from(...) -- mirror the same
+    // chainable builder so those calls resolve to an empty/no-row result
+    // instead of throwing.
     schema: vi.fn().mockImplementation(() => ({
       from: vi.fn().mockImplementation(fromMock),
     })),
