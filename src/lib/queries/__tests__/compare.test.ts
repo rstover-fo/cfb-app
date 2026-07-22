@@ -51,12 +51,14 @@ describe('resolveTeamBySlug', () => {
 })
 
 describe('getAllTeams', () => {
-  it('returns teams from teams_with_logos', async () => {
-    fromMock.mockReturnValue(chainable({ data: TEAMS, error: null }))
+  it('returns teams from teams_with_logos, filtered to FBS classification', async () => {
+    const builder = chainable({ data: TEAMS, error: null })
+    fromMock.mockReturnValue(builder)
 
     const result = await getAllTeams()
 
     expect(fromMock).toHaveBeenCalledWith('teams_with_logos')
+    expect(builder.eq).toHaveBeenCalledWith('classification', 'fbs')
     expect(result).toEqual(TEAMS)
   })
 

@@ -1,13 +1,15 @@
 import { createClient } from '@/lib/supabase/server'
 import type { Team, TeamSeasonEpa, TeamStyleProfile, DefensiveHavoc, TeamTempoMetrics, TeamRecord, TeamSpecialTeamsSos } from '@/lib/types/database'
 import { ScatterPlotClient } from '@/components/analytics/ScatterPlotClient'
-import { FBS_CONFERENCES } from '@/lib/queries/shared'
 import { CURRENT_SEASON } from '@/lib/queries/constants'
 
 export default async function AnalyticsPage() {
   const supabase = await createClient()
   const [teamsResult, metricsResult, stylesResult, havocResult, tempoResult, recordsResult, specialTeamsResult] = await Promise.all([
-    supabase.from('teams_with_logos').select('*').in('conference', FBS_CONFERENCES as unknown as string[]),
+    // Filtered via `classification`, not conference-name matching -- see the
+    // FBS_CONFERENCES comment in src/lib/queries/shared.ts for why the
+    // allowlist approach leaked FCS schools into supposedly-FBS-only views.
+    supabase.from('teams_with_logos').select('*').eq('classification', 'fbs'),
     supabase.from('team_epa_season').select('*').eq('season', CURRENT_SEASON),
     supabase.from('team_style_profile').select('*').eq('season', CURRENT_SEASON),
     supabase.from('defensive_havoc').select('*').eq('season', CURRENT_SEASON),
