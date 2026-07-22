@@ -55,9 +55,9 @@ src/
     (root)              # GamesList, PaperTexture, Sidebar, TeamCard, TeamList, TeamSearch, ThemeToggle
   hooks/
     useCountUp.ts       # Animated number counter
-    useRoughSvg.ts      # roughjs SVG integration (core to chart aesthetic)
     useTheme.ts         # Theme context hook
   lib/
+    charts/             # Shared chart primitives + theming (see DESIGN.md)
     queries/
       constants.ts      # CURRENT_SEASON, week boundaries (canonical source)
       shared.ts         # FBS_CONFERENCES, getTeamLookup, getFBSTeams
