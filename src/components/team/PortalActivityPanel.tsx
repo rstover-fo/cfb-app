@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { Star } from '@phosphor-icons/react'
 import { PortalActivity, TransferRecord } from '@/lib/types/database'
-import { formatPercent } from '@/lib/utils'
+import { formatOrdinal, formatPercent } from '@/lib/utils'
 import type { TransferPortalImpact } from '@/lib/queries/roster-context'
 
 interface PortalActivityPanelProps {
@@ -19,15 +19,7 @@ interface PortalActivityPanelProps {
 // for the team/season (e.g. too few FBS teams with portal data yet).
 function pctlCaption(pctl: number | null): string | null {
   if (pctl == null) return null
-  const pct = Math.round(pctl * 100)
-  const suffix = pct % 10 === 1 && pct % 100 !== 11
-    ? 'st'
-    : pct % 10 === 2 && pct % 100 !== 12
-      ? 'nd'
-      : pct % 10 === 3 && pct % 100 !== 13
-        ? 'rd'
-        : 'th'
-  return `${pct}${suffix} percentile`
+  return `${formatOrdinal(Math.round(pctl * 100))} percentile`
 }
 
 function signed(value: number): string {

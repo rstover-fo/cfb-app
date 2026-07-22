@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { Football } from '@phosphor-icons/react'
+import { EmptyState } from '@/components/EmptyState'
 import { fetchLiveScoreboard, type LiveScoreboardGame } from '@/app/live/actions'
 import { formatSpread } from '@/lib/format-odds'
 
@@ -181,12 +182,13 @@ export function LiveScoreboardWidget({ initialGames }: LiveScoreboardWidgetProps
           ))}
         </div>
       ) : (
-        <div className="flex flex-col items-center gap-2 py-6 text-center" role="status">
-          <Football size={32} weight="thin" className="text-[var(--text-muted)]" aria-hidden="true" />
-          <p className="text-sm font-medium text-[var(--text-primary)]">
-            No games on the board right now — check back at kickoff.
-          </p>
-        </div>
+        // This is a client component, so the house EmptyState is usable
+        // directly (the inline copies in EdgeBoardWidget / models page exist
+        // only because icon functions aren't RSC-serializable).
+        <EmptyState
+          icon={Football}
+          title="No games on the board right now — check back at kickoff."
+        />
       )}
     </div>
   )

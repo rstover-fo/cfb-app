@@ -20,11 +20,21 @@ export function formatPercent(value: number): string {
   return `${(value * 100).toFixed(1)}%`
 }
 
+/** "72" -> "72nd", handling the 11th/12th/13th exceptions. Canonical ordinal
+ *  formatter for percentile captions (see DESIGN.md, Percentiles & ranks). */
+export function formatOrdinal(n: number): string {
+  const rem = n % 100
+  if (rem >= 11 && rem <= 13) return `${n}th`
+  switch (n % 10) {
+    case 1: return `${n}st`
+    case 2: return `${n}nd`
+    case 3: return `${n}rd`
+    default: return `${n}th`
+  }
+}
+
 export function formatRank(rank: number): string {
-  if (rank === 1) return '1st'
-  if (rank === 2) return '2nd'
-  if (rank === 3) return '3rd'
-  return `${rank}th`
+  return formatOrdinal(rank)
 }
 
 // Shared select dropdown styling

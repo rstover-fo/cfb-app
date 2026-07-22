@@ -170,7 +170,11 @@ export function TeamPageClient({
       </header>
 
       <Tabs defaultValue="overview" className="gap-0">
-        <TabsList aria-label="Team page sections" className="mb-6 w-full justify-start overflow-x-auto scrollbar-hide">
+        {/* py-1.5 reserves room inside the scroll container for the active
+            tab's accent bar (after:bottom-[-5px]) and the 3px focus ring --
+            overflow-x-auto forces overflow-y to auto too, which would
+            otherwise clip both (see DESIGN.md, Tabs). */}
+        <TabsList aria-label="Team page sections" className="mb-6 w-full justify-start overflow-x-auto scrollbar-hide py-1.5">
           {TABS.map(tab => (
             <TabsTrigger key={tab.id} value={tab.id} disabled={!tab.enabled}>
               {tab.label}

@@ -5,6 +5,7 @@ import { Strategy } from '@phosphor-icons/react'
 import rough from 'roughjs'
 import { resolveColor, useChartTheme } from '@/lib/charts/theme'
 import { EmptyState } from '@/components/EmptyState'
+import { formatOrdinal } from '@/lib/utils'
 import type { PlaycallingProfile as PlaycallingProfileData } from '@/lib/queries/playcalling'
 
 interface PlaycallingProfileProps {
@@ -21,18 +22,6 @@ const LABEL_GUTTER = 36
 const PLOT_WIDTH = WIDTH - MARGIN.left - MARGIN.right
 const CENTER_X = MARGIN.left + PLOT_WIDTH / 2
 const HALF_WIDTH = PLOT_WIDTH / 2 - LABEL_GUTTER
-
-/** "72" -> "72nd", handling the 11th/12th/13th exceptions. */
-function ordinal(n: number): string {
-  const rem = n % 100
-  if (rem >= 11 && rem <= 13) return `${n}th`
-  switch (n % 10) {
-    case 1: return `${n}st`
-    case 2: return `${n}nd`
-    case 3: return `${n}rd`
-    default: return `${n}th`
-  }
-}
 
 function sharePct(rate: number): string {
   return `${Math.round(rate * 100)}%`
@@ -264,7 +253,7 @@ export function PlaycallingProfile({ profile }: PlaycallingProfileProps) {
                   textAnchor="end"
                   className="fill-[var(--text-muted)] text-[10px]"
                 >
-                  {`${ordinal(Math.round(row.pctl.value * 100))} pctl ${row.pctl.lean}`}
+                  {`${formatOrdinal(Math.round(row.pctl.value * 100))} pctl ${row.pctl.lean}`}
                 </text>
               )}
               {/* Direct labels at the bar ends */}
@@ -337,7 +326,7 @@ export function PlaycallingProfile({ profile }: PlaycallingProfileProps) {
               <p className="flex items-center gap-2">
                 <span className="w-3" />
                 <span className="text-[var(--text-muted)]">
-                  {`${ordinal(Math.round(hoveredRow.pctl.value * 100))} percentile ${hoveredRow.pctl.lean} in FBS`}
+                  {`${formatOrdinal(Math.round(hoveredRow.pctl.value * 100))} percentile ${hoveredRow.pctl.lean} in FBS`}
                 </span>
               </p>
             )}
@@ -356,7 +345,7 @@ export function PlaycallingProfile({ profile }: PlaycallingProfileProps) {
           </span>
           {profile.run_rate_delta_pctl !== null && (
             <span className="text-xs text-[var(--text-muted)]">
-              {`${ordinal(Math.round(profile.run_rate_delta_pctl * 100))} pctl`}
+              {`${formatOrdinal(Math.round(profile.run_rate_delta_pctl * 100))} pctl`}
             </span>
           )}
         </p>
@@ -368,7 +357,7 @@ export function PlaycallingProfile({ profile }: PlaycallingProfileProps) {
           <span className="text-[var(--text-secondary)]">plays/game</span>
           {profile.pace_pctl !== null && (
             <span className="text-xs text-[var(--text-muted)]">
-              {`${ordinal(Math.round(profile.pace_pctl * 100))} pctl`}
+              {`${formatOrdinal(Math.round(profile.pace_pctl * 100))} pctl`}
             </span>
           )}
         </p>

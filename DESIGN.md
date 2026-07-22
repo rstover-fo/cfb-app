@@ -73,7 +73,12 @@ Rules:
 
 - **Headings** (`h1`–`h6`) are globally Libre Baskerville via `--font-headline`; utility
   `.text-headline` / `font-headline` for non-heading elements that need serif.
-- **Body and all numerics** are DM Sans. Never set stats in the serif.
+- **Body and running/table numerics** are DM Sans.
+- **Hero stats are the one sanctioned serif numeral:** a stat card's single marquee value
+  (MetricsCards, EloCard, AtsCard, PredictionCard, ReturningProductionCard, portal
+  SummaryCards) is set `font-headline` + `tabular-nums` — the "almanac numeral" treatment —
+  optionally with `underline-sketch` on the card's one headline number. Everything else
+  (table columns, chart labels, captions, inline stats in sentences) stays DM Sans.
 - **Stat/score columns** use `tabular-nums` (baked into the `TableCell` component).
 - **Table/label headers** are the newspaper small-caps style: `text-[10px] uppercase
   tracking-wider font-normal` in muted text (see `PollTable.tsx`; `TableHead` matches).
@@ -115,6 +120,11 @@ Rules:
 - **Tabs:** `Tabs`/`TabsTrigger` mirror the hand-rolled `TeamPageClient.tsx` convention —
   individually bordered `rounded-sm` buttons, active = `--color-run` border + card surface +
   primary text + an underline-sketch-style accent bar. Do not restyle into segmented pills.
+  **Scrollable tab rows:** a wide `TabsList` (e.g. the 7-tab team page) gets
+  `w-full justify-start overflow-x-auto scrollbar-hide` **plus `py-1.5`** — `overflow-x`
+  forces `overflow-y` to auto, and without the vertical padding the active tab's accent bar
+  (`after:bottom-[-5px]`) and the 3px focus ring are clipped by the scroll container. The
+  scrollbar stays hidden; the partially clipped last tab is the scroll affordance.
 - **Selects:** new work uses the shadcn `Select` (see `SeasonSelector.tsx`). Several native
   `<select>`s remain (GamesList, TeamList, RankingsClient, players, comparison, rivals) —
   the `select option` rule in globals.css supports them until they migrate.
@@ -147,6 +157,29 @@ EdgeBoardWidget, predictions page) share one formatting vocabulary:
 - **Edges are magnitude + side, not good/bad:** the sign of `edge` only encodes
   which team the model likes, and the pick team is named in the copy — so edge
   badges tint with `--color-positive` (or neutral) only, never `--color-negative`.
+- **Backtest/metric precision** (models page): projected-margin errors (MAE/RMSE) are one
+  decimal with a `pts` unit; probability scores (Brier, CFBD Brier) are three decimals;
+  EPA/play values are three decimals and signed (`+0.187`). ATS hit rates use
+  `formatPercent` like any other rate stat.
+- **Null market values** on prediction/model surfaces render as an em dash `—` in muted
+  text (never a bare hyphen or `--`; the older `--` placeholder survives only in legacy
+  roster/recruiting tables).
+
+## Percentiles & ranks
+
+FBS-relative context captions share one vocabulary across PlaycallingProfile,
+PortalActivityPanel, and ReturningProductionCard:
+
+- **Percentiles are ordinals**, formatted via `formatOrdinal` in `src/lib/utils.ts`
+  (handles 11th/12th/13th) — never hand-rolled suffix logic.
+- **Spell out "percentile"** in card captions and tooltips ("81st percentile",
+  "72nd percentile pass-heavy in FBS"). **Abbreviate to "pctl"** only in
+  space-constrained chart annotations and inline stat lines ("72nd pctl pass-heavy",
+  "44th pctl").
+- **Absolute FBS ranks** are "#N in FBS" (ReturningProductionCard) — a rank is not a
+  percentile; do not convert one into the other for display.
+- Captions render muted (`--text-muted`), small, `tabular-nums`; directional leans
+  ("run-heavy"/"pass-heavy") ride along in the same caption, never as a color.
 
 ## Empty states
 
@@ -155,3 +188,15 @@ space or a bare "No data" string. Use `src/components/EmptyState.tsx`: Phosphor 
 (`weight="thin"`), one-line title, optional description and suggested action
 ("Clear filters", "View {season} season"). It announces via `role="status"` so screen
 readers can distinguish "genuinely empty" from "failed to load".
+
+- **Copy voice:** one declarative sentence, often with an em-dash pivot to when the data
+  returns — "Lines are off the board — edges return in season.", "No games on the board
+  right now — check back at kickoff.", "Backtest metrics publish with the warehouse's next
+  refresh." No exclamation points, no "Oops".
+- **Client components use `EmptyState` directly.** Server components (EdgeBoardWidget,
+  models page) inline the same icon + `role="status"` + title markup only because icon
+  functions aren't RSC-serializable — the inline copy must match the EmptyState voice and
+  treatment (`size={40} weight="thin"` muted icon, `text-sm font-medium` title).
+- **No stray chrome on empty:** section headings, dividers, and filter rows that describe
+  absent data are gated with the data (see TeamPageClient's Opponent-Adjusted Offense
+  section); filters that let the user escape the empty state stay visible (EdgeBoardTable).
