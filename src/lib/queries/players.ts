@@ -1,6 +1,7 @@
 import { cache } from 'react'
 import { createClient } from '@/lib/supabase/server'
 import { getTeamLookup } from './shared'
+import { PBP_MIN_SEASON } from './constants'
 import type {
   PlayerLeaderRow,
   LeaderCategory,
@@ -154,6 +155,15 @@ export const getPlayerDetail = cache(async (
 // Player game log (EPA per game via RPC)
 // ---------------------------------------------------------------------------
 
+// Row shape for api.game_detail's O/U columns (hand-typed -- see matchups.ts's
+// GameDetailRow for why: generated Supabase types don't cover the `api`
+// schema).
+interface GameDetailOURow {
+  game_id: number
+  over_under: number | null
+  ou_result: string | null
+}
+
 export const getPlayerGameLog = cache(async (
   playerId: string,
   season: number
@@ -170,7 +180,7 @@ export const getPlayerGameLog = cache(async (
     return []
   }
 
-  return (data as unknown[]).map(row => {
+  const entries = (data as unknown[]).map(row => {
     const r = row as Record<string, unknown>
     return {
       game_id: r.game_id as number,
@@ -188,6 +198,39 @@ export const getPlayerGameLog = cache(async (
       opponent: r.opponent as string | undefined,
       home_away: r.home_away as string,
       result: r.result as string | undefined,
+      over_under: null as number | null,
+      ou_result: null as string | null,
+    }
+  })
+
+  // Batch-fetch Over/Under lines for the games in this log. Best-effort:
+  // any failure here should never fail the whole game log, just leave O/U
+  // null for every entry (matches the RPC's own error handling above).
+  const gameIds = Array.from(new Set(entries.map(e => e.game_id)))
+  if (gameIds.length === 0) return entries
+
+  const { data: ouData, error: ouError } = await supabase
+    .schema('api')
+    .from('game_detail')
+    .select('game_id, over_under, ou_result')
+    .in('game_id', gameIds)
+
+  if (ouError || !ouData) {
+    console.error('game_detail O/U lookup error:', ouError?.message)
+    return entries
+  }
+
+  const ouByGameId = new Map<number, GameDetailOURow>()
+  for (const row of ouData as GameDetailOURow[]) {
+    ouByGameId.set(row.game_id, row)
+  }
+
+  return entries.map(entry => {
+    const ou = ouByGameId.get(entry.game_id)
+    return {
+      ...entry,
+      over_under: ou?.over_under ?? null,
+      ou_result: ou?.ou_result ?? null,
     }
   })
 })
@@ -309,11 +352,18 @@ export const getPlayerSeasons = cache(async (
 // Available seasons for leaderboard (from stats table)
 // ---------------------------------------------------------------------------
 
+// Player-level EPA attribution only exists from PBP_MIN_SEASON on -- filter
+// out any earlier seasons the RPC happens to return so the leaderboard never
+// offers a season with no player EPA data behind it.
+const FALLBACK_LEADERBOARD_SEASONS = [2024].filter(s => s >= PBP_MIN_SEASON)
+
 export const getLeaderboardSeasons = cache(async (): Promise<number[]> => {
   const supabase = await createClient()
 
   const { data } = await supabase.rpc('get_available_seasons')
-  if (!data) return [2024]
-  return (data as number[]).sort((a, b) => b - a)
+  if (!data) return FALLBACK_LEADERBOARD_SEASONS
+  return (data as number[])
+    .filter(s => s >= PBP_MIN_SEASON)
+    .sort((a, b) => b - a)
 })
 

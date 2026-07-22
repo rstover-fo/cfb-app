@@ -251,6 +251,10 @@ export interface PlayerGameLogEntry {
   opponent?: string
   home_away?: string
   result?: string
+  // enriched from api.game_detail (batch-fetched post-RPC; null when
+  // unavailable or the lookup errors -- never fails the game log)
+  over_under: number | null
+  ou_result: string | null
 }
 
 export interface PlayerPercentiles {
