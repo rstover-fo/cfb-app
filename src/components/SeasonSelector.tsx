@@ -1,6 +1,13 @@
 'use client'
 
 import { useRouter, useSearchParams, usePathname } from 'next/navigation'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 
 interface SeasonSelectorProps {
   seasons: number[]
@@ -12,25 +19,24 @@ export function SeasonSelector({ seasons, currentSeason }: SeasonSelectorProps) 
   const pathname = usePathname()
   const searchParams = useSearchParams()
 
-  function handleChange(e: React.ChangeEvent<HTMLSelectElement>) {
-    const newSeason = e.target.value
+  function handleChange(newSeason: string) {
     const params = new URLSearchParams(searchParams.toString())
     params.set('season', newSeason)
     router.push(`${pathname}?${params.toString()}`)
   }
 
   return (
-    <select
-      value={currentSeason}
-      onChange={handleChange}
-      className="px-3 py-1.5 border-[1.5px] border-[var(--border)] rounded-sm text-sm bg-[var(--bg-surface)] text-[var(--text-primary)] cursor-pointer hover:border-[var(--text-muted)] transition-colors"
-      aria-label="Select season"
-    >
-      {seasons.map(season => (
-        <option key={season} value={season}>
-          {season} Season
-        </option>
-      ))}
-    </select>
+    <Select value={String(currentSeason)} onValueChange={handleChange}>
+      <SelectTrigger className="text-sm" aria-label="Select season">
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        {seasons.map(season => (
+          <SelectItem key={season} value={String(season)}>
+            {season} Season
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
   )
 }
