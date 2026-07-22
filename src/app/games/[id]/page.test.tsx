@@ -43,6 +43,10 @@ vi.mock('@/lib/queries/games', () => ({
   getGameRecap: vi.fn().mockResolvedValue(null),
 }))
 
+vi.mock('@/lib/queries/predictions', () => ({
+  getGamePrediction: vi.fn().mockResolvedValue(null),
+}))
+
 vi.mock('@/components/game/GameScoreHeader', () => ({
   GameScoreHeader: ({ game }: { game: { home_team: string } }) => (
     <div data-testid="score-header">{game.home_team}</div>
@@ -61,6 +65,9 @@ vi.mock('@/components/game/GameRecap', () => ({
   GameRecap: ({ recap }: { recap: { headline: string } }) => (
     <div data-testid="game-recap">{recap.headline}</div>
   ),
+}))
+vi.mock('@/components/game/PredictionCard', () => ({
+  PredictionCard: () => <div data-testid="prediction-card">Prediction Card</div>,
 }))
 
 describe('Game detail page', () => {

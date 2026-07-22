@@ -1,8 +1,10 @@
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
 import { getGameById, getGameBoxScore, getGamePlayerLeaders, getGameLineScores, getGameDrives, getGamePlays, getGameWinProbability, getGameRecap } from '@/lib/queries/games'
+import { getGamePrediction } from '@/lib/queries/predictions'
 import { GameScoreHeader } from '@/components/game/GameScoreHeader'
 import { GameRecap } from '@/components/game/GameRecap'
+import { PredictionCard } from '@/components/game/PredictionCard'
 import { QuarterScores } from '@/components/game/QuarterScores'
 import { GameBoxScore } from '@/components/game/GameBoxScore'
 import { PlayerLeaders } from '@/components/game/PlayerLeaders'
@@ -23,7 +25,7 @@ export default async function GamePage({ params }: GamePageProps) {
     notFound()
   }
 
-  const [game, boxScore, playerLeaders, lineScores, drives, plays, winProbability, recap] = await Promise.all([
+  const [game, boxScore, playerLeaders, lineScores, drives, plays, winProbability, recap, prediction] = await Promise.all([
     getGameById(gameId),
     getGameBoxScore(gameId),
     getGamePlayerLeaders(gameId),
@@ -32,6 +34,7 @@ export default async function GamePage({ params }: GamePageProps) {
     getGamePlays(gameId),
     getGameWinProbability(gameId),
     getGameRecap(gameId),
+    getGamePrediction(gameId),
   ])
 
   if (!game) {
@@ -71,6 +74,13 @@ export default async function GamePage({ params }: GamePageProps) {
 
         {/* Score Header */}
         <GameScoreHeader game={game} />
+
+        {/* House Prediction */}
+        {prediction && (
+          <div className="mt-6">
+            <PredictionCard prediction={prediction} homeTeam={game.home_team} awayTeam={game.away_team} />
+          </div>
+        )}
 
         {/* AI-Generated Recap */}
         {recap && (
