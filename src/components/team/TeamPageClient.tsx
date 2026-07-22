@@ -1,10 +1,10 @@
 'use client'
 
-import { useState } from 'react'
 import Image from 'next/image'
 import Link from 'next/link'
 import { Sword } from '@phosphor-icons/react'
 import { Team, TeamSeasonEpa, TeamStyleProfile, TeamSeasonTrajectory, DrivePattern, DownDistanceSplit, TrajectoryAverages, RedZoneSplit, FieldPositionSplit, HomeAwaySplit, ConferenceSplit, RosterPlayer, PlayerSeasonStat, ScheduleGame, RecruitingClassHistory, RecruitingROI, Signee, PortalActivity } from '@/lib/types/database'
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { MetricsCards } from '@/components/team/MetricsCards'
 import { StyleProfile } from '@/components/team/StyleProfile'
 import { DrivePatterns } from '@/components/visualizations/DrivePatterns'
@@ -100,8 +100,6 @@ export function TeamPageClient({
   teamEloHistory,
   teamAts
 }: TeamPageClientProps) {
-  const [activeTab, setActiveTab] = useState<TabId>('overview')
-
   // True only when this team's own theme is the one currently active.
   const isThemeActive = teamTheme !== null && activeThemeKey === teamTheme.key
 
@@ -158,102 +156,79 @@ export function TeamPageClient({
         <SeasonSelector seasons={availableSeasons} currentSeason={currentSeason} />
       </header>
 
-      {/* Tab Navigation */}
-      <nav className="flex gap-2 mb-6 overflow-x-auto scrollbar-hide" role="tablist" aria-label="Team page sections">
-        {TABS.map(tab => {
-          const isActive = activeTab === tab.id
-          const isDisabled = !tab.enabled
-
-          return (
-            <button
-              key={tab.id}
-              role="tab"
-              aria-selected={isActive}
-              aria-controls={`tabpanel-${tab.id}`}
-              disabled={isDisabled}
-              onClick={() => tab.enabled && setActiveTab(tab.id)}
-              className={`px-4 py-2 border-[1.5px] rounded-sm text-sm whitespace-nowrap transition-all ${
-                isActive
-                  ? 'bg-[var(--bg-surface)] border-[var(--color-run)] text-[var(--text-primary)]'
-                  : isDisabled
-                  ? 'border-[var(--border)] text-[var(--text-muted)] opacity-50 cursor-not-allowed'
-                  : 'border-[var(--border)] text-[var(--text-secondary)] hover:border-[var(--text-muted)]'
-              }`}
-            >
+      <Tabs defaultValue="overview" className="gap-0">
+        <TabsList aria-label="Team page sections" className="mb-6 w-full justify-start overflow-x-auto scrollbar-hide">
+          {TABS.map(tab => (
+            <TabsTrigger key={tab.id} value={tab.id} disabled={!tab.enabled}>
               {tab.label}
-              {isDisabled && <span className="ml-1 text-xs">(soon)</span>}
-            </button>
-          )
-        })}
-      </nav>
+              {!tab.enabled && <span className="ml-1 text-xs">(soon)</span>}
+            </TabsTrigger>
+          ))}
+        </TabsList>
 
-      {/* Tab Content */}
-      <div id={`tabpanel-${activeTab}`} role="tabpanel" aria-labelledby={`tab-${activeTab}`}>
-        {activeTab === 'overview' && (
-          <>
-            {/* Drive Patterns */}
-            <section className="mb-10">
-              <h2 className="font-headline text-2xl text-[var(--text-primary)] mb-4">Drive Patterns</h2>
-              {offenseDrives && offenseDrives.length > 0 ? (
-                <DrivePatterns
-                  offenseDrives={offenseDrives}
-                  defenseDrives={defenseDrives ?? []}
-                  teamName={team.school ?? ''}
-                />
-              ) : (
-                <p className="text-[var(--text-muted)]">No drive data available</p>
-              )}
-            </section>
-
-            {/* Performance Metrics */}
-            <section className="mb-10">
-              <h2 className="font-headline text-2xl text-[var(--text-primary)] mb-4">Performance Metrics</h2>
-              {metrics ? (
-                <MetricsCards metrics={metrics} />
-              ) : (
-                <p className="text-[var(--text-muted)]">No metrics available for this season</p>
-              )}
-            </section>
-
-            {/* Elo Rating */}
-            {(teamElo || teamEloHistory.length > 0) && (
-              <section className="mb-10">
-                <h2 className="font-headline text-2xl text-[var(--text-primary)] mb-4">Elo Rating</h2>
-                <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,320px)_1fr] gap-4 items-start">
-                  <EloCard elo={teamElo} history={teamEloHistory} />
-                  <EloHistoryChart history={teamEloHistory} teamName={team.school ?? ''} />
-                </div>
-              </section>
+        <TabsContent value="overview">
+          {/* Drive Patterns */}
+          <section className="mb-10">
+            <h2 className="font-headline text-2xl text-[var(--text-primary)] mb-4">Drive Patterns</h2>
+            {offenseDrives && offenseDrives.length > 0 ? (
+              <DrivePatterns
+                offenseDrives={offenseDrives}
+                defenseDrives={defenseDrives ?? []}
+                teamName={team.school ?? ''}
+              />
+            ) : (
+              <p className="text-[var(--text-muted)]">No drive data available</p>
             )}
+          </section>
 
-            {/* Style Profile */}
+          {/* Performance Metrics */}
+          <section className="mb-10">
+            <h2 className="font-headline text-2xl text-[var(--text-primary)] mb-4">Performance Metrics</h2>
+            {metrics ? (
+              <MetricsCards metrics={metrics} />
+            ) : (
+              <p className="text-[var(--text-muted)]">No metrics available for this season</p>
+            )}
+          </section>
+
+          {/* Elo Rating */}
+          {(teamElo || teamEloHistory.length > 0) && (
             <section className="mb-10">
-              <h2 className="font-headline text-2xl text-[var(--text-primary)] mb-4">Style Profile</h2>
-              {style ? (
-                <StyleProfile style={style} />
-              ) : (
-                <p className="text-[var(--text-muted)]">No style data available</p>
-              )}
+              <h2 className="font-headline text-2xl text-[var(--text-primary)] mb-4">Elo Rating</h2>
+              <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,320px)_1fr] gap-4 items-start">
+                <EloCard elo={teamElo} history={teamEloHistory} />
+                <EloHistoryChart history={teamEloHistory} teamName={team.school ?? ''} />
+              </div>
             </section>
+          )}
 
-            {/* Historical Trajectory */}
-            <section className="mb-10">
-              <h2 className="font-headline text-2xl text-[var(--text-primary)] mb-4">Historical Trajectory</h2>
-              {trajectory && trajectory.length > 0 ? (
-                <TrajectoryChart
-                  trajectory={trajectory}
-                  averages={trajectoryAverages}
-                  conference={team.conference || 'FBS'}
-                  teamName={team.school ?? ''}
-                />
-              ) : (
-                <p className="text-[var(--text-muted)]">No trajectory data available</p>
-              )}
-            </section>
-          </>
-        )}
+          {/* Style Profile */}
+          <section className="mb-10">
+            <h2 className="font-headline text-2xl text-[var(--text-primary)] mb-4">Style Profile</h2>
+            {style ? (
+              <StyleProfile style={style} />
+            ) : (
+              <p className="text-[var(--text-muted)]">No style data available</p>
+            )}
+          </section>
 
-        {activeTab === 'situational' && (
+          {/* Historical Trajectory */}
+          <section className="mb-10">
+            <h2 className="font-headline text-2xl text-[var(--text-primary)] mb-4">Historical Trajectory</h2>
+            {trajectory && trajectory.length > 0 ? (
+              <TrajectoryChart
+                trajectory={trajectory}
+                averages={trajectoryAverages}
+                conference={team.conference || 'FBS'}
+                teamName={team.school ?? ''}
+              />
+            ) : (
+              <p className="text-[var(--text-muted)]">No trajectory data available</p>
+            )}
+          </section>
+        </TabsContent>
+
+        <TabsContent value="situational">
           <SituationalView
             downDistanceData={downDistanceSplits}
             redZoneData={redZoneSplits}
@@ -262,22 +237,20 @@ export function TeamPageClient({
             conferenceData={conferenceSplits}
             conference={team.conference || 'FBS'}
           />
-        )}
+        </TabsContent>
 
-        {activeTab === 'roster' && (
+        <TabsContent value="schedule">
+          <div className="mb-6">
+            <AtsCard ats={teamAts} />
+          </div>
+          <ScheduleView schedule={schedule} teamColor={team.color} />
+        </TabsContent>
+
+        <TabsContent value="roster">
           <RosterView roster={roster} stats={playerStats} />
-        )}
+        </TabsContent>
 
-        {activeTab === 'schedule' && (
-          <>
-            <div className="mb-6">
-              <AtsCard ats={teamAts} />
-            </div>
-            <ScheduleView schedule={schedule} teamColor={team.color} />
-          </>
-        )}
-
-        {activeTab === 'compare' && (
+        <TabsContent value="compare">
           <CompareView
             team={team}
             metrics={metrics}
@@ -285,9 +258,9 @@ export function TeamPageClient({
             allTeams={allTeams}
             currentSeason={currentSeason}
           />
-        )}
+        </TabsContent>
 
-        {activeTab === 'recruiting' && (
+        <TabsContent value="recruiting">
           <RecruitingView
             classHistory={classHistory}
             roi={roi}
@@ -296,8 +269,8 @@ export function TeamPageClient({
             teamColor={team.color}
             currentSeason={currentSeason}
           />
-        )}
-      </div>
+        </TabsContent>
+      </Tabs>
     </div>
   )
 }
