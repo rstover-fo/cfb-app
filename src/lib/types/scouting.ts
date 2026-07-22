@@ -46,7 +46,7 @@ export interface PendingLink {
   id: number
   source_name: string
   source_team: string | null
-  source_context: any
+  source_context: Record<string, unknown>
   candidate_roster_id: number | null
   match_score: number
   match_method: string

@@ -20,7 +20,9 @@ export default function ScoutingAdminPage() {
   }
 
   useEffect(() => {
-    fetchLinks()
+    ;(async () => {
+      await fetchLinks()
+    })()
   }, [])
 
   const handleReview = async (id: number, status: 'approved' | 'rejected') => {
@@ -108,7 +110,7 @@ export default function ScoutingAdminPage() {
                         Source Metadata
                       </div>
                       <div className="text-sm font-bold text-[var(--text-primary)]">
-                         {link.source_context?.position || 'POS'} | {link.source_context?.year || 'YEAR'}
+                         {(link.source_context?.position as string) || 'POS'} | {(link.source_context?.year as string) || 'YEAR'}
                       </div>
                     </div>
                     <div className="p-4 bg-[var(--bg-surface)] rounded-lg border border-[var(--border)] shadow-sm">

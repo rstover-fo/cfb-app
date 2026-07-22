@@ -82,7 +82,7 @@ export const ScoutingSummaryFeed: React.FC<ScoutingSummaryFeedProps> = ({
               </div>
               
               <p className="text-sm text-[var(--text-secondary)] leading-relaxed italic">
-                "{report.summary || "Agent intelligence pending summary generation..."}"
+                {'"'}{report.summary || 'Agent intelligence pending summary generation...'}{'"'}
               </p>
               
               {report.source_url && (
