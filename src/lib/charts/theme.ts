@@ -24,6 +24,33 @@ export function resolveColor(cssVar: string): string {
 }
 
 /**
+ * Common ink token references for chart code. Pass through `resolveColor`
+ * inside `drawChart` for rough ink; use directly (`var(--…)`) for the
+ * static SVG scaffold and HTML (tooltip/legend) surfaces.
+ */
+export const CHART_INK = {
+  primary: 'var(--text-primary)',
+  secondary: 'var(--text-secondary)',
+  muted: 'var(--text-muted)',
+  border: 'var(--border)',
+  surface: 'var(--bg-surface)',
+  surfaceAlt: 'var(--bg-surface-alt)',
+  accent: 'var(--accent)',
+} as const
+
+export type HeatLevel = 1 | 2 | 3 | 4 | 5
+
+/**
+ * Resolves one of the five heat-ramp tokens (`--heat-1` worst → `--heat-5`
+ * best, declared in globals.css for both modes) to a concrete color for
+ * rough ink. HTML cells should use `var(--heat-N)` directly instead --
+ * CSS handles theme flips there with no JS.
+ */
+export function resolveHeatColor(level: HeatLevel): string {
+  return resolveColor(`var(--heat-${level})`)
+}
+
+/**
  * Re-invokes `onThemeChange` whenever the document's theme attributes change.
  *
  * Colors resolved via `resolveColor` are baked into concrete strings at
