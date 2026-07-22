@@ -50,15 +50,18 @@ const DEFAULT_MIN_GAMES = 24
 const COACH_RECORDS_LIMIT = 100
 
 // Get coach career-at-school records, ranked by SU or ATS win%. api.coach_records
-// has no classification column (unlike teams_with_logos), so FCS coaches are
-// filtered out client-side against the FBS team lookup -- same approach the
-// Stat Leaders widget uses (src/lib/queries/dashboard.ts's getStatLeaders).
+// has no classification column (unlike teams_with_logos), so the FBS restriction
+// is pushed into the query via .in('team', <FBS team names from the lookup>).
+// It must apply BEFORE .limit(): a client-side-only filter would let non-FBS
+// coaches in the overall top-100 consume the cap and silently drop eligible
+// FBS coaches ranked just below them.
 export const getCoachRecords = cache(async ({
   sortBy,
   minGames,
 }: GetCoachRecordsParams): Promise<CoachRecord[]> => {
   const supabase = await createClient()
   const teamLookup = await getTeamLookup()
+  const fbsTeams = Array.from(teamLookup.keys())
 
   const { data, error } = await supabase
     .schema('api')
@@ -66,6 +69,7 @@ export const getCoachRecords = cache(async ({
     .select(
       'coach_name, first_name, last_name, team, first_season, last_season, seasons_count, games, wins, losses, ties, win_pct, ats_games, ats_wins, ats_losses, ats_pushes, ats_win_pct, seasons_with_ats_data'
     )
+    .in('team', fbsTeams)
     .order(sortBy, { ascending: false, nullsFirst: false })
     .gte('games', minGames ?? DEFAULT_MIN_GAMES)
     .limit(COACH_RECORDS_LIMIT)

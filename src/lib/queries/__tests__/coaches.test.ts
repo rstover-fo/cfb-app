@@ -81,6 +81,9 @@ describe('getCoachRecords', () => {
     await getCoachRecords({ sortBy: 'win_pct' })
 
     expect(fromMock).toHaveBeenCalledWith('coach_records')
+    // FBS restriction must be server-side, BEFORE .limit() -- a client-only
+    // filter would let non-FBS coaches consume the top-100 cap.
+    expect(builder.in).toHaveBeenCalledWith('team', expect.arrayContaining(['Oklahoma']))
     expect(builder.order).toHaveBeenCalledWith('win_pct', { ascending: false, nullsFirst: false })
     expect(builder.gte).toHaveBeenCalledWith('games', 24)
     expect(builder.limit).toHaveBeenCalledWith(100)
