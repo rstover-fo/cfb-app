@@ -3,6 +3,7 @@
 import { useMemo } from 'react'
 import type { GamePlay } from '@/lib/types/database'
 import type { GameWithTeams } from '@/lib/queries/games'
+import { heatLevelForRate, type HeatThreshold } from '@/lib/charts/theme'
 
 interface GameDownDistanceProps {
   plays: GamePlay[]
@@ -62,10 +63,15 @@ function computeTeamGrid(plays: GamePlay[], team: string): Map<string, BucketSta
   return grid
 }
 
+// docs/chart-style-spec.md §8 bucket mapping for GameDownDistance/GameFieldPosition.
+const SUCCESS_RATE_THRESHOLDS: HeatThreshold[] = [
+  { min: 0.6, level: 5 },
+  { min: 0.4, level: 3 },
+]
+
 function successRateBg(rate: number): string {
-  if (rate >= 0.6) return 'bg-green-100/80 dark:bg-green-900/30'
-  if (rate >= 0.4) return 'bg-yellow-100/80 dark:bg-yellow-900/30'
-  return 'bg-red-100/80 dark:bg-red-900/30'
+  const level = heatLevelForRate(rate, SUCCESS_RATE_THRESHOLDS)
+  return `bg-[var(--heat-${level})]`
 }
 
 function TeamGrid({ grid, team, color }: { grid: Map<string, BucketStats>; team: string; color: string | null }) {

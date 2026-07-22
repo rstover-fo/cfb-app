@@ -64,6 +64,17 @@ describe('ReturningProductionCard', () => {
     expect(screen.getByText('Rushing')).toBeInTheDocument()
   })
 
+  it('sizes each split row StatBar fill to its percentage', () => {
+    const { container } = render(<ReturningProductionCard production={productionRow()} />)
+
+    const fills = Array.from(
+      container.querySelectorAll('.bg-\\[var\\(--bg-surface-alt\\)\\].rounded-full > div'),
+    ) as HTMLElement[]
+    expect(fills).toHaveLength(3)
+    expect(fills[0].style.width).toBe('55%') // Passing 0.548 -> rounded 55%
+    expect(fills.every(f => f.style.backgroundColor === 'var(--color-run)')).toBe(true)
+  })
+
   it('renders null when production is null (offseason build has not run yet)', () => {
     const { container } = render(<ReturningProductionCard production={null} />)
     expect(container).toBeEmptyDOMElement()

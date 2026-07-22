@@ -139,17 +139,17 @@ export function RankedTable({ data, title = 'Composite Rankings', onTeamClick }:
           {sortedData.map((team) => (
             <tr
               key={team.team}
-              className={`border-b border-[var(--border)] hover:bg-[var(--bg-hover)] ${onTeamClick ? 'cursor-pointer' : ''}`}
+              className={`border-b border-[var(--border)] hover:bg-[var(--bg-surface-alt)] ${onTeamClick ? 'cursor-pointer' : ''}`}
               onClick={() => onTeamClick?.(team.team)}
             >
-              <td className="py-2 px-3 font-mono">{team.rank}</td>
+              <td className="py-2 px-3 tabular-nums">{team.rank}</td>
               <td className="py-2 px-3">
                 <div className="flex items-center gap-2">
                   {team.logo && (
                     <Image src={team.logo} alt="" width={24} height={24} className="w-6 h-6 object-contain" unoptimized />
                   )}
                   <span className="font-medium text-[var(--text-primary)]">{team.team}</span>
-                  <span className="text-[var(--text-tertiary)] text-xs">{team.conference}</span>
+                  <span className="text-[var(--text-muted)] text-xs">{team.conference}</span>
                 </div>
               </td>
               <td
@@ -157,23 +157,23 @@ export function RankedTable({ data, title = 'Composite Rankings', onTeamClick }:
                 title={team.confWins !== null && team.confLosses !== null ? `Conference: ${team.confWins}-${team.confLosses}` : undefined}
               >
                 {team.wins !== null && team.losses !== null ? (
-                  <span className="font-mono text-sm">
+                  <span className="text-sm tabular-nums">
                     {team.wins}-{team.losses}
                   </span>
                 ) : (
-                  <span className="text-[var(--text-tertiary)]">—</span>
+                  <span className="text-[var(--text-muted)]">—</span>
                 )}
               </td>
-              <td className="py-2 px-3 font-mono">{team.compositeScore.toFixed(2)}</td>
+              <td className="py-2 px-3 tabular-nums">{team.compositeScore.toFixed(2)}</td>
               <td className="py-2 px-3">
                 <div className="flex items-center gap-2">
-                  <div className="w-16 h-2 bg-[var(--bg-tertiary)] rounded overflow-hidden" aria-hidden="true">
+                  <div className="w-16 h-2 bg-[var(--bg-surface-alt)] rounded overflow-hidden" aria-hidden="true">
                     <div
                       className="h-full bg-[var(--color-run)]"
                       style={{ width: `${(team.offenseScore / maxOff) * 100}%` }}
                     />
                   </div>
-                  <span className="font-mono text-xs">{team.offenseScore.toFixed(2)}</span>
+                  <span className="text-xs tabular-nums">{team.offenseScore.toFixed(2)}</span>
                 </div>
               </td>
               <td
@@ -181,22 +181,22 @@ export function RankedTable({ data, title = 'Composite Rankings', onTeamClick }:
                 title="Rank among 134 FBS teams"
               >
                 {team.offRank !== undefined ? (
-                  <span className="font-mono text-xs text-[var(--text-secondary)]">
+                  <span className="text-xs tabular-nums text-[var(--text-secondary)]">
                     #{team.offRank}
                   </span>
                 ) : (
-                  <span className="text-[var(--text-tertiary)]">—</span>
+                  <span className="text-[var(--text-muted)]">—</span>
                 )}
               </td>
               <td className="py-2 px-3">
                 <div className="flex items-center gap-2">
-                  <div className="w-16 h-2 bg-[var(--bg-tertiary)] rounded overflow-hidden" aria-hidden="true">
+                  <div className="w-16 h-2 bg-[var(--bg-surface-alt)] rounded overflow-hidden" aria-hidden="true">
                     <div
                       className="h-full bg-[var(--color-pass)]"
                       style={{ width: `${(team.defenseScore / maxDef) * 100}%` }}
                     />
                   </div>
-                  <span className="font-mono text-xs">{team.defenseScore.toFixed(2)}</span>
+                  <span className="text-xs tabular-nums">{team.defenseScore.toFixed(2)}</span>
                 </div>
               </td>
               <td
@@ -204,26 +204,26 @@ export function RankedTable({ data, title = 'Composite Rankings', onTeamClick }:
                 title="Rank among 134 FBS teams"
               >
                 {team.defRank !== undefined ? (
-                  <span className="font-mono text-xs text-[var(--text-secondary)]">
+                  <span className="text-xs tabular-nums text-[var(--text-secondary)]">
                     #{team.defRank}
                   </span>
                 ) : (
-                  <span className="text-[var(--text-tertiary)]">—</span>
+                  <span className="text-[var(--text-muted)]">—</span>
                 )}
               </td>
               <td className="py-2 px-3">
                 {team.specialTeamsScore !== undefined ? (
                   <div className="flex items-center gap-2">
-                    <div className="w-12 h-2 bg-[var(--bg-tertiary)] rounded overflow-hidden" aria-hidden="true">
+                    <div className="w-12 h-2 bg-[var(--bg-surface-alt)] rounded overflow-hidden" aria-hidden="true">
                       <div
-                        className="h-full bg-[var(--color-accent)]"
+                        className="h-full bg-[var(--accent)]"
                         style={{ width: `${(team.specialTeamsScore / maxST) * 100}%` }}
                       />
                     </div>
-                    <span className="font-mono text-xs">{team.specialTeamsScore.toFixed(1)}</span>
+                    <span className="text-xs tabular-nums">{team.specialTeamsScore.toFixed(1)}</span>
                   </div>
                 ) : (
-                  <span className="text-[var(--text-tertiary)]">—</span>
+                  <span className="text-[var(--text-muted)]">—</span>
                 )}
               </td>
               <td
@@ -231,11 +231,11 @@ export function RankedTable({ data, title = 'Composite Rankings', onTeamClick }:
                 title="Strength of Schedule rank (1 = hardest schedule)"
               >
                 {team.sosRank !== undefined && team.sosRank > 0 ? (
-                  <span className="font-mono text-xs text-[var(--text-secondary)]">
+                  <span className="text-xs tabular-nums text-[var(--text-secondary)]">
                     #{team.sosRank}
                   </span>
                 ) : (
-                  <span className="text-[var(--text-tertiary)]">—</span>
+                  <span className="text-[var(--text-muted)]">—</span>
                 )}
               </td>
             </tr>

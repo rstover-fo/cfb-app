@@ -50,6 +50,26 @@ export function resolveHeatColor(level: HeatLevel): string {
   return resolveColor(`var(--heat-${level})`)
 }
 
+/** One threshold step for `heatLevelForRate`: `rate >= min` maps to `level`. */
+export interface HeatThreshold {
+  min: number
+  level: HeatLevel
+}
+
+/**
+ * Buckets a 0..1 rate into a heat level given a descending list of
+ * thresholds (docs/chart-style-spec.md §8's exact bucket mappings). Falls
+ * through to level 1 when no threshold is met. Callers normalize/invert the
+ * rate themselves first (e.g. DownDistanceHeatmap's defense inversion)
+ * before calling this.
+ */
+export function heatLevelForRate(rate: number, thresholds: HeatThreshold[]): HeatLevel {
+  for (const t of thresholds) {
+    if (rate >= t.min) return t.level
+  }
+  return 1
+}
+
 /**
  * Re-invokes `onThemeChange` whenever the document's theme attributes change.
  *

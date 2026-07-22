@@ -3,6 +3,7 @@
 import { useMemo } from 'react'
 import type { GamePlay } from '@/lib/types/database'
 import type { GameWithTeams } from '@/lib/queries/games'
+import { heatLevelForRate, type HeatThreshold } from '@/lib/charts/theme'
 
 interface GameFieldPositionProps {
   plays: GamePlay[]
@@ -53,10 +54,15 @@ function computeFieldPosition(plays: GamePlay[], team: string): ZoneStats[] {
   })
 }
 
+// docs/chart-style-spec.md §8 bucket mapping for GameDownDistance/GameFieldPosition.
+const SUCCESS_RATE_THRESHOLDS: HeatThreshold[] = [
+  { min: 0.6, level: 5 },
+  { min: 0.4, level: 3 },
+]
+
 function successRateBg(rate: number): string {
-  if (rate >= 0.6) return 'bg-green-100/80 dark:bg-green-900/30'
-  if (rate >= 0.4) return 'bg-yellow-100/80 dark:bg-yellow-900/30'
-  return 'bg-red-100/80 dark:bg-red-900/30'
+  const level = heatLevelForRate(rate, SUCCESS_RATE_THRESHOLDS)
+  return `bg-[var(--heat-${level})]`
 }
 
 function TeamTable({ stats, team, color }: { stats: ZoneStats[]; team: string; color: string | null }) {
@@ -82,38 +88,45 @@ function TeamTable({ stats, team, color }: { stats: ZoneStats[]; team: string; c
             </tr>
           </thead>
           <tbody>
-            {stats.map((row, idx) => (
-              <tr
-                key={row.zone}
-                className={idx % 2 === 0 ? 'bg-[var(--bg-surface-alt)]' : ''}
-              >
-                <th scope="row" className="text-sm font-normal text-left text-[var(--text-secondary)] py-2 px-3">{row.zone}</th>
-                <td className="text-sm text-[var(--text-primary)] text-center py-2 px-2 tabular-nums">
-                  {row.playCount || '\u2014'}
-                </td>
-                {row.playCount > 0 ? (
-                  <>
-                    <td className={`text-sm text-[var(--text-primary)] text-center py-2 px-2 tabular-nums ${successRateBg(row.successRate)}`}>
-                      {Math.round(row.successRate * 100)}%
-                    </td>
-                    <td className={`text-sm text-center py-2 px-2 tabular-nums ${
-                      row.avgPpa > 0 ? 'text-[var(--color-positive)]' : row.avgPpa < 0 ? 'text-[var(--color-negative)]' : 'text-[var(--text-primary)]'
-                    }`}>
-                      {row.avgPpa > 0 ? '+' : ''}{row.avgPpa.toFixed(2)}
-                    </td>
-                    <td className="text-sm text-[var(--text-primary)] text-center py-2 px-2 tabular-nums">
-                      {row.avgYardsGained.toFixed(1)}
-                    </td>
-                  </>
-                ) : (
-                  <>
-                    <td className="text-sm text-[var(--text-muted)] text-center py-2 px-2">&mdash;</td>
-                    <td className="text-sm text-[var(--text-muted)] text-center py-2 px-2">&mdash;</td>
-                    <td className="text-sm text-[var(--text-muted)] text-center py-2 px-2">&mdash;</td>
-                  </>
-                )}
-              </tr>
-            ))}
+            {stats.map((row, idx) => {
+              const hasData = row.playCount > 0
+              return (
+                <tr
+                  key={row.zone}
+                  className={idx % 2 === 0 ? 'bg-[var(--bg-surface-alt)]' : ''}
+                >
+                  <th scope="row" className="text-sm font-normal text-left text-[var(--text-secondary)] py-2 px-3">{row.zone}</th>
+                  <td
+                    className={`text-sm text-center py-2 px-2 tabular-nums ${
+                      hasData ? 'text-[var(--text-primary)]' : 'text-[var(--text-muted)] bg-[var(--bg-surface-alt)]'
+                    }`}
+                  >
+                    {hasData ? row.playCount : '\u2014'}
+                  </td>
+                  {hasData ? (
+                    <>
+                      <td className={`text-sm text-[var(--text-primary)] text-center py-2 px-2 tabular-nums ${successRateBg(row.successRate)}`}>
+                        {Math.round(row.successRate * 100)}%
+                      </td>
+                      <td className={`text-sm text-center py-2 px-2 tabular-nums ${
+                        row.avgPpa > 0 ? 'text-[var(--color-positive)]' : row.avgPpa < 0 ? 'text-[var(--color-negative)]' : 'text-[var(--text-primary)]'
+                      }`}>
+                        {row.avgPpa > 0 ? '+' : ''}{row.avgPpa.toFixed(2)}
+                      </td>
+                      <td className="text-sm text-[var(--text-primary)] text-center py-2 px-2 tabular-nums">
+                        {row.avgYardsGained.toFixed(1)}
+                      </td>
+                    </>
+                  ) : (
+                    <>
+                      <td className="text-sm text-[var(--text-muted)] text-center py-2 px-2 bg-[var(--bg-surface-alt)]">&mdash;</td>
+                      <td className="text-sm text-[var(--text-muted)] text-center py-2 px-2 bg-[var(--bg-surface-alt)]">&mdash;</td>
+                      <td className="text-sm text-[var(--text-muted)] text-center py-2 px-2 bg-[var(--bg-surface-alt)]">&mdash;</td>
+                    </>
+                  )}
+                </tr>
+              )
+            })}
           </tbody>
         </table>
       </div>
