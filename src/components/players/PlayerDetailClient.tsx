@@ -96,8 +96,10 @@ export function PlayerDetailClient({
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6">
           <PlayerStatsTable player={player} />
 
-          {/* PercentileRadar renders its own ChartFrame shell (title + subtitle included). */}
-          {percentiles && <PercentileRadar percentiles={percentiles} />}
+          {/* PercentileRadar renders its own ChartFrame shell (title +
+              subtitle included) and its framed EmptyState when the season
+              has no percentile row -- never a blank grid cell. */}
+          <PercentileRadar percentiles={percentiles} />
         </div>
 
         {/* Game trend chart */}

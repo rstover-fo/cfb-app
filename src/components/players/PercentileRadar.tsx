@@ -12,7 +12,8 @@ import type { PlayerPercentiles } from '@/lib/types/database'
 import { RoughRadar } from '@/lib/charts/RoughRadar'
 
 interface PercentileRadarProps {
-  percentiles: PlayerPercentiles
+  /** Null when no percentile row exists for the season -> framed EmptyState (spec §5). */
+  percentiles: PlayerPercentiles | null
 }
 
 interface RadarAxis {
@@ -83,29 +84,45 @@ function getAxesForPosition(positionGroup: string | null, position: string | nul
 
 export function PercentileRadar({ percentiles }: PercentileRadarProps) {
   const axes = useMemo(
-    () => getAxesForPosition(percentiles.position_group, percentiles.position),
-    [percentiles.position_group, percentiles.position]
+    () =>
+      percentiles
+        ? getAxesForPosition(percentiles.position_group, percentiles.position)
+        : [],
+    [percentiles]
   )
 
   // Percentiles arrive on 0-1; RoughRadar's domain contract is 0-100.
   const values = axes.map(axis => {
-    const value = percentiles[axis.pctlKey] as number | null
+    const value = percentiles?.[axis.pctlKey] as number | null
     return value == null ? null : value * 100
   })
 
   return (
     <RoughRadar
       title="Percentile Rankings"
-      subtitle={`vs. ${percentiles.position_group ?? 'position group'} · ${percentiles.season}`}
-      ariaLabel={`Percentile radar chart for ${percentiles.name}`}
+      subtitle={
+        percentiles
+          ? `vs. ${percentiles.position_group ?? 'position group'} · ${percentiles.season}`
+          : undefined
+      }
+      ariaLabel={
+        percentiles
+          ? `Percentile radar chart for ${percentiles.name}`
+          : 'Percentile radar chart'
+      }
       axes={axes.map(axis => ({ key: axis.pctlKey, label: axis.label }))}
-      series={[
-        {
-          label: percentiles.name,
-          color: 'var(--color-run)',
-          values,
-        },
-      ]}
+      series={
+        percentiles
+          ? [
+              {
+                label: percentiles.name,
+                color: 'var(--color-run)',
+                values,
+              },
+            ]
+          : []
+      }
+      empty={!percentiles}
       emptyState={{
         icon: ChartPolar,
         title: 'No percentile data for this season',

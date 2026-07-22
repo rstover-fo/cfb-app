@@ -26,7 +26,8 @@ export interface TeamDefenseData {
 }
 
 interface DefenseRadarProps {
-  teamData: TeamDefenseData
+  /** Null when the selected team has no defense rows -> framed EmptyState (spec §5). */
+  teamData: TeamDefenseData | null
   allTeamsData: TeamDefenseData[] // For percentile calculation
   teamColor: string
 }
@@ -49,6 +50,7 @@ function computePercentile(value: number, allValues: number[], higherIsBetter: b
 
 export function DefenseRadar({ teamData, allTeamsData, teamColor }: DefenseRadarProps) {
   const metrics = useMemo((): RadarMetric[] => {
+    if (!teamData) return []
     const allEpaAllowed = allTeamsData.map(t => t.metrics.epaAllowed)
     const allHavocRate = allTeamsData.map(t => t.metrics.havocRate)
     const allStuffRate = allTeamsData.map(t => t.metrics.stuffRate)
@@ -113,23 +115,32 @@ export function DefenseRadar({ teamData, allTeamsData, teamColor }: DefenseRadar
 
   return (
     <RoughRadar
-      title={`${teamData.team} — Defense`}
-      ariaLabel={`${teamData.team} defense radar: ${metrics
-        .map(m => `${m.label} ${m.format(m.actualValue)}`)
-        .join(', ')}`}
+      title={teamData ? `${teamData.team} — Defense` : undefined}
+      ariaLabel={
+        teamData
+          ? `${teamData.team} defense radar: ${metrics
+              .map(m => `${m.label} ${m.format(m.actualValue)}`)
+              .join(', ')}`
+          : 'Defense radar'
+      }
       axes={axes}
-      series={[
-        {
-          label: teamData.team,
-          color: teamColor,
-          values: metrics.map(m => m.value),
-          captions: metrics.map(m =>
-            m.inverted
-              ? `Value: ${m.format(m.actualValue)} — lower is better, shown inverted`
-              : `Value: ${m.format(m.actualValue)}`,
-          ),
-        },
-      ]}
+      series={
+        teamData
+          ? [
+              {
+                label: teamData.team,
+                color: teamColor,
+                values: metrics.map(m => m.value),
+                captions: metrics.map(m =>
+                  m.inverted
+                    ? `Value: ${m.format(m.actualValue)} — lower is better, shown inverted`
+                    : `Value: ${m.format(m.actualValue)}`,
+                ),
+              },
+            ]
+          : []
+      }
+      empty={!teamData}
       emptyState={{
         icon: ChartPolar,
         title: 'No defense data for this team',

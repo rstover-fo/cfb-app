@@ -191,6 +191,15 @@ readable on every cell:
   secondary `2 / 0.7 / 0.3`; tertiary/context `1.5 / 0.5 / 0.2` (TrajectoryChart's
   hierarchy). Bars: `strokeWidth: 1.5, roughness: 1.1, bowing: 0.5, hachureGap: 5,
   fillWeight: 1`. Deviation requires a code comment naming the reason.
+  > **Gate C ruling (2026-07-22) — dense multi-series emphasis (BumpsChart):** on a
+  > surface with ~25 concurrent peer series, idle/dimmed series may drop to the
+  > *tertiary* weights (with the standard naming comment) and the hovered series takes
+  > the *primary* weights — hover emphasis is the hierarchy, not per-series rank.
+  > Always-on per-point marks (idle dots) may likewise be dropped for density, provided
+  > hover restores marked points on the emphasized series and isolated single-point
+  > appearances (which would otherwise vanish entirely) keep a visible mark. Both
+  > BumpsChart calls are ratified; this ruling extends to future surfaces of similar
+  > density, not to charts with ≤ a handful of series.
 
 ## 10. Primitive API sketches (`src/lib/charts/`)
 
@@ -213,7 +222,9 @@ interface ChartFrameProps {
 // ChartTooltip.tsx — reserved-height panel below the SVG (§3)
 interface ChartTooltipRow { swatch?: 'solid' | 'dashed' | 'none'; color?: string /* var(--…) */;
   label: string; value?: string; muted?: boolean }
-interface ChartTooltipProps { header?: string; rows: ChartTooltipRow[];
+interface ChartTooltipProps { header?: string;
+  headerAdornment?: ReactNode /* Gate C: raster/icon before the header text */;
+  rows: ChartTooltipRow[];
   prompt: string /* shown when idle */; minRows: number /* reserves height */ }
 
 // ChartLegend.tsx — HTML swatch legend (§4)
@@ -236,6 +247,35 @@ pairedBarOptions(color: string, side: 'left' | 'right', seed: number)        // 
 
 The chart-engineer implements these primitives verbatim in task B1; migrations (tasks B2+)
 may not fork or wrap them with per-chart styling.
+
+### Gate C amendments (2026-07-22) — ratified additions
+
+- **`ChartTooltip.headerAdornment?: ReactNode`** — an optional raster/icon rendered
+  inline *before* the header text (e.g. the hovered team's logo on the scatter
+  explorer). It renders only when `header` is set and must fit the header line
+  (~1.25rem square) so the panel's reserved height stays exact. This is the sanctioned
+  place for raster imagery in the tooltip; it does not change the §3 panel-below
+  contract, and it is never a substitute for the header text itself.
+- **`RoughRadar` (`src/lib/charts/RoughRadar.tsx`) is a shared primitive.** The one
+  radar: it replaced the four plain-SVG radars (RadarChart — deleted — plus
+  OffenseRadar/DefenseRadar/PercentileRadar, now thin config modules). API shape:
+  `axes: {key, label, format?}[]` (per-axis tooltip formatting, defaulting to ordinal
+  "Nth percentile"), `series: {label, color?, values: (number|null)[], captions?}[]`
+  capped at **2 drawn series** (series 1 takes the §9 primary weights + −41° hachure,
+  series 2 secondary + +41°; extras are sliced off), `domainMax` defaulting to **100**
+  — the contract is that consumers normalize values to `0..domainMax` upstream
+  (percentiles by default; a custom max is the escape hatch for non-percentile
+  domains, and ring labels scale with it) — plus ChartFrame passthrough
+  (`title`/`subtitle`/`ariaLabel`/`decorative`/`empty`/`emptyState`) and
+  `tooltipPrompt`. Canvas is a comment-justified square 400×400 (§9 Gate B). Use it
+  for any multi-axis profile comparison of one entity (optionally vs. one comparator)
+  on a shared normalized domain; do not hand-roll radial charts, and do not feed it
+  more than two series — pick a different form instead.
+- **`useChartTheme` now also observes `data-team-theme`** (alongside `class` and
+  `data-theme`) on `document.documentElement`. Team-theme overlays rewrite the
+  `--accent*` tokens some charts bake into rough ink (the §3/§7 accent selection
+  rings), so flipping e.g. `[data-team-theme="ou"]` triggers the same
+  requestAnimationFrame redraw as a light/dark flip.
 
 ---
 

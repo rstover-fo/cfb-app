@@ -109,6 +109,8 @@ Rules:
 - **Color resolution:** roughjs bakes concrete colors at draw time, so all rough ink goes
   through `resolveColor` in `src/lib/charts/theme.ts` (semantic roles via `inkFor` in
   `src/lib/charts/series.ts`) and charts redraw on theme flips via `useChartTheme` —
+  which observes `class`, `data-theme`, *and* `data-team-theme` (team overlays rewrite
+  the `--accent*` tokens used for accent selection rings) —
   including team brand hex, which passes through unchanged but is applied only inside rough
   draw calls, never native SVG attrs. No raw hex in charts; never read tokens any other
   way; missing team colors fall back to `--text-primary` (home) / `--text-muted` (away).
@@ -118,7 +120,11 @@ Rules:
   reserved-height panel below the SVG with an in-SVG crosshair/row-highlight/accent-ring
   indicator (floating, cursor-following, and SVG-drawn tooltips are defects); series keys
   render in the HTML `ChartLegend` (opt-in `aria-pressed` toggle variant), never inside
-  the SVG. Migrations may not fork or wrap the primitives with per-chart styling.
+  the SVG. `ChartTooltip` accepts an optional `headerAdornment` (a small raster/icon,
+  e.g. a team logo, inline before the header text). Radial profiles use the shared
+  `RoughRadar` primitive (≤ 2 series, values normalized to `0..domainMax`, default 100)
+  — never a hand-rolled radar. Migrations may not fork or wrap the primitives with
+  per-chart styling.
 - **Series semantics:** run = `--color-run`, pass = `--color-pass`, good/bad deltas =
   `--color-positive`/`--color-negative`. Paired/mirrored series always use the ±41°
   hachure rule (`pairedBarOptions`) so hue is never the only separating channel.

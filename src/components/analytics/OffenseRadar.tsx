@@ -24,7 +24,8 @@ export interface TeamOffenseData {
 }
 
 interface OffenseRadarProps {
-  teamData: TeamOffenseData
+  /** Null when the selected team has no offense rows -> framed EmptyState (spec §5). */
+  teamData: TeamOffenseData | null
   allTeamsData: TeamOffenseData[] // For percentile calculation
   teamColor: string
 }
@@ -46,6 +47,7 @@ function computePercentile(value: number, allValues: number[], higherIsBetter: b
 
 export function OffenseRadar({ teamData, allTeamsData, teamColor }: OffenseRadarProps) {
   const metrics = useMemo((): RadarMetric[] => {
+    if (!teamData) return []
     const allRushEpa = allTeamsData.map(t => t.metrics.rushEpa)
     const allPassEpa = allTeamsData.map(t => t.metrics.passEpa)
     const allSuccessRate = allTeamsData.map(t => t.metrics.successRate)
@@ -103,19 +105,28 @@ export function OffenseRadar({ teamData, allTeamsData, teamColor }: OffenseRadar
 
   return (
     <RoughRadar
-      title={`${teamData.team} — Offense`}
-      ariaLabel={`${teamData.team} offense radar: ${metrics
-        .map(m => `${m.label} ${m.format(m.actualValue)}`)
-        .join(', ')}`}
+      title={teamData ? `${teamData.team} — Offense` : undefined}
+      ariaLabel={
+        teamData
+          ? `${teamData.team} offense radar: ${metrics
+              .map(m => `${m.label} ${m.format(m.actualValue)}`)
+              .join(', ')}`
+          : 'Offense radar'
+      }
       axes={axes}
-      series={[
-        {
-          label: teamData.team,
-          color: teamColor,
-          values: metrics.map(m => m.value),
-          captions: metrics.map(m => `Value: ${m.format(m.actualValue)}`),
-        },
-      ]}
+      series={
+        teamData
+          ? [
+              {
+                label: teamData.team,
+                color: teamColor,
+                values: metrics.map(m => m.value),
+                captions: metrics.map(m => `Value: ${m.format(m.actualValue)}`),
+              },
+            ]
+          : []
+      }
+      empty={!teamData}
       emptyState={{
         icon: ChartPolar,
         title: 'No offense data for this team',

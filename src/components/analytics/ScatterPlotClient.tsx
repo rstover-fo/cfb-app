@@ -330,7 +330,9 @@ export function ScatterPlotClient({ teams, metrics, styles, havoc, tempo, record
           name: school,
           x,
           y,
-          color: team.color || '#6B635A',
+          // Neutral series fallback for missing team colors (spec §6 split
+          // rule): the token, never raw #6B635A.
+          color: team.color || 'var(--color-neutral)',
           logo: team.logo,
           conference: team.conference
         }
@@ -385,7 +387,7 @@ export function ScatterPlotClient({ teams, metrics, styles, havoc, tempo, record
           rank: 0, // Will be assigned after sorting
           team: school,
           logo: team.logo,
-          color: team.color || '#6B635A',
+          color: team.color || 'var(--color-neutral)',
           compositeScore: composite,
           offenseScore: offPct,
           defenseScore: defPct,
@@ -423,7 +425,7 @@ export function ScatterPlotClient({ teams, metrics, styles, havoc, tempo, record
 
     return {
       teamName: team.school ?? '',
-      teamColor: team.color || '#6B635A',
+      teamColor: team.color || 'var(--color-neutral)',
       metrics: [
         { label: 'Off EPA', value: ((maxRank - offRank + 1) / maxRank) * 100 },
         { label: 'Def EPA', value: ((maxRank - defRank + 1) / maxRank) * 100 },
@@ -490,9 +492,9 @@ export function ScatterPlotClient({ teams, metrics, styles, havoc, tempo, record
 
   // Get team color for selected team
   const selectedTeamColor = useMemo(() => {
-    if (!selectedTeamForRadar) return '#6B635A'
+    if (!selectedTeamForRadar) return 'var(--color-neutral)'
     const team = teams.find(t => t.school === selectedTeamForRadar)
-    return team?.color || '#6B635A'
+    return team?.color || 'var(--color-neutral)'
   }, [selectedTeamForRadar, teams])
 
   return (
@@ -654,52 +656,53 @@ export function ScatterPlotClient({ teams, metrics, styles, havoc, tempo, record
                 ))}
               </div>
 
-              {/* Radar Chart based on selected mode */}
+              {/* Radar Chart based on selected mode. Missing data renders
+                  each radar's framed EmptyState (spec §5) -- never a bare
+                  string in a div. */}
               <div className="transition-opacity duration-200">
-                {radarViewMode === 'combined' && radarMetrics && (
+                {radarViewMode === 'combined' && (
                   <RoughRadar
-                    title={radarMetrics.teamName}
-                    ariaLabel={`${radarMetrics.teamName} radar chart: ${radarMetrics.metrics
-                      .map(m => `${m.label} ${Math.round(m.value)}th percentile`)
-                      .join(', ')}`}
-                    axes={radarMetrics.metrics.map(m => ({ key: m.label, label: m.label }))}
-                    series={[
-                      {
-                        label: radarMetrics.teamName,
-                        color: radarMetrics.teamColor,
-                        values: radarMetrics.metrics.map(m => m.value),
-                      },
-                    ]}
+                    title={radarMetrics?.teamName ?? selectedTeamForRadar}
+                    ariaLabel={
+                      radarMetrics
+                        ? `${radarMetrics.teamName} radar chart: ${radarMetrics.metrics
+                            .map(m => `${m.label} ${Math.round(m.value)}th percentile`)
+                            .join(', ')}`
+                        : `${selectedTeamForRadar} radar chart`
+                    }
+                    axes={radarMetrics?.metrics.map(m => ({ key: m.label, label: m.label })) ?? []}
+                    series={
+                      radarMetrics
+                        ? [
+                            {
+                              label: radarMetrics.teamName,
+                              color: radarMetrics.teamColor,
+                              values: radarMetrics.metrics.map(m => m.value),
+                            },
+                          ]
+                        : []
+                    }
+                    empty={!radarMetrics}
                     emptyState={{
                       icon: ChartPolar,
                       title: 'No composite metrics for this team',
+                      description: 'Composite percentiles publish once a team has played FBS snaps.',
                     }}
                   />
                 )}
-                {radarViewMode === 'offense' && selectedOffenseData && (
+                {radarViewMode === 'offense' && (
                   <OffenseRadar
                     teamData={selectedOffenseData}
                     allTeamsData={allOffenseData}
                     teamColor={selectedTeamColor}
                   />
                 )}
-                {radarViewMode === 'defense' && selectedDefenseData && (
+                {radarViewMode === 'defense' && (
                   <DefenseRadar
                     teamData={selectedDefenseData}
                     allTeamsData={allDefenseData}
                     teamColor={selectedTeamColor}
                   />
-                )}
-                {/* Fallback when data is missing */}
-                {radarViewMode === 'offense' && !selectedOffenseData && (
-                  <div className="text-center py-10 text-[var(--text-muted)] text-sm">
-                    Offense data unavailable for this team.
-                  </div>
-                )}
-                {radarViewMode === 'defense' && !selectedDefenseData && (
-                  <div className="text-center py-10 text-[var(--text-muted)] text-sm">
-                    Defense data unavailable for this team.
-                  </div>
                 )}
               </div>
             </div>

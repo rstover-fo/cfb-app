@@ -187,14 +187,15 @@ export function ScatterPlot({
       }
 
       // Accent selection rings (spec §3 dense-surfaces rule, §7): rough
-      // rc.circle in --accent ink. Hover ring is solid; the search highlight
-      // is a static dashed ring (no CSS animation -- animate-pulse retired).
+      // rc.circle in --accent ink at the §9 secondary weights (2 / 0.7 / 0.3).
+      // Hover ring is solid; the search highlight is a static dashed ring
+      // (no CSS animation -- animate-pulse retired).
       if (isHovered) {
         group.appendChild(
           rc.circle(point.cx, point.cy, (markRadius + 5) * 2, {
             stroke: accentColor,
             strokeWidth: 2,
-            roughness: 0.8,
+            roughness: 0.7,
             bowing: 0.3,
             seed: ROUGH_SEED,
           }),
@@ -206,7 +207,7 @@ export function ScatterPlot({
             stroke: accentColor,
             strokeWidth: 2,
             strokeLineDash: [6, 4],
-            roughness: 0.8,
+            roughness: 0.7,
             bowing: 0.3,
             seed: ROUGH_SEED,
           }),
