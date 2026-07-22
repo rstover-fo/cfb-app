@@ -1,13 +1,17 @@
 /**
- * @-mention conversational handling for messageCreate. Strips the bot
- * mention, keeps a typing indicator alive while Claude works (Discord's
- * typing state lasts ~10s, so re-fire every 8s), optionally pulls in the
- * replied-to message as context, and replies in splitMessage chunks.
- * Never throws -- every failure path ends in a friendly reply attempt.
+ * @-mention conversational handling for messageCreate. Checks the per-user
+ * cooldown/cap/budget guards first, strips the bot mention, keeps a typing
+ * indicator alive while Claude works (Discord's typing state lasts ~10s, so
+ * re-fire every 8s), pulls in per-channel memory plus (optionally) the
+ * replied-to message as context, and replies in splitMessage chunks. Never
+ * throws -- every failure path ends in a friendly reply attempt.
  */
 import type { Message } from 'discord.js'
 import { askClaude, ClaudeUnavailableError, type HistoryTurn } from './claude.js'
 import { splitMessage } from './format.js'
+import { getHistory, appendTurns } from './memory.js'
+import { getFavoriteTeam } from './profiles.js'
+import { checkAllowance, recordUsage, refusalMessage } from './limits.js'
 
 const TYPING_INTERVAL_MS = 8_000
 
@@ -48,12 +52,23 @@ export async function handleMention(message: Message): Promise<void> {
     return
   }
 
+  const userId = message.author.id
+  const channelId = message.channelId
+
+  const allowance = checkAllowance(userId)
+  if (!allowance.ok) {
+    await message.reply(refusalMessage(allowance)).catch(() => {})
+    return
+  }
+
   const stopTyping = startTypingLoop(message)
   try {
-    const history: HistoryTurn[] = []
+    // Per-channel memory first (older context), then -- if this mention
+    // replies to another message -- that message's content as immediate,
+    // per-turn context. The reply reference is deliberately NOT stored in
+    // memory: it only applies to this one question.
+    const history: HistoryTurn[] = [...getHistory(channelId)]
 
-    // If this mention replies to another message, fetch it once and prepend
-    // it as labelled context so "what about them?" style questions resolve.
     if (message.reference) {
       try {
         const referenced = await message.fetchReference()
@@ -65,7 +80,11 @@ export async function handleMention(message: Message): Promise<void> {
       }
     }
 
-    const { text } = await askClaude(question, { history })
+    const favoriteTeam = await getFavoriteTeam(userId)
+    const userContext = favoriteTeam ? `this user's favorite team is ${favoriteTeam}` : undefined
+
+    const { text, usage, model } = await askClaude(question, { history, userContext })
+    recordUsage(userId, usage, model)
     const chunks = splitMessage(text)
 
     if (chunks.length === 0) {
@@ -75,6 +94,8 @@ export async function handleMention(message: Message): Promise<void> {
     for (const chunk of chunks) {
       await message.reply(chunk)
     }
+
+    appendTurns(channelId, question, text)
   } catch (err) {
     const friendly = err instanceof ClaudeUnavailableError ? err.message : GENERIC_ERROR_REPLY
     if (!(err instanceof ClaudeUnavailableError)) {

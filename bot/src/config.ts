@@ -12,12 +12,25 @@ import { z } from 'zod'
 const MODEL_DEFAULT_FALLBACK = 'claude-sonnet-5'
 const MODEL_ADVISOR_FALLBACK = 'claude-opus-4-8'
 const MODEL_ROUTER_FALLBACK = 'claude-haiku-4-5'
+const PROFILES_PATH_FALLBACK = 'data/profiles.json'
+const COOLDOWN_SECONDS_FALLBACK = 20
+const USER_DAILY_LIMIT_FALLBACK = 10
+const DAILY_BUDGET_USD_FALLBACK = 10
 
 /** Treats empty/whitespace-only strings as "unset" before applying a default. */
 const optionalNonEmpty = z
   .string()
   .optional()
   .transform(v => (v && v.trim().length > 0 ? v.trim() : undefined))
+
+/** Treats an empty/whitespace-only string as "unset" before coercing to a number (empty-string coerces to 0 otherwise). */
+function optionalNumber() {
+  return z
+    .string()
+    .optional()
+    .transform(v => (v && v.trim().length > 0 ? v : undefined))
+    .pipe(z.coerce.number().optional())
+}
 
 const EnvSchema = z.object({
   DISCORD_TOKEN: z.string().min(1, 'DISCORD_TOKEN is required'),
@@ -32,6 +45,14 @@ const EnvSchema = z.object({
   MODEL_DEFAULT: optionalNonEmpty,
   MODEL_ADVISOR: optionalNonEmpty,
   MODEL_ROUTER: optionalNonEmpty,
+  // Where profiles.ts persists per-user favorite teams. Relative paths
+  // resolve against process.cwd() (the bot/ workspace root in normal use).
+  PROFILES_PATH: optionalNonEmpty,
+  // Cost/rate guards for the conversational path (limits.ts). Router calls
+  // (router.ts's Haiku triage) are cheap and not gated by these.
+  COOLDOWN_SECONDS: optionalNumber(),
+  USER_DAILY_LIMIT: optionalNumber(),
+  DAILY_BUDGET_USD: optionalNumber(),
   // z.coerce.number() on an empty string coerces to 0, not undefined -- treat
   // an empty/unset CFB_SEASON as "omitted" before it reaches the coercer.
   CFB_SEASON: z
@@ -55,6 +76,14 @@ export interface BotConfig {
   modelAdvisor: string
   /** Cheap classifier model for simple-vs-gnarly triage. */
   modelRouter: string
+  /** Where profiles.ts persists per-user favorite teams (relative to process.cwd() unless absolute). */
+  profilesPath: string
+  /** Minimum seconds between LLM-backed questions from the same user. */
+  cooldownSeconds: number
+  /** Max LLM-backed questions a single user can ask per day. */
+  userDailyLimit: number
+  /** Global daily spend ceiling in USD for the LLM path. */
+  dailyBudgetUsd: number
   /** Raw CFB_SEASON override, if set. */
   cfbSeasonOverride?: number
   /** CFB_SEASON override if set, else the August-pivot default for `now`. */
@@ -98,6 +127,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): BotConfig {
     modelDefault: data.MODEL_DEFAULT ?? MODEL_DEFAULT_FALLBACK,
     modelAdvisor: data.MODEL_ADVISOR ?? MODEL_ADVISOR_FALLBACK,
     modelRouter: data.MODEL_ROUTER ?? MODEL_ROUTER_FALLBACK,
+    profilesPath: data.PROFILES_PATH ?? PROFILES_PATH_FALLBACK,
+    cooldownSeconds: data.COOLDOWN_SECONDS ?? COOLDOWN_SECONDS_FALLBACK,
+    userDailyLimit: data.USER_DAILY_LIMIT ?? USER_DAILY_LIMIT_FALLBACK,
+    dailyBudgetUsd: data.DAILY_BUDGET_USD ?? DAILY_BUDGET_USD_FALLBACK,
     cfbSeasonOverride: data.CFB_SEASON,
     defaultSeason: deriveDefaultSeason(data.CFB_SEASON),
   }

@@ -10,7 +10,8 @@
     "start": "node dist/index.js",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "register": "tsx scripts/register-commands.ts"
+    "register": "tsx scripts/register-commands.ts",
+    "eval": "tsx evals/run.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.113.0",

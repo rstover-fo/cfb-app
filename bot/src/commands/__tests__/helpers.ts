@@ -14,6 +14,8 @@ export function fakeChatInputInteraction(options: FakeOptions = {}) {
       getInteger: vi.fn((name: string) => options.integers?.[name] ?? null),
       getFocused: vi.fn(() => options.focused ?? ''),
     },
+    user: { id: 'test-user' },
+    channelId: 'test-channel',
     reply: vi.fn().mockResolvedValue(undefined),
     deferReply: vi.fn().mockResolvedValue(undefined),
     editReply: vi.fn().mockResolvedValue(undefined),

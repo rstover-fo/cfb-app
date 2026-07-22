@@ -99,6 +99,34 @@ describe('loadConfig', () => {
     expect(config.modelDefault).toBe('claude-sonnet-5')
     expect(config.modelRouter).toBe('claude-haiku-4-5')
   })
+
+  it('defaults profilesPath and the limits guards when unset', () => {
+    const config = loadConfig(VALID_ENV)
+    expect(config.profilesPath).toBe('data/profiles.json')
+    expect(config.cooldownSeconds).toBe(20)
+    expect(config.userDailyLimit).toBe(10)
+    expect(config.dailyBudgetUsd).toBe(10)
+  })
+
+  it('honors PROFILES_PATH / COOLDOWN_SECONDS / USER_DAILY_LIMIT / DAILY_BUDGET_USD overrides', () => {
+    const config = loadConfig({
+      ...VALID_ENV,
+      PROFILES_PATH: '/tmp/profiles.json',
+      COOLDOWN_SECONDS: '5',
+      USER_DAILY_LIMIT: '25',
+      DAILY_BUDGET_USD: '50.5',
+    })
+    expect(config.profilesPath).toBe('/tmp/profiles.json')
+    expect(config.cooldownSeconds).toBe(5)
+    expect(config.userDailyLimit).toBe(25)
+    expect(config.dailyBudgetUsd).toBe(50.5)
+  })
+
+  it('treats empty-string limits overrides as unset (falls back to defaults)', () => {
+    const config = loadConfig({ ...VALID_ENV, COOLDOWN_SECONDS: '', DAILY_BUDGET_USD: '  ' })
+    expect(config.cooldownSeconds).toBe(20)
+    expect(config.dailyBudgetUsd).toBe(10)
+  })
 })
 
 describe('deriveDefaultSeason', () => {

@@ -102,6 +102,7 @@ describe('askClaude request shape', () => {
       tier: 'simple',
       escalated: false,
       usage: { input_tokens: 100, output_tokens: 50, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      model: 'claude-sonnet-5',
     })
   })
 
@@ -116,6 +117,36 @@ describe('askClaude request shape', () => {
     expect(request.system[0].text).not.toContain('[ESCALATE]')
     expect(result.tier).toBe('gnarly')
     expect(result.escalated).toBe(false)
+    expect(result.model).toBe('claude-opus-4-8')
+  })
+
+  it('appends userContext to the final user message only, not to history', async () => {
+    betaCreateMock.mockResolvedValueOnce(apiResponse('answer'))
+    const history = [
+      { role: 'user' as const, content: 'tell me about Ohio State' },
+      { role: 'assistant' as const, content: 'They are 8-0.' },
+    ]
+
+    await askClaude('what about their defense?', { history, userContext: "this user's favorite team is Oklahoma" })
+
+    const request = betaCreateMock.mock.calls[0]?.[0]
+    expect(request.messages).toEqual([
+      { role: 'user', content: 'tell me about Ohio State' },
+      { role: 'assistant', content: 'They are 8-0.' },
+      {
+        role: 'user',
+        content: "what about their defense?\n\n(Context: this user's favorite team is Oklahoma)",
+      },
+    ])
+  })
+
+  it('omits the context suffix entirely when userContext is not given', async () => {
+    betaCreateMock.mockResolvedValueOnce(apiResponse('answer'))
+
+    await askClaude('plain question')
+
+    const request = betaCreateMock.mock.calls[0]?.[0]
+    expect(request.messages).toEqual([{ role: 'user', content: 'plain question' }])
   })
 
   it('prepends history turns and passes the last user turn to the router as topic', async () => {
@@ -183,6 +214,7 @@ describe('askClaude escalation backstop', () => {
     expect(result.text).not.toContain('[ESCALATE]')
     expect(result.tier).toBe('simple')
     expect(result.escalated).toBe(true)
+    expect(result.model).toBe('claude-opus-4-8')
     // Usage summed across both calls
     expect(result.usage).toEqual({
       input_tokens: 300,

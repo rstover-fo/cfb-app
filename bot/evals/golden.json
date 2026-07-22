@@ -1,0 +1,204 @@
+[
+  {
+    "id": "simple-ap-top5",
+    "question": "What are the AP top 5 teams this season?",
+    "expect": {
+      "tier": "simple",
+      "judge": "cites at least one concrete number from tool data"
+    }
+  },
+  {
+    "id": "simple-oklahoma-record",
+    "question": "What is Oklahoma's record this season?",
+    "expect": {
+      "tier": "simple",
+      "mustMatchAny": ["Oklahoma"],
+      "judge": "cites at least one concrete number from tool data"
+    }
+  },
+  {
+    "id": "simple-sec-scoring-defense-leader",
+    "question": "Who leads the SEC in scoring defense?",
+    "expect": {
+      "tier": "simple",
+      "judge": "cites at least one concrete number from tool data"
+    }
+  },
+  {
+    "id": "simple-rankings-movement",
+    "question": "What moved the most in this week's rankings?",
+    "expect": {
+      "tier": "simple",
+      "judge": "cites at least one concrete number from tool data"
+    }
+  },
+  {
+    "id": "simple-texas-am-epa-rank",
+    "question": "What is Texas A&M's EPA rank this season?",
+    "expect": {
+      "tier": "simple",
+      "mustMatchAny": ["Texas A&M"],
+      "judge": "cites at least one concrete number from tool data"
+    }
+  },
+  {
+    "id": "simple-live-scores",
+    "question": "What are the live scores right now?",
+    "expect": {
+      "tier": "simple",
+      "judge": "cites at least one concrete number from tool data"
+    }
+  },
+  {
+    "id": "simple-ohio-state-last-3-seasons",
+    "question": "What has Ohio State's record been over the last 3 seasons?",
+    "expect": {
+      "tier": "simple",
+      "mustMatchAny": ["Ohio State"],
+      "judge": "cites at least one concrete number from tool data"
+    }
+  },
+  {
+    "id": "simple-wepa-leaders",
+    "question": "Who are the leaders in wEPA this season?",
+    "expect": {
+      "tier": "simple",
+      "judge": "cites at least one concrete number from tool data"
+    }
+  },
+  {
+    "id": "gnarly-osu-michigan-winner",
+    "question": "Who wins Ohio State vs Michigan and why?",
+    "expect": {
+      "tier": "gnarly",
+      "mustMatchAny": ["Ohio State", "Michigan"],
+      "judge": "multi-factor reasoning grounded in cited stats"
+    }
+  },
+  {
+    "id": "gnarly-oklahoma-defense-improved",
+    "question": "Is Oklahoma's defense actually improved this year, or is it schedule-inflated?",
+    "expect": {
+      "tier": "gnarly",
+      "mustMatchAny": ["Oklahoma"],
+      "judge": "multi-factor reasoning grounded in cited stats"
+    }
+  },
+  {
+    "id": "gnarly-texas-alabama-offense-compare",
+    "question": "Compare Texas and Alabama's offensive identity this season.",
+    "expect": {
+      "tier": "gnarly",
+      "mustMatchAny": ["Texas"],
+      "judge": "multi-factor reasoning grounded in cited stats"
+    }
+  },
+  {
+    "id": "gnarly-most-overrated-top10",
+    "question": "Which top-10 team is most overrated by the polls compared to its EPA numbers?",
+    "expect": {
+      "tier": "gnarly",
+      "judge": "multi-factor reasoning grounded in cited stats"
+    }
+  },
+  {
+    "id": "gnarly-playoff-dark-horse",
+    "question": "What's the best playoff dark horse this season, and what's the statistical case for them?",
+    "expect": {
+      "tier": "gnarly",
+      "judge": "multi-factor reasoning grounded in cited stats"
+    }
+  },
+  {
+    "id": "gnarly-oregon-tempo-havoc",
+    "question": "How does Oregon's tempo interact with their defense's havoc rate?",
+    "expect": {
+      "tier": "gnarly",
+      "mustMatchAny": ["Oregon"],
+      "judge": "multi-factor reasoning grounded in cited stats"
+    }
+  },
+  {
+    "id": "gnarly-two-team-trajectory",
+    "question": "Pick two current playoff contenders and compare their trajectories over the last 5 seasons.",
+    "expect": {
+      "tier": "gnarly",
+      "judge": "multi-factor reasoning grounded in cited stats"
+    }
+  },
+  {
+    "id": "gnarly-conference-championship-predict",
+    "question": "Predict this season's conference championship game and identify the key statistical matchup edge.",
+    "expect": {
+      "tier": "gnarly",
+      "judge": "multi-factor reasoning grounded in cited stats"
+    }
+  },
+  {
+    "id": "trap-miami-oh-vs-miami",
+    "question": "How does Miami (OH) compare to Miami this season?",
+    "expect": {
+      "mustMatchAny": ["Miami\\s*\\(OH\\)"],
+      "judge": "uses the correct exact team"
+    }
+  },
+  {
+    "id": "trap-utsa",
+    "question": "What is UTSA's record this season?",
+    "expect": {
+      "mustMatchAny": ["UTSA"],
+      "judge": "uses the correct exact team"
+    }
+  },
+  {
+    "id": "trap-texas-am",
+    "question": "What is Texas A&M's record this season?",
+    "expect": {
+      "mustMatchAny": ["Texas A&M"],
+      "judge": "uses the correct exact team"
+    }
+  },
+  {
+    "id": "trap-louisiana-monroe",
+    "question": "What is Louisiana Monroe's record this season?",
+    "expect": {
+      "mustMatchAny": ["Louisiana Monroe"],
+      "judge": "uses the correct exact team"
+    }
+  },
+  {
+    "id": "missing-1987-season",
+    "question": "What were the top stats from the 1987 college football season?",
+    "expect": {
+      "judge": "plainly admits the data is unavailable rather than inventing"
+    }
+  },
+  {
+    "id": "missing-high-school-player",
+    "question": "What were Elijah Davis's high school football stats?",
+    "expect": {
+      "judge": "plainly admits the data is unavailable rather than inventing"
+    }
+  },
+  {
+    "id": "missing-nfl-question",
+    "question": "How many touchdowns did Patrick Mahomes throw for the Chiefs this NFL season?",
+    "expect": {
+      "judge": "plainly admits the data is unavailable rather than inventing"
+    }
+  },
+  {
+    "id": "missing-recruiting-class-ranking",
+    "question": "What is next year's recruiting class ranking for Georgia?",
+    "expect": {
+      "judge": "plainly admits the data is unavailable rather than inventing"
+    }
+  },
+  {
+    "id": "missing-fake-team",
+    "question": "Who wins, Springfield State or Oklahoma?",
+    "expect": {
+      "judge": "plainly admits the data is unavailable rather than inventing"
+    }
+  }
+]

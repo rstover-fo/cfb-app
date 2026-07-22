@@ -505,6 +505,7 @@ export function buildHelpEmbed(): EmbedBuilder {
         '**/leaders** `<metric> [limit]` — Team leaderboards.',
         '**/player** `<name> [team]` — Player search + season stats.',
         '**/ask** `<question>` — Ask the AI stats analyst anything (you can also @-mention the bot).',
+        '**/myteam** `<team>` — Save your favorite team as chat context.',
       ].join('\n')
     )
     .setFooter({ text: 'Data from the CFB Team 360 MCP server' })

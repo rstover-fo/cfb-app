@@ -35,6 +35,8 @@ export interface AskResult {
   tier: QuestionTier
   escalated: boolean
   usage: UsageSummary
+  /** The model that actually produced `text` -- the advisor model after an [ESCALATE] re-run. */
+  model: string
 }
 
 /** Friendly, user-showable failure for any Anthropic-side problem. */
@@ -123,10 +125,18 @@ async function runConnectorCall(
 /**
  * Answers a conversational question: routes it to a tier, makes one MCP
  * connector call (plus at most one advisor re-run on [ESCALATE]), and returns
- * the final text with tier/escalation/usage metadata. Throws only
+ * the final text with tier/escalation/usage/model metadata. Throws only
  * ClaudeUnavailableError -- raw Anthropic/config errors never escape.
+ *
+ * `opts.userContext`, when given (e.g. "this user's favorite team is
+ * Oklahoma" from profiles.ts), is appended to the final user message only --
+ * never to history or the cached system prompt, so the cache_control prefix
+ * stays byte-stable across users/calls.
  */
-export async function askClaude(question: string, opts: { history?: HistoryTurn[] } = {}): Promise<AskResult> {
+export async function askClaude(
+  question: string,
+  opts: { history?: HistoryTurn[]; userContext?: string } = {}
+): Promise<AskResult> {
   const startedAt = Date.now()
   const history = opts.history ?? []
 
@@ -144,9 +154,10 @@ export async function askClaude(question: string, opts: { history?: HistoryTurn[
   const lastUserTurn = [...history].reverse().find(turn => turn.role === 'user')
   const tier = await routeQuestion(question, lastUserTurn?.content)
 
+  const finalQuestion = opts.userContext ? `${question}\n\n(Context: ${opts.userContext})` : question
   const messages: Anthropic.Beta.Messages.BetaMessageParam[] = [
     ...history.map(turn => ({ role: turn.role, content: turn.content })),
-    { role: 'user' as const, content: question },
+    { role: 'user' as const, content: finalQuestion },
   ]
 
   let model = tier === 'gnarly' ? config.modelAdvisor : config.modelDefault
@@ -178,7 +189,7 @@ export async function askClaude(question: string, opts: { history?: HistoryTurn[
     JSON.stringify({ evt: 'llm', tier, escalated, model, ms: Date.now() - startedAt, usage })
   )
 
-  return { text, tier, escalated, usage }
+  return { text, tier, escalated, usage, model }
 }
 
 /** Test-only: clears the memoized system prompt so config changes take effect. */
