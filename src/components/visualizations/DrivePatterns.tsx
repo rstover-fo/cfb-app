@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import rough from 'roughjs'
 import { FootballField, yardToX } from './FootballField'
 import { DrivePattern } from '@/lib/types/database'
+import { resolveColor } from '@/lib/charts/theme'
 
 type Side = 'offense' | 'defense'
 
@@ -46,13 +47,6 @@ function formatYardLabel(yard: number): string {
   if (yard === 50) return 'Midfield'
   if (yard < 50) return `Own ${yard}s`
   return `Opp ${100 - yard}s`
-}
-
-function resolveColor(cssVar: string): string {
-  if (typeof document === 'undefined') return '#999'
-  const match = cssVar.match(/var\((.+)\)/)
-  if (!match) return cssVar
-  return getComputedStyle(document.documentElement).getPropertyValue(match[1]).trim() || '#999'
 }
 
 // Compute bar height based on count relative to max count in the dataset

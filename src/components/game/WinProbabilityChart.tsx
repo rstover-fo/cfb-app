@@ -5,6 +5,7 @@ import rough from 'roughjs'
 import type { GameDrive, GameWinProbability } from '@/lib/types/database'
 import type { LineScores } from '@/lib/types/database'
 import type { GameWithTeams } from '@/lib/queries/games'
+import { resolveColor, useChartTheme } from '@/lib/charts/theme'
 
 interface WinProbabilityChartProps {
   drives: GameDrive[]
@@ -47,13 +48,6 @@ function xScale(minute: number, totalMinutes: number = TOTAL_MINUTES): number {
 
 function yScale(wp: number): number {
   return MARGIN.top + PLOT_HEIGHT - (wp / 100) * PLOT_HEIGHT
-}
-
-function resolveColor(cssVar: string): string {
-  if (typeof document === 'undefined') return '#999'
-  const match = cssVar.match(/var\((.+)\)/)
-  if (!match) return cssVar
-  return getComputedStyle(document.documentElement).getPropertyValue(match[1]).trim() || '#999'
 }
 
 function computeWinProbability(scoreDiff: number, timeRemaining: number): number {
@@ -270,16 +264,7 @@ export function WinProbabilityChart({ drives, lineScores, game, serverWP }: WinP
   }, [drawChart])
 
   // Redraw on theme change
-  useEffect(() => {
-    const observer = new MutationObserver(() => {
-      requestAnimationFrame(drawChart)
-    })
-    observer.observe(document.documentElement, {
-      attributes: true,
-      attributeFilter: ['class', 'data-theme'],
-    })
-    return () => observer.disconnect()
-  }, [drawChart])
+  useChartTheme(drawChart)
 
   return (
     <div className="relative">
