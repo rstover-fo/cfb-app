@@ -1020,6 +1020,55 @@ export type ApiSchema = {
       }
       Relationships: []
     }
+    // penalty_log / team_penalties: unlike the views above, these two were
+    // NOT transcribed from cfb-database's api/*.sql (added after this file
+    // was written) -- their column lists and types were verified against the
+    // live views via information_schema.columns on 2026-07-23.
+    penalty_log: {
+      Row: {
+        play_id: string | null
+        game_id: number | null
+        season: number | null
+        week: number | null
+        season_type: string | null
+        period: number | null
+        down: number | null
+        distance: number | null
+        offense: string | null
+        defense: string | null
+        play_type: string | null
+        is_penalty_play_type: boolean | null
+        penalized_team: string | null
+        benefiting_team: string | null
+        infraction: string | null
+        penalty_yards: number | null
+        declined: boolean | null
+        offsetting: boolean | null
+        no_play: boolean | null
+        multi_penalty: boolean | null
+        yards_gained: number | null
+        ppa: number | null
+        play_text: string | null
+        parse_ok: boolean | null
+      }
+      Relationships: []
+    }
+    team_penalties: {
+      Row: {
+        game_id: number | null
+        season: number | null
+        week: number | null
+        season_type: string | null
+        team: string | null
+        opponent: string | null
+        home_away: string | null
+        penalties: number | null
+        penalty_yards: number | null
+        opponent_penalties: number | null
+        opponent_penalty_yards: number | null
+      }
+      Relationships: []
+    }
   }
   Functions: {
     [_ in never]: never

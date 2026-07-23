@@ -31,11 +31,18 @@ import { getLiveScoreboard } from '@/lib/queries/live'
 import { getWepaLeaders, getUsageLeaders, getPlayerComparison, type WepaCategory } from '@/lib/queries/players'
 import { getConferenceComparison } from '@/lib/queries/conferences'
 import { getCoachingHistory } from '@/lib/queries/coaches'
+import {
+  queryTeamPenaltyGames,
+  queryTeamSeasonPenaltyPlays,
+  queryPenaltyLog,
+  type TeamPenaltyGameRow,
+  type PenaltyPlayAggRow,
+} from '@/lib/queries/penalties'
 import { CURRENT_SEASON, PREDICTION_MODEL_VERSIONS, DEFAULT_PREDICTION_MODEL } from '@/lib/queries/constants'
 
 // ---------------------------------------------------------------------------
-// MCP v2: nineteen read-only tools over the cfb-database warehouse, mounted at
-// src/app/api/[transport]/route.ts via mcp-handler's createMcpHandler.
+// MCP v2: twenty-two read-only tools over the cfb-database warehouse, mounted
+// at src/app/api/[transport]/route.ts via mcp-handler's createMcpHandler.
 //
 // Tools 1-8 are a TypeScript port of the reference Python server
 // (../../../cfb-database/mcp/src/cfb_mcp/server.py) -- same eight tools,
@@ -70,13 +77,20 @@ import { CURRENT_SEASON, PREDICTION_MODEL_VERSIONS, DEFAULT_PREDICTION_MODEL } f
 // offseason fallback: if the requested season has no computed aggregates
 // yet, it retries season-1 once before giving up, and reports back which
 // season the returned rows actually belong to.
+// Tools 21-22 (get_penalty_profile, get_penalty_log) are penalty-analytics
+// additions over src/lib/queries/penalties.ts (api.team_penalties +
+// api.penalty_log). Unlike tools 9-19, penalties.ts keeps the McpResult
+// error-passthrough contract of tools 1-8, so these two do have real
+// error-string branches; get_penalty_profile additionally aggregates the raw
+// rows in JS (PostgREST has no GROUP BY) and follows search_players'
+// partial-result precedent when only a secondary fetch fails.
 // Tool implementations are exported as plain async (args) => string
 // functions (below) so they're unit-testable without spinning up the MCP
 // transport; registerMcpTools() is the only place that touches the SDK's
 // McpServer.
 // ---------------------------------------------------------------------------
 
-// All nineteen tools are read-only, non-destructive, idempotent, and talk to
+// All twenty-two tools are read-only, non-destructive, idempotent, and talk to
 // an external service (Supabase/PostgREST) -- same annotation set for every
 // one, mirroring cfb_mcp/server.py's READ_ONLY_ANNOTATIONS.
 const READ_ONLY_ANNOTATIONS = {
@@ -666,6 +680,177 @@ export async function runSqlTool(args: RunSqlArgs): Promise<string> {
   if (result.error) return result.error
   if (result.rows.length === 0) return 'No rows returned. The query ran but matched nothing -- check filters/joins.'
   return dump(wrap('public.run_analyst_query', result.rows))
+}
+
+// ---------------------------------------------------------------------------
+// 21. get_penalty_profile
+// ---------------------------------------------------------------------------
+
+const MOST_COSTLY_LIMIT = 5
+
+function round1(value: number): number {
+  return Math.round(value * 10) / 10
+}
+
+// A penalty counts toward yardage only if it was actually enforced: declined
+// and offsetting penalties carry no (or cancelled) yardage. The three buckets
+// are disjoint (declined wins over offsetting on the rare play flagged as
+// both), so accepted + declined + offsetting always equals total.
+function isAccepted(play: PenaltyPlayAggRow): boolean {
+  return play.declined !== true && play.offsetting !== true
+}
+
+interface InfractionBreakdownRow {
+  infraction: string
+  total: number
+  accepted: number
+  declined: number
+  offsetting: number
+  accepted_yards: number
+}
+
+function groupInfractions(plays: PenaltyPlayAggRow[]): InfractionBreakdownRow[] {
+  const byLabel = new Map<string, InfractionBreakdownRow>()
+  for (const play of plays) {
+    const label = play.infraction ?? 'Unknown'
+    let row = byLabel.get(label)
+    if (!row) {
+      row = { infraction: label, total: 0, accepted: 0, declined: 0, offsetting: 0, accepted_yards: 0 }
+      byLabel.set(label, row)
+    }
+    row.total += 1
+    if (play.declined === true) row.declined += 1
+    else if (play.offsetting === true) row.offsetting += 1
+    else {
+      row.accepted += 1
+      row.accepted_yards += play.penalty_yards ?? 0
+    }
+  }
+  return [...byLabel.values()].sort((a, b) => b.total - a.total || a.infraction.localeCompare(b.infraction))
+}
+
+function mostCostlyPenalties(plays: PenaltyPlayAggRow[]): PenaltyPlayAggRow[] {
+  return plays
+    .filter(play => isAccepted(play) && play.penalty_yards != null)
+    .sort((a, b) => b.penalty_yards! - a.penalty_yards! || (b.ppa ?? 0) - (a.ppa ?? 0))
+    .slice(0, MOST_COSTLY_LIMIT)
+}
+
+// Season totals and per-game rates from the team's api.team_penalties rows.
+// Margins are opponent minus own, so positive = more disciplined than the
+// opposition. Rates are null when there are no games to divide by.
+function aggregatePenaltySummary(games: TeamPenaltyGameRow[]) {
+  const totals = games.reduce(
+    (acc, game) => ({
+      penalties: acc.penalties + game.penalties,
+      penaltyYards: acc.penaltyYards + game.penalty_yards,
+      oppPenalties: acc.oppPenalties + game.opponent_penalties,
+      oppPenaltyYards: acc.oppPenaltyYards + game.opponent_penalty_yards,
+    }),
+    { penalties: 0, penaltyYards: 0, oppPenalties: 0, oppPenaltyYards: 0 }
+  )
+  const n = games.length
+  const perGame = (total: number) => (n === 0 ? null : round1(total / n))
+  return {
+    _source: 'api.team_penalties (aggregated)',
+    games: n,
+    penalties: totals.penalties,
+    penalty_yards: totals.penaltyYards,
+    penalties_per_game: perGame(totals.penalties),
+    penalty_yards_per_game: perGame(totals.penaltyYards),
+    opponent_penalties: totals.oppPenalties,
+    opponent_penalty_yards: totals.oppPenaltyYards,
+    opponent_penalties_per_game: perGame(totals.oppPenalties),
+    opponent_penalty_yards_per_game: perGame(totals.oppPenaltyYards),
+    penalty_margin_per_game: perGame(totals.oppPenalties - totals.penalties),
+    penalty_yards_margin_per_game: perGame(totals.oppPenaltyYards - totals.penaltyYards),
+  }
+}
+
+export interface GetPenaltyProfileArgs {
+  team: string
+  season?: number
+}
+
+export async function getPenaltyProfileTool(args: GetPenaltyProfileArgs): Promise<string> {
+  const season = args.season ?? CURRENT_SEASON
+
+  const [games, committed, drawn] = await Promise.all([
+    queryTeamPenaltyGames(args.team, season),
+    queryTeamSeasonPenaltyPlays(args.team, season, 'committed'),
+    queryTeamSeasonPenaltyPlays(args.team, season, 'drawn'),
+  ])
+
+  // The game log is the profile's backbone -- without it there is no summary,
+  // so its error fails the whole tool. The two penalty_log fetches are
+  // secondary: their errors degrade to *_error keys below (search_players'
+  // partial-result precedent) rather than discarding a good summary.
+  if (games.error) return games.error
+
+  if (games.rows.length === 0 && committed.rows.length === 0 && drawn.rows.length === 0 && !committed.error && !drawn.error) {
+    return (
+      `No penalty data found for '${args.team}' in ${season}. Penalty data covers seasons ` +
+      '2011-2025; also check the team name (exact, case-sensitive).'
+    )
+  }
+
+  return dump({
+    team: args.team,
+    season,
+    summary: aggregatePenaltySummary(games.rows),
+    ...(committed.error
+      ? { infraction_breakdown_error: committed.error }
+      : {
+          infraction_breakdown: wrap('api.penalty_log (aggregated: penalized_team = team)', groupInfractions(committed.rows)),
+          most_costly: wrap('api.penalty_log (top accepted by penalty_yards)', mostCostlyPenalties(committed.rows)),
+        }),
+    ...(drawn.error
+      ? { drawn_breakdown_error: drawn.error }
+      : { drawn_breakdown: wrap('api.penalty_log (aggregated: benefiting_team = team)', groupInfractions(drawn.rows)) }),
+    game_log: wrap('api.team_penalties', games.rows),
+  })
+}
+
+// ---------------------------------------------------------------------------
+// 22. get_penalty_log
+// ---------------------------------------------------------------------------
+
+export interface GetPenaltyLogArgs {
+  team?: string
+  season?: number
+  week?: number
+  game_id?: number
+  infraction?: string
+  limit?: number
+}
+
+export async function getPenaltyLogTool(args: GetPenaltyLogArgs): Promise<string> {
+  // `week` alone is not selective (it spans every season), so it doesn't
+  // count toward the at-least-one-filter requirement.
+  if (!args.team && args.game_id == null && args.season == null && !args.infraction) {
+    return (
+      'Provide at least one of team, game_id, season, or infraction -- an unfiltered penalty ' +
+      'log would just be the most recent plays across all of FBS.'
+    )
+  }
+
+  const result = await queryPenaltyLog({
+    team: args.team,
+    season: args.season,
+    week: args.week,
+    gameId: args.game_id,
+    infraction: args.infraction,
+    limit: args.limit,
+  })
+
+  if (result.error) return result.error
+  if (result.rows.length === 0) {
+    return (
+      'No penalties found matching the given filters. Penalty data covers seasons 2011-2025; ' +
+      'team and infraction are exact, case-sensitive matches.'
+    )
+  }
+  return dump(wrap('api.penalty_log', result.rows))
 }
 
 // ---------------------------------------------------------------------------
@@ -1371,7 +1556,15 @@ export function registerMcpTools(server: McpServer): void {
         '- api.team_ats: team, season, ats record vs the spread\n' +
         '- api.scored_matchup_edges / api.game_predictions / api.prediction_accuracy: model predictions vs market\n' +
         '- api.player_season_leaders, api.player_wepa_leaders, api.player_usage_leaders: player-season stats\n' +
-        '- api.recruiting_roi, api.transfer_portal_impact, api.team_returning_production, api.conference_comparison\n\n' +
+        '- api.recruiting_roi, api.transfer_portal_impact, api.team_returning_production, api.conference_comparison\n' +
+        '- api.team_penalties: game_id, season, week, season_type, team, opponent, home_away, penalties,\n' +
+        '  penalty_yards, opponent_penalties, opponent_penalty_yards -- two rows per game (one per team);\n' +
+        '  GROUP BY team for season discipline leaderboards (2011-2025)\n' +
+        '- api.penalty_log: play-level parsed penalties (2011-2025): game_id, season, week, offense, defense,\n' +
+        '  penalized_team, benefiting_team, infraction (~30 labels incl \'Unknown\'), penalty_yards, declined,\n' +
+        '  offsetting, no_play, down, distance, period, ppa. For cross-metric combos (e.g. havoc rate vs\n' +
+        '  holding penalties drawn), join api.team_week_features (havoc_rate_defense) with penalty_log\n' +
+        '  GROUPed BY benefiting_team. NOTE: ORDER BY ... DESC sorts NULLs first -- filter them out\n\n' +
         'Worked example -- "which coach can claim the highest Elo at two different schools":\n' +
         'WITH tenure_elo AS (\n' +
         '  SELECT ch.coach_name, ch.team, MAX(te.season_end_elo) AS peak_elo\n' +
@@ -1396,5 +1589,101 @@ export function registerMcpTools(server: McpServer): void {
       annotations: { title: 'Run Analyst SQL', ...READ_ONLY_ANNOTATIONS },
     },
     async args => textResult(await runSqlTool(args))
+  )
+
+  server.registerTool(
+    'get_penalty_profile',
+    {
+      title: 'Get Penalty Profile',
+      description:
+        "Get a team's discipline profile for a season: penalty totals and per-game rates, the " +
+        'differential vs its opponents, a breakdown of which infractions it commits, a breakdown of ' +
+        'which infractions it DRAWS from opponents, and its most costly individual penalties. Use for ' +
+        '"how undisciplined is Oklahoma this year", "what penalties does this team commit most", "does ' +
+        'this defense draw a lot of holding calls", "who wins the penalty battle in their games". ' +
+        'Combines api.team_penalties (per-game totals for the team and its opponents, aggregated to a ' +
+        'season summary in the "summary" key -- penalty_margin_per_game and penalty_yards_margin_per_game ' +
+        'are opponent minus own, so POSITIVE means more disciplined than the opposition) and ' +
+        'api.penalty_log (play-level penalties parsed from play text): "infraction_breakdown" groups the ' +
+        "penalties the team COMMITTED (penalized_team = team) by infraction label, \"drawn_breakdown\" " +
+        'groups the penalties opponents committed that BENEFITED the team (benefiting_team = team -- e.g. ' +
+        'holding calls a good pass rush generates), and "most_costly" lists the top accepted penalties by ' +
+        'yardage. In each breakdown, accepted/declined/offsetting are disjoint counts summing to total, ' +
+        'and accepted_yards only counts enforced yardage. Infractions are parsed from play text, so an ' +
+        "'Unknown' label is a normal parsing gap, not an error; breakdown totals can also differ slightly " +
+        "from the summary's box-score counts (different upstream sources). Penalty data covers the 2011-" +
+        `2025 seasons. \`season\` defaults to the current season (${CURRENT_SEASON}) if omitted. For ` +
+        'league-wide discipline leaderboards or cross-metric combos (e.g. havoc rate vs penalties drawn), ' +
+        'use run_sql over api.team_penalties / api.penalty_log instead. Returns JSON with "team", ' +
+        '"season", "summary", "infraction_breakdown", "drawn_breakdown", "most_costly", and "game_log" ' +
+        'keys (envelope keys are {"_source", "count", "rows"}; a failed secondary lookup degrades to an ' +
+        '"..._error" key without discarding the rest), or a friendly "No penalty data found..." string.',
+      inputSchema: {
+        team: z.string().describe("Exact school name as used by CFBD, e.g. 'Oklahoma'. Case-sensitive."),
+        season: z
+          .number()
+          .int()
+          .optional()
+          .describe(
+            `Season year, e.g. 2024. Defaults to the current season (${CURRENT_SEASON}) if omitted. ` +
+              'Penalty data covers 2011-2025.'
+          ),
+      },
+      annotations: { title: 'Get Penalty Profile', ...READ_ONLY_ANNOTATIONS },
+    },
+    async args => textResult(await getPenaltyProfileTool(args))
+  )
+
+  server.registerTool(
+    'get_penalty_log',
+    {
+      title: 'Get Penalty Log',
+      description:
+        'Search the play-level penalty log by penalized team, season, week, game, and/or infraction ' +
+        'type. Use for drill-downs the profile aggregates hide -- "what penalties did Oklahoma commit ' +
+        'against Texas", "show every targeting call in 2024", "which penalties killed that drive". ' +
+        'Backed by api.penalty_log (2011-2025), one row per penalty play parsed from play text: ' +
+        'offense/defense, penalized_team and benefiting_team, infraction label, penalty_yards, ' +
+        'declined/offsetting/no_play flags, down/distance/period situation, ppa, and the raw play_text. ' +
+        'All filters combine with AND; `team` matches the PENALIZED team (who committed it -- to find ' +
+        'penalties a team drew, filter by its opponent or use get_penalty_profile\'s drawn_breakdown). ' +
+        "`infraction` is an exact label match (~30 distinct values, e.g. 'Holding', 'False Start', " +
+        "'Pass Interference', 'Targeting'; unparseable penalties are labeled 'Unknown'). Requires at " +
+        'least one of team/game_id/season/infraction. Ordered most recent first. Returns JSON ' +
+        '{"_source": "api.penalty_log", "count", "rows"}, or "No penalties found..." if nothing matches.',
+      inputSchema: {
+        team: z
+          .string()
+          .optional()
+          .describe('Exact school name; matches the PENALIZED team (who committed the penalty).'),
+        season: z.number().int().optional().describe('Season year, e.g. 2024. Coverage is 2011-2025.'),
+        week: z
+          .number()
+          .int()
+          .optional()
+          .describe('Week number within the season. Not selective on its own -- combine with season or team.'),
+        game_id: z
+          .number()
+          .int()
+          .optional()
+          .describe('Restrict to a single game (same id as api.game_detail).'),
+        infraction: z
+          .string()
+          .optional()
+          .describe(
+            "Exact infraction label, e.g. 'Holding', 'False Start', 'Pass Interference', 'Personal " +
+              "Foul', 'Targeting'. Case-sensitive; unparseable penalties are labeled 'Unknown'."
+          ),
+        limit: z
+          .number()
+          .int()
+          .min(1)
+          .max(DEFAULT_ROW_CAP)
+          .optional()
+          .describe(`Max rows to return (default 50, hard-capped at ${DEFAULT_ROW_CAP}).`),
+      },
+      annotations: { title: 'Get Penalty Log', ...READ_ONLY_ANNOTATIONS },
+    },
+    async args => textResult(await getPenaltyLogTool(args))
   )
 }

@@ -33,13 +33,15 @@ export interface McpResult<T> {
   error: string | null
 }
 
-function fail(context: string, error: { message: string } | null | undefined): string {
+// fail/clamp are exported so penalties.ts can reuse them (same McpResult
+// error-string and row-cap contract, different domain module).
+export function fail(context: string, error: { message: string } | null | undefined): string {
   const detail = error?.message ?? 'unknown error'
   console.error(`[mcp] ${context} failed:`, detail)
   return `Error: ${context} request failed: ${detail}`
 }
 
-function clamp(limit: number | undefined, fallback: number): number {
+export function clamp(limit: number | undefined, fallback: number): number {
   return Math.min(limit ?? fallback, DEFAULT_ROW_CAP)
 }
 
