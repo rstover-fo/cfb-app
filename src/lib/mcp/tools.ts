@@ -789,8 +789,8 @@ export async function getPenaltyProfileTool(args: GetPenaltyProfileArgs): Promis
 
   if (games.rows.length === 0 && committed.rows.length === 0 && drawn.rows.length === 0 && !committed.error && !drawn.error) {
     return (
-      `No penalty data found for '${args.team}' in ${season}. Penalty data covers seasons ` +
-      '2011-2025; also check the team name (exact, case-sensitive).'
+      `No penalty data found for '${args.team}' in ${season}. Penalty data covers seasons from ` +
+      '2004 (parse quality is best 2022+); also check the team name (exact, case-sensitive).'
     )
   }
 
@@ -846,7 +846,8 @@ export async function getPenaltyLogTool(args: GetPenaltyLogArgs): Promise<string
   if (result.error) return result.error
   if (result.rows.length === 0) {
     return (
-      'No penalties found matching the given filters. Penalty data covers seasons 2011-2025; ' +
+      'No penalties found matching the given filters. Penalty data covers seasons from 2004 ' +
+      '(team attribution is best-effort -- unattributed plays never match a team filter); ' +
       'team and infraction are exact, case-sensitive matches.'
     )
   }
@@ -1559,12 +1560,17 @@ export function registerMcpTools(server: McpServer): void {
         '- api.recruiting_roi, api.transfer_portal_impact, api.team_returning_production, api.conference_comparison\n' +
         '- api.team_penalties: game_id, season, week, season_type, team, opponent, home_away, penalties,\n' +
         '  penalty_yards, opponent_penalties, opponent_penalty_yards -- two rows per game (one per team);\n' +
-        '  GROUP BY team for season discipline leaderboards (2011-2025)\n' +
-        '- api.penalty_log: play-level parsed penalties (2011-2025): game_id, season, week, offense, defense,\n' +
-        '  penalized_team, benefiting_team, infraction (~30 labels incl \'Unknown\'), penalty_yards, declined,\n' +
-        '  offsetting, no_play, down, distance, period, ppa. For cross-metric combos (e.g. havoc rate vs\n' +
-        '  holding penalties drawn), join api.team_week_features (havoc_rate_defense) with penalty_log\n' +
-        '  GROUPed BY benefiting_team. NOTE: ORDER BY ... DESC sorts NULLs first -- filter them out\n\n' +
+        "  the scorer's OFFICIAL box-score tally -- prefer it for totals and GROUP BY team for season\n" +
+        '  discipline leaderboards. Per-game averages: use ALL of a team\'s games as the denominator\n' +
+        '  (COUNT(DISTINCT game_id) from this view), never just the games where a call happened\n' +
+        '- api.penalty_log: play-level penalties (2004+) parsed BEST-EFFORT from free-text play_text:\n' +
+        '  game_id, season, week, offense, defense, penalized_team, benefiting_team, infraction (~30\n' +
+        "  labels incl 'Unknown'), penalty_yards, declined, offsetting, no_play, down, distance, period,\n" +
+        "  ppa, parse_ok. 'Unknown'/NULL team = UNCLASSIFIED not absent, so filtered counts are floors\n" +
+        '  (attribution validated >= 50% only for seasons >= 2022) -- say so when reporting. For\n' +
+        '  cross-metric combos (e.g. havoc rate vs holding penalties drawn), join api.team_week_features\n' +
+        '  (havoc_rate_defense) with penalty_log GROUPed BY benefiting_team. NOTE: ORDER BY ... DESC\n' +
+        '  sorts NULLs first -- filter them out\n\n' +
         'Worked example -- "which coach can claim the highest Elo at two different schools":\n' +
         'WITH tenure_elo AS (\n' +
         '  SELECT ch.coach_name, ch.team, MAX(te.season_end_elo) AS peak_elo\n' +
@@ -1609,10 +1615,15 @@ export function registerMcpTools(server: McpServer): void {
         'groups the penalties opponents committed that BENEFITED the team (benefiting_team = team -- e.g. ' +
         'holding calls a good pass rush generates), and "most_costly" lists the top accepted penalties by ' +
         'yardage. In each breakdown, accepted/declined/offsetting are disjoint counts summing to total, ' +
-        'and accepted_yards only counts enforced yardage. Infractions are parsed from play text, so an ' +
-        "'Unknown' label is a normal parsing gap, not an error; breakdown totals can also differ slightly " +
-        "from the summary's box-score counts (different upstream sources). Penalty data covers the 2011-" +
-        `2025 seasons. \`season\` defaults to the current season (${CURRENT_SEASON}) if omitted. For ` +
+        'and accepted_yards only counts enforced yardage. IMPORTANT data honesty: api.penalty_log is ' +
+        "parsed from CFBD's free-text play descriptions, so an 'Unknown' infraction or an unattributed " +
+        'team means UNCLASSIFIED, not absent -- the two breakdowns silently exclude unattributed plays ' +
+        'and are therefore FLOORS, not exact officiating counts; relay that when answering. The "summary" ' +
+        "key is the scorer's official box-score tally and is the authoritative source for totals (which " +
+        'is also why breakdown totals run below the summary counts); use the breakdowns for the ' +
+        'infraction MIX only. Coverage runs from 2004; parse quality is validated for seasons >= 2022 ' +
+        '(>= 90% of penalties get an infraction label, >= 50% get a team attribution) and degrades in ' +
+        `older seasons. \`season\` defaults to the current season (${CURRENT_SEASON}) if omitted. For ` +
         'league-wide discipline leaderboards or cross-metric combos (e.g. havoc rate vs penalties drawn), ' +
         'use run_sql over api.team_penalties / api.penalty_log instead. Returns JSON with "team", ' +
         '"season", "summary", "infraction_breakdown", "drawn_breakdown", "most_costly", and "game_log" ' +
@@ -1626,7 +1637,7 @@ export function registerMcpTools(server: McpServer): void {
           .optional()
           .describe(
             `Season year, e.g. 2024. Defaults to the current season (${CURRENT_SEASON}) if omitted. ` +
-              'Penalty data covers 2011-2025.'
+              'Penalty data covers 2004+; parse quality is best for seasons >= 2022.'
           ),
       },
       annotations: { title: 'Get Penalty Profile', ...READ_ONLY_ANNOTATIONS },
@@ -1642,9 +1653,14 @@ export function registerMcpTools(server: McpServer): void {
         'Search the play-level penalty log by penalized team, season, week, game, and/or infraction ' +
         'type. Use for drill-downs the profile aggregates hide -- "what penalties did Oklahoma commit ' +
         'against Texas", "show every targeting call in 2024", "which penalties killed that drive". ' +
-        'Backed by api.penalty_log (2011-2025), one row per penalty play parsed from play text: ' +
-        'offense/defense, penalized_team and benefiting_team, infraction label, penalty_yards, ' +
-        'declined/offsetting/no_play flags, down/distance/period situation, ppa, and the raw play_text. ' +
+        'Backed by api.penalty_log (2004+), one row per play carrying penalty text, parsed BEST-EFFORT ' +
+        "from CFBD's free-text play descriptions: offense/defense, penalized_team and benefiting_team, " +
+        'infraction label, penalty_yards, declined/offsetting/no_play/multi_penalty flags, ' +
+        'down/distance/period situation, ppa, the raw play_text, plus is_penalty_play_type (the penalty ' +
+        'WAS the play, vs. tacked onto another play) and parse_ok (both infraction and team attribution ' +
+        "succeeded). 'Unknown' infractions and unattributed teams mean UNCLASSIFIED, not absent -- " +
+        'filtered counts are floors (team attribution is validated >= 50% for seasons >= 2022 and worse ' +
+        'earlier), so relay that; use api.team_penalties or get_penalty_profile for official totals. ' +
         'All filters combine with AND; `team` matches the PENALIZED team (who committed it -- to find ' +
         'penalties a team drew, filter by its opponent or use get_penalty_profile\'s drawn_breakdown). ' +
         "`infraction` is an exact label match (~30 distinct values, e.g. 'Holding', 'False Start', " +
@@ -1656,7 +1672,11 @@ export function registerMcpTools(server: McpServer): void {
           .string()
           .optional()
           .describe('Exact school name; matches the PENALIZED team (who committed the penalty).'),
-        season: z.number().int().optional().describe('Season year, e.g. 2024. Coverage is 2011-2025.'),
+        season: z
+          .number()
+          .int()
+          .optional()
+          .describe('Season year, e.g. 2024. Coverage is 2004+; parse quality is best for seasons >= 2022.'),
         week: z
           .number()
           .int()

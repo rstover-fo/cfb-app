@@ -9,7 +9,13 @@ import { fail, clamp, type McpResult } from './mcp'
 //     one per team; each row already carries the opponent's totals).
 //   api.penalty_log -- play-level penalties parsed from play text, with
 //     infraction label, yardage, and declined/offsetting/no-play flags.
-//     Coverage: 2011-2025 seasons.
+//     Coverage: 2004+ seasons. Parsing is BEST-EFFORT over free-text
+//     play_text spanning four provider formats: infraction='Unknown' and
+//     penalized_team IS NULL mean unclassified, not absent, so filtered
+//     counts are floors. Validated floors (seasons >= 2022): >= 90%
+//     infraction coverage, >= 50% team attribution. See cfb-database's
+//     docs/handoffs/2026-07-23-penalty-views-for-bot.md and
+//     src/schemas/api/validation_penalties.sql.
 //
 // MCP-only module: keeps mcp.ts's McpResult error-passthrough contract
 // (friendly "Error: ..." strings, never a throw) rather than the UI query
@@ -96,6 +102,10 @@ const PENALTY_PLAY_AGG_COLUMNS = `
 // Aggregation input for get_penalty_profile: every penalty play a team either
 // committed (penalized_team = team) or drew from its opponents
 // (benefiting_team = team) in a season. Grouping happens in the tool layer.
+// Team attribution is parsed from free text and can be NULL (unclassified) --
+// the eq() filter drops those rows, so these inputs (and the breakdowns built
+// from them) are floors, not exact officiating counts; api.team_penalties is
+// the official tally for totals.
 export async function queryTeamSeasonPenaltyPlays(
   team: string,
   season: number,
@@ -125,6 +135,8 @@ export interface PenaltyLogRow {
   distance: number | null
   offense: string | null
   defense: string | null
+  play_type: string | null
+  is_penalty_play_type: boolean | null
   penalized_team: string | null
   benefiting_team: string | null
   infraction: string | null
@@ -132,15 +144,17 @@ export interface PenaltyLogRow {
   declined: boolean | null
   offsetting: boolean | null
   no_play: boolean | null
+  multi_penalty: boolean | null
   yards_gained: number | null
   ppa: number | null
   play_text: string | null
+  parse_ok: boolean | null
 }
 
 const PENALTY_LOG_COLUMNS = `
   play_id, game_id, season, week, season_type, period, down, distance, offense, defense,
-  penalized_team, benefiting_team, infraction, penalty_yards, declined, offsetting, no_play,
-  yards_gained, ppa, play_text
+  play_type, is_penalty_play_type, penalized_team, benefiting_team, infraction, penalty_yards,
+  declined, offsetting, no_play, multi_penalty, yards_gained, ppa, play_text, parse_ok
 ` as const
 
 export interface PenaltyLogFilter {
