@@ -34,6 +34,11 @@ vi.mock('../config.js', () => ({
   getDefaultSeason: vi.fn(() => 2025),
 }))
 
+// Lore toggle on by default in tests; settings.ts touches the filesystem, so
+// it's mocked out entirely here (its own persistence has settings.test.ts).
+const { getLoreEnabledMock } = vi.hoisted(() => ({ getLoreEnabledMock: vi.fn(async () => true) }))
+vi.mock('../settings.js', () => ({ getLoreEnabled: getLoreEnabledMock }))
+
 import { askClaude, ClaudeUnavailableError, resetClaudeForTests } from '../claude.js'
 import { resetAnthropicClientForTests } from '../anthropic-client.js'
 
@@ -71,6 +76,19 @@ afterEach(() => {
 })
 
 describe('askClaude request shape', () => {
+  it('includes the server-lore block only while /lore is on', async () => {
+    betaCreateMock.mockResolvedValueOnce(apiResponse('answer'))
+    await askClaude('anything')
+    expect(betaCreateMock.mock.calls[0]?.[0].system[0].text).toContain('grimlock')
+
+    // Toggle off: the block must vanish from the wire request entirely --
+    // this is the enforcement mechanism behind the /lore promise.
+    getLoreEnabledMock.mockResolvedValueOnce(false)
+    betaCreateMock.mockResolvedValueOnce(apiResponse('answer'))
+    await askClaude('anything')
+    expect(betaCreateMock.mock.calls[1]?.[0].system[0].text).not.toContain('grimlock')
+  })
+
   it('sends one MCP-connector beta call on the default model for a simple question', async () => {
     betaCreateMock.mockResolvedValueOnce(apiResponse('Ohio State is ranked #1.'))
 
