@@ -1,8 +1,11 @@
 /**
  * Model triage: one tiny Haiku call classifies a question as `simple`
- * (cheap lookup -> Sonnet tier) vs `gnarly` (real analysis -> Opus advisor
- * tier). Deliberately fail-open toward quality: any response that isn't
- * exactly "simple" -- and any router error at all -- routes to `gnarly`.
+ * (Sonnet tier, the default) vs `gnarly` (Opus advisor tier, reserved for
+ * genuinely deep analysis). Fails toward `simple`: any response that isn't
+ * exactly "gnarly" -- and any router error at all -- routes to the default
+ * tier. Launch-night telemetry showed the old who-wins=gnarly definition
+ * sent 82% of a fan Discord's questions to Opus; Sonnet's [ESCALATE]
+ * backstop (claude.ts) is the quality net that makes the cheap default safe.
  */
 import { getAnthropicClient } from './anthropic-client.js'
 import { loadConfig } from './config.js'
@@ -12,10 +15,14 @@ export type QuestionTier = 'simple' | 'gnarly'
 const ROUTER_MAX_TOKENS = 50
 
 const ROUTER_SYSTEM_PROMPT = [
-  'You classify college-football questions for a stats bot. Reply with exactly one word:',
-  '"simple" -- a lookup: rankings, scores, a single stat, schedules, records, one team/player fact.',
-  '"gnarly" -- analysis: who-wins-and-why, multi-team or scheme comparisons, predictions, trends,',
-  'anything needing synthesis across several stats.',
+  'You route college-football questions between two models for a stats bot. Reply with exactly one word:',
+  '"simple" -- the DEFAULT. Lookups (rankings, scores, stats, schedules, records) AND ordinary fan',
+  'questions about a single game or matchup: who wins X vs Y, predictions, hot takes, how good is a',
+  'team or player, quick two-team comparisons.',
+  '"gnarly" -- reserved for genuinely deep analysis: comparisons spanning three or more teams or a',
+  'whole conference/poll field, multi-season trend analysis, scheme or identity breakdowns, questions',
+  'about how different metrics interact, or an explicit request for a deep/detailed breakdown.',
+  'If unsure, reply "simple".',
   'No punctuation, no explanation. One word only.',
 ].join('\n')
 
@@ -48,10 +55,11 @@ export async function routeQuestion(question: string, lastTopic?: string): Promi
       .trim()
       .toLowerCase()
 
-    // Anything that is not exactly "simple" fails toward quality.
-    return text === 'simple' ? 'simple' : 'gnarly'
+    // Anything that is not exactly "gnarly" fails toward the cheap default --
+    // Sonnet answers well and can [ESCALATE] itself if it's out of depth.
+    return text === 'gnarly' ? 'gnarly' : 'simple'
   } catch (err) {
-    console.error('[router] classification failed, defaulting to gnarly:', err instanceof Error ? err.message : err)
-    return 'gnarly'
+    console.error('[router] classification failed, defaulting to simple:', err instanceof Error ? err.message : err)
+    return 'simple'
   }
 }

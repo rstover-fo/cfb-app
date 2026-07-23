@@ -73,10 +73,10 @@
     }
   },
   {
-    "id": "gnarly-osu-michigan-winner",
+    "id": "simple-osu-michigan-winner",
     "question": "Who wins Ohio State vs Michigan and why?",
     "expect": {
-      "tier": "gnarly",
+      "tier": "simple",
       "mustMatchAny": [
         "Ohio State",
         "Michigan"
@@ -229,6 +229,14 @@
     "question": "Will Kentucky beat Alabama?",
     "expect": {
       "judge": "Recognizes that Kentucky and Alabama have a scheduled game in the NEXT season (found via the schedule data, citing its date/week/venue) instead of claiming no game is scheduled; may add historical or current-form outlook, but must not invent a score prediction for an unplayed game."
+    }
+  },
+  {
+    "id": "sql-coach-two-schools",
+    "question": "What coach can claim the highest elo at two different schools?",
+    "expect": {
+      "tier": "gnarly",
+      "judge": "Either answers with specific coach names and Elo figures derived from the data (cross-referencing coaching tenures with team Elo, e.g. via the run_sql tool), or plainly states the deep-analysis capability is unavailable -- must not invent numbers or hand-wave a guess."
     }
   }
 ]

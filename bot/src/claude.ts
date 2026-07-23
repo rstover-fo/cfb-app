@@ -72,6 +72,11 @@ function getBaseSystemPrompt(): string {
     '  loaded before any games are played. Only after checking both may you say a game is not',
     '  scheduled. Unplayed games have no scores or predictions -- say what IS known (date, venue,',
     '  week) and lean on history/current form for the outlook.',
+    '- For analytical questions the curated tools cannot answer (cross-domain joins,',
+    '  "highest/most/only team or coach that..." questions), use the run_sql tool: one read-only',
+    '  SELECT over the api views, following its schema card; always include ORDER BY and LIMIT.',
+    '  Prefer curated tools when one fits. If run_sql reports it is not enabled, say the',
+    '  deep-analysis mode is not live yet instead of guessing.',
   ].join('\n')
   return cachedBasePrompt
 }

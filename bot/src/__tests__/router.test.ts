@@ -55,19 +55,19 @@ describe('routeQuestion', () => {
     await expect(routeQuestion('who wins Ohio State vs Texas and why?')).resolves.toBe('gnarly')
   })
 
-  it('tolerates whitespace and casing around the simple verdict', async () => {
-    createMock.mockResolvedValueOnce(textResponse('  Simple\n'))
-    await expect(routeQuestion('what was the score?')).resolves.toBe('simple')
+  it('tolerates whitespace and casing around the gnarly verdict', async () => {
+    createMock.mockResolvedValueOnce(textResponse('  Gnarly\n'))
+    await expect(routeQuestion('compare the whole top 10 by EPA')).resolves.toBe('gnarly')
   })
 
-  it('routes any non-simple verdict to gnarly (fail toward quality)', async () => {
-    createMock.mockResolvedValueOnce(textResponse('this looks like a simple question'))
-    await expect(routeQuestion('anything')).resolves.toBe('gnarly')
+  it('routes any non-gnarly verdict to simple (fail toward the cheap default)', async () => {
+    createMock.mockResolvedValueOnce(textResponse('this looks like a gnarly question'))
+    await expect(routeQuestion('anything')).resolves.toBe('simple')
   })
 
-  it('routes an empty response to gnarly', async () => {
+  it('routes an empty response to simple', async () => {
     createMock.mockResolvedValueOnce({ content: [], usage: {} })
-    await expect(routeQuestion('anything')).resolves.toBe('gnarly')
+    await expect(routeQuestion('anything')).resolves.toBe('simple')
   })
 
   it('sends a small no-tools request on the router model', async () => {
@@ -94,21 +94,21 @@ describe('routeQuestion', () => {
     expect(request.messages[0].content).toContain('what about their defense?')
   })
 
-  it('returns gnarly and logs when the API call fails', async () => {
+  it('returns simple and logs when the API call fails', async () => {
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
     createMock.mockRejectedValueOnce(new Error('rate limited'))
 
-    await expect(routeQuestion('anything')).resolves.toBe('gnarly')
+    await expect(routeQuestion('anything')).resolves.toBe('simple')
     expect(errorSpy).toHaveBeenCalled()
     errorSpy.mockRestore()
   })
 
-  it('returns gnarly when the Anthropic client cannot be created (no API key)', async () => {
+  it('returns simple when the Anthropic client cannot be created (no API key)', async () => {
     const { loadConfig } = await import('../config.js')
     vi.mocked(loadConfig).mockReturnValueOnce({ anthropicApiKey: undefined } as never)
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
 
-    await expect(routeQuestion('anything')).resolves.toBe('gnarly')
+    await expect(routeQuestion('anything')).resolves.toBe('simple')
     expect(createMock).not.toHaveBeenCalled()
     errorSpy.mockRestore()
   })
