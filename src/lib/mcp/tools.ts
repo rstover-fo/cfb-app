@@ -12,6 +12,7 @@ import {
   callSituationalSplitRpc,
   callPlayerSearch,
   callPlayerDetail,
+  callAnalystQuery,
   callDataFreshness,
   SPLIT_RPC_NAMES,
   type SplitType,
@@ -627,6 +628,44 @@ export async function getCoachingHistoryTool(args: GetCoachingHistoryArgs): Prom
   }
 
   return dump(wrap('api.coaching_history', rows))
+}
+
+// ---------------------------------------------------------------------------
+// 20. run_sql -- public.run_analyst_query (read-only SQL sandbox)
+// ---------------------------------------------------------------------------
+
+export interface RunSqlArgs {
+  sql: string
+}
+
+const SQL_MAX_LENGTH = 4000
+
+// Defense-in-depth only: the real boundary is the database role (SELECT-only
+// grants on api, read-only transaction, statement timeout, row cap -- see
+// docs/RUN_SQL_HANDOFF.md). This check just fails obviously-wrong statements
+// fast and cheap, before a network round-trip.
+const SQL_FORBIDDEN =
+  /\b(insert|update|delete|merge|drop|alter|truncate|grant|revoke|vacuum|copy|call|execute|listen|notify|refresh|lock|comment|security)\b|\bcreate\s|\bdo\s*\$|\bpg_\w+\s*\(/i
+
+export function validateAnalystSql(sql: string): string | null {
+  const trimmed = sql.trim()
+  if (trimmed.length === 0) return 'Error: empty SQL statement.'
+  if (trimmed.length > SQL_MAX_LENGTH) return `Error: statement exceeds ${SQL_MAX_LENGTH} characters.`
+  if (!/^(select|with)\b/i.test(trimmed)) return 'Error: only SELECT/WITH statements are allowed.'
+  // One statement only: a trailing semicolon is fine, an interior one is not.
+  if (trimmed.replace(/;\s*$/, '').includes(';')) return 'Error: multiple statements are not allowed.'
+  if (SQL_FORBIDDEN.test(trimmed)) return 'Error: statement contains a disallowed keyword (read-only SELECTs only).'
+  return null
+}
+
+export async function runSqlTool(args: RunSqlArgs): Promise<string> {
+  const validationError = validateAnalystSql(args.sql)
+  if (validationError) return validationError
+
+  const result = await callAnalystQuery(args.sql.trim())
+  if (result.error) return result.error
+  if (result.rows.length === 0) return 'No rows returned. The query ran but matched nothing -- check filters/joins.'
+  return dump(wrap('public.run_analyst_query', result.rows))
 }
 
 // ---------------------------------------------------------------------------
@@ -1297,5 +1336,59 @@ export function registerMcpTools(server: McpServer): void {
       annotations: { title: 'Get Coaching History', ...READ_ONLY_ANNOTATIONS },
     },
     async args => textResult(await getCoachingHistoryTool(args))
+  )
+
+  server.registerTool(
+    'run_sql',
+    {
+      title: 'Run Analyst SQL',
+      description:
+        'Escape hatch for analytical questions the curated tools cannot answer -- cross-domain ' +
+        'joins, custom aggregations, "highest/most/only team that..." questions. Runs ONE ' +
+        'read-only SELECT/WITH statement against the api schema (SELECT-only role, ~8s timeout, ' +
+        '~200-row cap, single statement). Prefer the curated tools when one fits; always include ' +
+        'an explicit LIMIT and ORDER BY.\n\n' +
+        'SCHEMA CARD -- always prefix views with api. All snake_case. Team names are exact and ' +
+        "case-sensitive ('Ohio State', 'Miami (OH)', 'Texas A&M'). season is the fall year; " +
+        "season_type is 'regular' or 'postseason'.\n" +
+        'Core views (key columns):\n' +
+        '- api.team_detail: school, conference, wins, losses, ppg, opp_ppg, sp_rating, sp_rank, elo, fpi, epa_per_play, recruiting_rank (current season, FBS only)\n' +
+        '- api.team_history: school (column: team), season, wins, losses, sp_rating, sp_rank -- one row per team-season\n' +
+        '- api.game_detail: game_id, season, week, season_type, start_date, completed, home_team, away_team, home_points, away_points, winner, point_diff, home_spread, venue\n' +
+        '- api.team_elo: team, season, season_end_elo, elo_rank, games_played -- one row per team-season\n' +
+        '- api.game_elo_history: per-game pregame/postgame elo for both teams, win_prob, margin errors\n' +
+        '- api.coaching_history: coach_name, team, tenure_start, tenure_end (null = active), seasons_count, total_wins, total_losses, win_pct, avg_sp_rating, peak_sp_rating -- one row per coach-tenure\n' +
+        '- api.coach_records: coach career-at-school grain with ATS splits (ats_wins, ats_losses)\n' +
+        '- api.poll_rankings: season, season_type, week, poll, rank, school, conference, points\n' +
+        '- api.leaderboard_teams: team, conference, season, wins, losses, ppg, opp_ppg, sp_rating, sp_rank, elo, epa_per_play, success_rate, explosiveness, recruiting_rank + *_rank columns\n' +
+        '- api.team_wepa_season: team, season, epa_total, epa_passing, epa_rushing, epa_allowed_*, success_rate_*, explosiveness\n' +
+        '- api.team_ats: team, season, ats record vs the spread\n' +
+        '- api.scored_matchup_edges / api.game_predictions / api.prediction_accuracy: model predictions vs market\n' +
+        '- api.player_season_leaders, api.player_wepa_leaders, api.player_usage_leaders: player-season stats\n' +
+        '- api.recruiting_roi, api.transfer_portal_impact, api.team_returning_production, api.conference_comparison\n\n' +
+        'Worked example -- "which coach can claim the highest Elo at two different schools":\n' +
+        'WITH tenure_elo AS (\n' +
+        '  SELECT ch.coach_name, ch.team, MAX(te.season_end_elo) AS peak_elo\n' +
+        '  FROM api.coaching_history ch\n' +
+        '  JOIN api.team_elo te ON te.team = ch.team\n' +
+        '    AND te.season BETWEEN ch.tenure_start AND COALESCE(ch.tenure_end, 2100)\n' +
+        '  GROUP BY ch.coach_name, ch.team\n' +
+        ')\n' +
+        'SELECT coach_name, COUNT(*) AS schools, MIN(peak_elo) AS weaker_school_peak\n' +
+        'FROM tenure_elo GROUP BY coach_name HAVING COUNT(*) >= 2\n' +
+        'ORDER BY weaker_school_peak DESC LIMIT 10;\n\n' +
+        'Returns {"_source", "count", "rows"} JSON, a "No rows returned" note, or an "Error: ..." ' +
+        'string (never throws).',
+      inputSchema: {
+        sql: z
+          .string()
+          .describe(
+            'One read-only SELECT or WITH statement over the api.* views. No DDL/DML, no multiple ' +
+              'statements. Include ORDER BY and LIMIT (server caps rows regardless).'
+          ),
+      },
+      annotations: { title: 'Run Analyst SQL', ...READ_ONLY_ANNOTATIONS },
+    },
+    async args => textResult(await runSqlTool(args))
   )
 }

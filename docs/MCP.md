@@ -126,10 +126,14 @@ row caps) are ported faithfully from the Python reference server -- see
 rationale behind each one, and the per-tool `description`/argument docs registered in
 `src/lib/mcp/tools.ts` for the exact wording exposed to MCP clients.
 
-The table above documents the original 8 tools ported from the Python reference server. 11
+The table above documents the original 8 tools ported from the Python reference server. 12
 further app-native tools (predictions, Elo, matchup edges, playcalling profiles, adjusted EPA,
 live scoreboard, model accuracy, player leaders, player comparison, conference comparison, coach
-history) have been added since -- see `src/lib/mcp/tools.ts` for the full current set.
+history, and `run_sql`) have been added since -- see `src/lib/mcp/tools.ts` for the full current
+set. `run_sql` executes one read-only SELECT over the `api` schema through the guarded
+`public.run_analyst_query` RPC (SELECT-only role, statement timeout, row cap); the RPC's
+migration lives in cfb-database -- see `docs/RUN_SQL_HANDOFF.md`. Until that migration is
+applied the tool reports itself as not enabled.
 
 ## Implementation notes
 

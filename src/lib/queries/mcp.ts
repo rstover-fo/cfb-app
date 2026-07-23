@@ -530,3 +530,33 @@ export async function callDataFreshness(): Promise<McpResult<DataFreshnessRow>> 
   if (error) return { rows: [], error: fail('public.get_data_freshness', error) }
   return { rows: (data ?? []) as DataFreshnessRow[], error: null }
 }
+
+// ---------------------------------------------------------------------------
+// 9. run_sql -- public.run_analyst_query (read-only SQL sandbox)
+// ---------------------------------------------------------------------------
+
+// The RPC executes the statement as a SELECT-only role over the api schema
+// with a server-side statement timeout and row cap -- the database role is
+// the security boundary, not this client. See docs/RUN_SQL_HANDOFF.md for
+// the migration that creates it in cfb-database.
+export async function callAnalystQuery(sql: string): Promise<McpResult<Record<string, unknown>>> {
+  const supabase = await createClient()
+  const { data, error } = await supabase.rpc('run_analyst_query', { query_sql: sql })
+
+  if (error) {
+    // PGRST202: function not found -- the cfb-database migration hasn't been
+    // applied yet. Surface that as a capability gap, not a query failure.
+    if (error.code === 'PGRST202' || /run_analyst_query/.test(error.message)) {
+      return {
+        rows: [],
+        error:
+          'Error: analyst SQL is not enabled on this server yet (public.run_analyst_query is ' +
+          'missing). Answer from the curated tools instead.',
+      }
+    }
+    return { rows: [], error: fail('public.run_analyst_query', error) }
+  }
+
+  // The RPC returns a jsonb array of row objects (possibly []).
+  return { rows: Array.isArray(data) ? (data as Record<string, unknown>[]) : [], error: null }
+}
