@@ -1356,11 +1356,17 @@ export function registerMcpTools(server: McpServer): void {
         '- api.team_history: school (column: team), season, wins, losses, sp_rating, sp_rank -- one row per team-season\n' +
         '- api.game_detail: game_id, season, week, season_type, start_date, completed, home_team, away_team, home_points, away_points, winner, point_diff, home_spread, venue\n' +
         '- api.team_elo: team, season, season_end_elo, elo_rank, games_played -- one row per team-season\n' +
-        '- api.game_elo_history: per-game pregame/postgame elo for both teams, win_prob, margin errors\n' +
+        '- api.game_elo_history: per-game pregame/postgame elo for both teams, win_prob, margin errors.\n' +
+        '  Use for POINT-IN-TIME Elo: a team\'s elo entering/leaving any week (e.g. end-of-regular-season\n' +
+        '  = postgame elo of its last regular-season game). NOTE: conference championship games are\n' +
+        "  season_type='regular' (usually the final regular week) -- exclude that week for pre-CCG cuts\n" +
         '- api.coaching_history: coach_name, team, tenure_start, tenure_end (null = active), seasons_count, total_wins, total_losses, win_pct, avg_sp_rating, peak_sp_rating -- one row per coach-tenure\n' +
         '- api.coach_records: coach career-at-school grain with ATS splits (ats_wins, ats_losses)\n' +
         '- api.poll_rankings: season, season_type, week, poll, rank, school, conference, points\n' +
-        '- api.leaderboard_teams: team, conference, season, wins, losses, ppg, opp_ppg, sp_rating, sp_rank, elo, epa_per_play, success_rate, explosiveness, recruiting_rank + *_rank columns\n' +
+        '- api.leaderboard_teams: team, conference, season, wins, losses, ppg, opp_ppg, sp_rating,\n' +
+        '  sp_rank, sp_offense, sp_defense (offense/defense SP+ components -- available for ALL seasons,\n' +
+        '  lower sp_defense is better), elo, fpi, epa_per_play, success_rate, explosiveness,\n' +
+        '  recruiting_rank + *_rank columns. Works for any past season, not just the current one\n' +
         '- api.team_wepa_season: team, season, epa_total, epa_passing, epa_rushing, epa_allowed_*, success_rate_*, explosiveness\n' +
         '- api.team_ats: team, season, ats record vs the spread\n' +
         '- api.scored_matchup_edges / api.game_predictions / api.prediction_accuracy: model predictions vs market\n' +
