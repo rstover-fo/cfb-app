@@ -1,8 +1,11 @@
 /**
- * Conversational Claude wrapper. One `client.beta.messages.create` call per
- * user turn with the MCP connector beta -- the API runs the entire MCP tool
- * loop server-side against cfb-app's hosted /api/mcp, so there is no
- * client-side tool loop here.
+ * Conversational Claude wrapper. `client.beta.messages.create` calls with the
+ * MCP connector beta -- the API runs the MCP tool loop server-side against
+ * cfb-app's hosted /api/mcp, so there is no client-side tool loop here. The
+ * server-side loop caps out at ~10 tool iterations per request and returns
+ * `stop_reason: "pause_turn"` when it does; runConnectorTurn resumes those
+ * turns (append the assistant content, re-call) so long multi-tool questions
+ * finish instead of coming back with zero text blocks.
  *
  * Tiering: router.ts picks `simple` (MODEL_DEFAULT / Sonnet) vs `gnarly`
  * (MODEL_ADVISOR / Opus). Backstop: the Sonnet tier's system prompt lets the
@@ -16,7 +19,13 @@ import { loadConfig, getDefaultSeason } from './config.js'
 import { routeQuestion, type QuestionTier } from './router.js'
 import { getLoreEnabled } from './settings.js'
 
-const MAX_TOKENS = 2000
+// Covers thinking + tool-call inputs + final text across the whole server-side
+// MCP loop, not just the visible answer -- 2000 starved multi-tool questions
+// before any text was emitted.
+const MAX_TOKENS = 8000
+// Each pause_turn resume restarts the server-side loop (~10 tool iterations
+// per request), so 5 continuations ≈ 60 tool calls before giving up.
+const MAX_PAUSE_CONTINUATIONS = 5
 const ESCALATE_TOKEN = '[ESCALATE]'
 
 export interface HistoryTurn {
@@ -174,6 +183,34 @@ async function runConnectorCall(
 }
 
 /**
+ * One logical turn: the initial connector call plus pause_turn resumes. When
+ * the server-side MCP loop pauses (`stop_reason: "pause_turn"`), the documented
+ * continuation is to append the paused assistant content and re-send -- the
+ * server picks the tool loop back up automatically. Without this, deep
+ * multi-tool questions return only tool_use blocks and no text.
+ */
+async function runConnectorTurn(
+  client: Anthropic,
+  model: string,
+  systemText: string,
+  messages: Anthropic.Beta.Messages.BetaMessageParam[]
+): Promise<{ response: Anthropic.Beta.Messages.BetaMessage; usage: UsageSummary; continuations: number }> {
+  let turnMessages = messages
+  let response = await runConnectorCall(client, model, systemText, turnMessages)
+  let usage = summarizeUsage(response.usage)
+
+  let continuations = 0
+  while (response.stop_reason === 'pause_turn' && continuations < MAX_PAUSE_CONTINUATIONS) {
+    continuations++
+    turnMessages = [...turnMessages, { role: 'assistant', content: response.content }]
+    response = await runConnectorCall(client, model, systemText, turnMessages)
+    usage = addUsage(usage, summarizeUsage(response.usage))
+  }
+
+  return { response, usage, continuations }
+}
+
+/**
  * Answers a conversational question: routes it to a tier, makes one MCP
  * connector call (plus at most one advisor re-run on [ESCALATE]), and returns
  * the final text with tier/escalation/usage/model metadata. Throws only
@@ -219,27 +256,43 @@ export async function askClaude(
   let escalated = false
   let text: string
   let usage: UsageSummary
+  let stopReason: string | null
+  let continuations: number
   try {
-    const response = await runConnectorCall(client, model, systemText, messages)
-    text = extractText(response.content)
-    usage = summarizeUsage(response.usage)
+    const turn = await runConnectorTurn(client, model, systemText, messages)
+    text = extractText(turn.response.content)
+    usage = turn.usage
+    stopReason = turn.response.stop_reason
+    continuations = turn.continuations
 
     // Escalation backstop: the default tier signalled it wants the advisor.
     if (tier === 'simple' && text.endsWith(ESCALATE_TOKEN)) {
       escalated = true
       model = config.modelAdvisor
-      const rerun = await runConnectorCall(client, model, basePrompt, messages)
-      text = extractText(rerun.content)
-      usage = addUsage(usage, summarizeUsage(rerun.usage))
+      const rerun = await runConnectorTurn(client, model, basePrompt, messages)
+      text = extractText(rerun.response.content)
+      usage = addUsage(usage, rerun.usage)
+      stopReason = rerun.response.stop_reason
+      continuations += rerun.continuations
     }
   } catch (err) {
     console.error('[claude] API call failed:', err instanceof Error ? err.message : err)
     throw new ClaudeUnavailableError()
   }
 
+  if (text.length === 0) {
+    // The caller shows a friendly "came back empty" reply; leave the reason in
+    // the logs (max_tokens = budget exhausted mid-loop, pause_turn = hit the
+    // continuation cap).
+    console.error(`[claude] empty text from API: stop_reason=${stopReason}, continuations=${continuations}`)
+  }
+
   // One structured log line per question -- tier/usage only, no user text.
   console.log(
-    JSON.stringify({ evt: 'llm', tier, escalated, model, ms: Date.now() - startedAt, usage })
+    JSON.stringify({
+      evt: 'llm', tier, escalated, model, ms: Date.now() - startedAt, usage,
+      stop: stopReason, continuations,
+    })
   )
 
   return { text, tier, escalated, usage, model }
