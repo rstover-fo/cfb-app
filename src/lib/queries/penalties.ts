@@ -184,6 +184,11 @@ export async function queryPenaltyLog(filter: PenaltyLogFilter): Promise<McpResu
 
   const { data, error } = await query
     .order('season', { ascending: false })
+    // Postseason week numbers restart at 1, so week alone would bury bowl/
+    // playoff penalties under the whole regular season. season_type ASC puts
+    // 'postseason' before 'regular' within a season, keeping the newest games
+    // first (mirror image of queryTeamPenaltyGames' chronological sort).
+    .order('season_type', { ascending: true })
     .order('week', { ascending: false })
     .order('game_id', { ascending: true })
     .order('period', { ascending: true })

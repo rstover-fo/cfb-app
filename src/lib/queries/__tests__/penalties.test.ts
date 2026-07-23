@@ -119,6 +119,23 @@ describe('queryPenaltyLog', () => {
     expect(chain.eq).not.toHaveBeenCalledWith('infraction', expect.anything())
   })
 
+  it('sorts postseason before regular within a season so bowl penalties survive the row cap', async () => {
+    const mock = mockClient({ apiTables: { penalty_log: ok([]) } })
+    await queryPenaltyLog({ team: 'Oklahoma', season: 2024 })
+
+    const chain = apiChain(mock)
+    const orderCalls = chain.order.mock.calls
+    expect(orderCalls).toEqual([
+      ['season', { ascending: false }],
+      // 'postseason' < 'regular', so ascending puts the newest games first
+      // despite postseason week numbers restarting at 1.
+      ['season_type', { ascending: true }],
+      ['week', { ascending: false }],
+      ['game_id', { ascending: true }],
+      ['period', { ascending: true }],
+    ])
+  })
+
   it('defaults the limit to 50 and clamps caller limits at DEFAULT_ROW_CAP', async () => {
     const first = mockClient({ apiTables: { penalty_log: ok([]) } })
     await queryPenaltyLog({ season: 2024 })
