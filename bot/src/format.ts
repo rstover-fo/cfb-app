@@ -234,66 +234,70 @@ export function buildTeamEmbed(detail: TeamDetailRow | null, history: TeamHistor
 // /matchup -- api.matchup + api.game_detail
 // ---------------------------------------------------------------------------
 
+// api.matchup serializes camelCase (unlike the snake_case api.* table views) --
+// shapes verified against a live query_matchup response, not guessed.
 export interface MatchupRow {
-  team1: string | null
-  team2: string | null
-  total_games: number | null
-  team1_wins: number | null
-  team2_wins: number | null
+  teamA: string | null
+  teamB: string | null
+  totalGames: number | null
+  teamAWins: number | null
+  teamBWins: number | null
   ties: number | null
-  first_meeting: number | null
-  last_meeting: number | null
-  team1_season: number | null
-  team1_wins_season: number | null
-  team1_losses_season: number | null
-  team1_sp_rank: number | null
-  team2_season: number | null
-  team2_wins_season: number | null
-  team2_losses_season: number | null
-  team2_sp_rank: number | null
+  firstMeeting: number | null
+  lastMeeting: number | null
+  streak: { team: string | null; count: number | null } | null
 }
 
+// query_matchup's games rows are a camelCase A/B projection of
+// api.game_detail (teamAScore/teamAHome), NOT the snake_case
+// home_team/home_points shape query_games returns.
 export interface MatchupGameRow {
   season: number
-  home_team: string
-  away_team: string
-  home_points: number | null
-  away_points: number | null
-  start_date: string
+  seasonType: string | null
+  teamAScore: number | null
+  teamBScore: number | null
+  teamAHome: boolean | null
+  neutralSite: boolean | null
+  winner: string | null
+  venue: string | null
 }
 
 export function buildMatchupEmbed(
   matchup: MatchupRow,
   games: MatchupGameRow[],
-  teamA: string,
-  teamB: string
+  teamAFallback: string,
+  teamBFallback: string
 ): EmbedBuilder {
-  const team1 = matchup.team1 ?? teamA
-  const team2 = matchup.team2 ?? teamB
+  const teamA = matchup.teamA ?? teamAFallback
+  const teamB = matchup.teamB ?? teamBFallback
   const embed = new EmbedBuilder()
     .setColor(COLOR_INFO)
-    .setTitle(`${team1} vs ${team2}`)
+    .setTitle(`${teamA} vs ${teamB}`)
     .setFooter({ text: footerText('api.matchup + api.game_detail') })
 
   const seriesLine =
-    matchup.total_games != null && matchup.total_games > 0
-      ? `All-time: **${team1} ${matchup.team1_wins ?? 0}–${matchup.team2_wins ?? 0} ${team2}**` +
-        `${matchup.ties ? ` (${matchup.ties} ties)` : ''} across ${matchup.total_games} games` +
-        `${matchup.first_meeting ? ` since ${matchup.first_meeting}` : ''}`
+    matchup.totalGames != null && matchup.totalGames > 0
+      ? `All-time: **${teamA} ${matchup.teamAWins ?? 0}–${matchup.teamBWins ?? 0} ${teamB}**` +
+        `${matchup.ties ? ` (${matchup.ties} ties)` : ''} across ${matchup.totalGames} games` +
+        `${matchup.firstMeeting ? ` since ${matchup.firstMeeting}` : ''}`
       : 'These teams have no recorded meetings.'
 
-  const thisSeasonLine =
-    matchup.team1_season != null || matchup.team2_season != null
-      ? `This season: ${team1} ${matchup.team1_wins_season ?? 0}-${matchup.team1_losses_season ?? 0} (${fmtRank(matchup.team1_sp_rank)}) · ` +
-        `${team2} ${matchup.team2_wins_season ?? 0}-${matchup.team2_losses_season ?? 0} (${fmtRank(matchup.team2_sp_rank)})`
+  const streakLine =
+    matchup.streak?.team && (matchup.streak.count ?? 0) > 1
+      ? `${matchup.streak.team} has won ${matchup.streak.count} straight`
       : null
 
-  embed.setDescription([seriesLine, thisSeasonLine].filter((l): l is string => l != null).join('\n'))
+  embed.setDescription([seriesLine, streakLine].filter((l): l is string => l != null).join('\n'))
 
   if (games.length > 0) {
-    const lines = games
-      .slice(0, 5)
-      .map(g => `**${g.season}:** ${g.away_team} ${g.away_points ?? '—'} @ ${g.home_team} ${g.home_points ?? '—'}`)
+    const lines = games.slice(0, 5).map(g => {
+      const homeIsA = g.teamAHome !== false
+      const [homeName, homeScore, awayName, awayScore] = homeIsA
+        ? [teamA, g.teamAScore, teamB, g.teamBScore]
+        : [teamB, g.teamBScore, teamA, g.teamAScore]
+      const sep = g.neutralSite ? 'vs' : '@'
+      return `**${g.season}:** ${awayName} ${awayScore ?? '—'} ${sep} ${homeName} ${homeScore ?? '—'}`
+    })
     embed.addFields(capFields([{ name: 'Recent Meetings', value: lines.join('\n') }]))
   }
 
@@ -363,7 +367,6 @@ export interface LeaderRow {
   sp_rating: number | null
   sp_rank: number | null
   epa_total: number | null
-  epa_rank: number | null
 }
 
 export interface LeadersEmbedOptions {
@@ -394,7 +397,9 @@ function leaderStatLine(row: LeaderRow, metric: LeaderboardMetric): string {
     case 'sp_rating':
       return `${fmtNum(row.sp_rating)} (${fmtRank(row.sp_rank)})`
     case 'wepa':
-      return `${fmtNum(row.epa_total)} adj. EPA (${fmtRank(row.epa_rank)})`
+      // api.team_wepa_season has no rank column -- rows arrive best-to-worst,
+      // so the list's own numbering is the rank.
+      return `${fmtNum(row.epa_total)} adj. EPA`
   }
 }
 

@@ -69,9 +69,11 @@ describe('GoldenSetSchema', () => {
 })
 
 describe('loadGoldenSet against the real golden.json', () => {
-  it('parses the real file and has exactly 25 entries', async () => {
+  it('parses the real file with at least the original 25 entries', async () => {
     const golden = await loadGoldenSet(REAL_GOLDEN_PATH)
-    expect(golden).toHaveLength(25)
+    // A floor, not an exact count: the golden set grows as live failures
+    // (e.g. future-season-schedule) get pinned as regression entries.
+    expect(golden.length).toBeGreaterThanOrEqual(25)
   })
 
   it('every id is unique', async () => {

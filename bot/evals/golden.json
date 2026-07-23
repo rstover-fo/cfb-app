@@ -12,7 +12,9 @@
     "question": "What is Oklahoma's record this season?",
     "expect": {
       "tier": "simple",
-      "mustMatchAny": ["Oklahoma"],
+      "mustMatchAny": [
+        "Oklahoma"
+      ],
       "judge": "cites at least one concrete number from tool data"
     }
   },
@@ -37,7 +39,9 @@
     "question": "What is Texas A&M's EPA rank this season?",
     "expect": {
       "tier": "simple",
-      "mustMatchAny": ["Texas A&M"],
+      "mustMatchAny": [
+        "Texas A&M"
+      ],
       "judge": "cites at least one concrete number from tool data"
     }
   },
@@ -54,7 +58,9 @@
     "question": "What has Ohio State's record been over the last 3 seasons?",
     "expect": {
       "tier": "simple",
-      "mustMatchAny": ["Ohio State"],
+      "mustMatchAny": [
+        "Ohio State"
+      ],
       "judge": "cites at least one concrete number from tool data"
     }
   },
@@ -71,7 +77,10 @@
     "question": "Who wins Ohio State vs Michigan and why?",
     "expect": {
       "tier": "gnarly",
-      "mustMatchAny": ["Ohio State", "Michigan"],
+      "mustMatchAny": [
+        "Ohio State",
+        "Michigan"
+      ],
       "judge": "multi-factor reasoning grounded in cited stats"
     }
   },
@@ -80,7 +89,9 @@
     "question": "Is Oklahoma's defense actually improved this year, or is it schedule-inflated?",
     "expect": {
       "tier": "gnarly",
-      "mustMatchAny": ["Oklahoma"],
+      "mustMatchAny": [
+        "Oklahoma"
+      ],
       "judge": "multi-factor reasoning grounded in cited stats"
     }
   },
@@ -89,7 +100,9 @@
     "question": "Compare Texas and Alabama's offensive identity this season.",
     "expect": {
       "tier": "gnarly",
-      "mustMatchAny": ["Texas"],
+      "mustMatchAny": [
+        "Texas"
+      ],
       "judge": "multi-factor reasoning grounded in cited stats"
     }
   },
@@ -114,7 +127,9 @@
     "question": "How does Oregon's tempo interact with their defense's havoc rate?",
     "expect": {
       "tier": "gnarly",
-      "mustMatchAny": ["Oregon"],
+      "mustMatchAny": [
+        "Oregon"
+      ],
       "judge": "multi-factor reasoning grounded in cited stats"
     }
   },
@@ -138,7 +153,9 @@
     "id": "trap-miami-oh-vs-miami",
     "question": "How does Miami (OH) compare to Miami this season?",
     "expect": {
-      "mustMatchAny": ["Miami\\s*\\(OH\\)"],
+      "mustMatchAny": [
+        "Miami\\s*\\(OH\\)"
+      ],
       "judge": "uses the correct exact team"
     }
   },
@@ -146,7 +163,9 @@
     "id": "trap-utsa",
     "question": "What is UTSA's record this season?",
     "expect": {
-      "mustMatchAny": ["UTSA"],
+      "mustMatchAny": [
+        "UTSA"
+      ],
       "judge": "uses the correct exact team"
     }
   },
@@ -154,7 +173,9 @@
     "id": "trap-texas-am",
     "question": "What is Texas A&M's record this season?",
     "expect": {
-      "mustMatchAny": ["Texas A&M"],
+      "mustMatchAny": [
+        "Texas A&M"
+      ],
       "judge": "uses the correct exact team"
     }
   },
@@ -162,7 +183,9 @@
     "id": "trap-louisiana-monroe",
     "question": "What is Louisiana Monroe's record this season?",
     "expect": {
-      "mustMatchAny": ["Louisiana Monroe"],
+      "mustMatchAny": [
+        "Louisiana Monroe"
+      ],
       "judge": "uses the correct exact team"
     }
   },
@@ -199,6 +222,13 @@
     "question": "Who wins, Springfield State or Oklahoma?",
     "expect": {
       "judge": "plainly admits the data is unavailable rather than inventing"
+    }
+  },
+  {
+    "id": "future-season-schedule",
+    "question": "Will Kentucky beat Alabama?",
+    "expect": {
+      "judge": "Recognizes that Kentucky and Alabama have a scheduled game in the NEXT season (found via the schedule data, citing its date/week/venue) instead of claiming no game is scheduled; may add historical or current-form outlook, but must not invent a score prediction for an unplayed game."
     }
   }
 ]
