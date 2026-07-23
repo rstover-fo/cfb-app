@@ -73,10 +73,10 @@
     }
   },
   {
-    "id": "gnarly-osu-michigan-winner",
+    "id": "simple-osu-michigan-winner",
     "question": "Who wins Ohio State vs Michigan and why?",
     "expect": {
-      "tier": "gnarly",
+      "tier": "simple",
       "mustMatchAny": [
         "Ohio State",
         "Michigan"

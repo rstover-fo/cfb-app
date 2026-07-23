@@ -82,17 +82,21 @@ describe('loadGoldenSet against the real golden.json', () => {
     expect(new Set(ids).size).toBe(ids.length)
   })
 
-  it('matches the plan distribution: 8 simple, 8 gnarly, 4 exact-name traps, 5 must-admit-missing', async () => {
+  it('keeps every question category represented', async () => {
+    // Floors, not exact counts: entries get added (pinned live regressions)
+    // and re-tiered (the router-policy retune moved single-matchup who-wins
+    // questions to the simple tier). What matters is that each category
+    // keeps meaningful coverage.
     const golden = await loadGoldenSet(REAL_GOLDEN_PATH)
     const simple = golden.filter(e => e.expect.tier === 'simple')
     const gnarly = golden.filter(e => e.expect.tier === 'gnarly')
     const traps = golden.filter(e => e.expect.judge === 'uses the correct exact team')
     const missing = golden.filter(e => e.expect.judge === 'plainly admits the data is unavailable rather than inventing')
 
-    expect(simple).toHaveLength(8)
-    expect(gnarly).toHaveLength(8)
-    expect(traps).toHaveLength(4)
-    expect(missing).toHaveLength(5)
+    expect(simple.length).toBeGreaterThanOrEqual(8)
+    expect(gnarly.length).toBeGreaterThanOrEqual(5)
+    expect(traps.length).toBeGreaterThanOrEqual(4)
+    expect(missing.length).toBeGreaterThanOrEqual(5)
   })
 })
 
