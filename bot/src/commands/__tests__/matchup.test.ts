@@ -15,6 +15,8 @@ beforeEach(() => {
 })
 
 // query_matchup returns the composite {matchup, games} shape as kind: 'message'.
+// Inner rows are camelCase (verified against a live response) -- keep these
+// fixtures shaped like the real API, not like query_games' snake_case rows.
 function compositeResult(matchupRows: unknown[], gameRows: unknown[]) {
   return {
     kind: 'message' as const,
@@ -27,7 +29,7 @@ function compositeResult(matchupRows: unknown[], gameRows: unknown[]) {
 
 describe('matchupCommand option -> tool-arg mapping', () => {
   it('maps team1/team2 options onto team_a/team_b args', async () => {
-    callCfbToolMock.mockResolvedValue(compositeResult([{ team_a: 'Oklahoma', team_b: 'Texas' }], []))
+    callCfbToolMock.mockResolvedValue(compositeResult([{ teamA: 'Oklahoma', teamB: 'Texas', totalGames: 1 }], []))
     const interaction = fakeChatInputInteraction({ strings: { team1: 'Oklahoma', team2: 'Texas' } })
 
     await matchupCommand.execute(interaction)
@@ -40,8 +42,8 @@ describe('matchupCommand replies', () => {
   it('renders matchup + recent games into an embed', async () => {
     callCfbToolMock.mockResolvedValue(
       compositeResult(
-        [{ team_a: 'Oklahoma', team_b: 'Texas', team_a_wins: 51, team_b_wins: 45, ties: 5 }],
-        [{ season: 2025, home_team: 'Texas', away_team: 'Oklahoma', home_points: 21, away_points: 24 }]
+        [{ teamA: 'Oklahoma', teamB: 'Texas', totalGames: 101, teamAWins: 51, teamBWins: 45, ties: 5 }],
+        [{ season: 2025, teamAScore: 24, teamBScore: 21, teamAHome: false, neutralSite: true, winner: 'Oklahoma' }]
       )
     )
     const interaction = fakeChatInputInteraction({ strings: { team1: 'Oklahoma', team2: 'Texas' } })

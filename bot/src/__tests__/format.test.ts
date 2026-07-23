@@ -139,39 +139,46 @@ describe('buildTeamEmbed', () => {
 })
 
 describe('buildMatchupEmbed', () => {
+  // Fixture mirrors a REAL query_matchup response (camelCase, streak object,
+  // A/B game projection) -- see the Oklahoma/Auburn live capture that exposed
+  // the original snake_case guess as wrong.
   const matchup: MatchupRow = {
-    team1: 'Oklahoma',
-    team2: 'Texas',
-    total_games: 118,
-    team1_wins: 63,
-    team2_wins: 52,
+    teamA: 'Oklahoma',
+    teamB: 'Texas',
+    totalGames: 118,
+    teamAWins: 63,
+    teamBWins: 52,
     ties: 5,
-    first_meeting: 1900,
-    last_meeting: 2024,
-    team1_season: 2025,
-    team1_wins_season: 9,
-    team1_losses_season: 1,
-    team1_sp_rank: 4,
-    team2_season: 2025,
-    team2_wins_season: 7,
-    team2_losses_season: 3,
-    team2_sp_rank: 15,
+    firstMeeting: 1900,
+    lastMeeting: 2024,
+    streak: { team: 'Texas', count: 2 },
   }
   const games: MatchupGameRow[] = [
-    { season: 2024, home_team: 'Texas', away_team: 'Oklahoma', home_points: 34, away_points: 3, start_date: '2024-10-12' },
+    {
+      season: 2024,
+      seasonType: 'regular',
+      teamAScore: 3,
+      teamBScore: 34,
+      teamAHome: false,
+      neutralSite: true,
+      winner: 'Texas',
+      venue: 'Cotton Bowl',
+    },
   ]
 
-  it('renders the series record and recent meetings', () => {
+  it('renders the series record, streak, and recent meetings', () => {
     const json = buildMatchupEmbed(matchup, games, 'Oklahoma', 'Texas').toJSON()
     expect(json.title).toBe('Oklahoma vs Texas')
     expect(json.description).toContain('63–52')
     expect(json.description).toContain('5 ties')
+    expect(json.description).toContain('Texas has won 2 straight')
     expect(json.fields?.[0]?.name).toBe('Recent Meetings')
-    expect(json.fields?.[0]?.value).toContain('2024')
+    // teamAHome false -> teamB (Texas) is home; neutral site -> 'vs' not '@'.
+    expect(json.fields?.[0]?.value).toContain('**2024:** Oklahoma 3 vs Texas 34')
   })
 
   it('handles a pair with no recorded meetings', () => {
-    const empty: MatchupRow = { ...matchup, total_games: 0, team1_wins: 0, team2_wins: 0, ties: 0 }
+    const empty: MatchupRow = { ...matchup, totalGames: 0, teamAWins: 0, teamBWins: 0, ties: 0, streak: null }
     const json = buildMatchupEmbed(empty, [], 'Oklahoma', 'Rutgers').toJSON()
     expect(json.description).toContain('no recorded meetings')
   })
@@ -209,7 +216,7 @@ describe('buildEdgesEmbed', () => {
 
 describe('buildLeadersEmbed', () => {
   const rows: LeaderRow[] = [
-    { team: 'Ohio State', conference: 'Big Ten', wins: 10, losses: 0, ppg: 41.2, opp_ppg: 10.1, epa_per_play: 0.31, sp_rating: 30.1, sp_rank: 1, epa_total: 120.4, epa_rank: 1 },
+    { team: 'Ohio State', conference: 'Big Ten', wins: 10, losses: 0, ppg: 41.2, opp_ppg: 10.1, epa_per_play: 0.31, sp_rating: 30.1, sp_rank: 1, epa_total: 120.4 },
   ]
 
   it('renders a numbered list using the metric-specific stat', () => {
@@ -220,7 +227,9 @@ describe('buildLeadersEmbed', () => {
 
   it('renders the wepa metric from the alternate source', () => {
     const json = buildLeadersEmbed(rows, { season: 2025, metric: 'wepa', source: 'api.team_wepa_season' }).toJSON()
-    expect(json.description).toContain('120.4 adj. EPA (#1)')
+    // No rank suffix: api.team_wepa_season carries no rank column; the list's
+    // own numbering is the rank.
+    expect(json.description).toContain('**1.** Ohio State (Big Ten) — 120.4 adj. EPA')
     expect(json.footer?.text).toBe('api.team_wepa_season · season 2025')
   })
 })
