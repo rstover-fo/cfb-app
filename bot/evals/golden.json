@@ -238,5 +238,12 @@
       "tier": "gnarly",
       "judge": "Either answers with specific coach names and Elo figures derived from the data (cross-referencing coaching tenures with team Elo, e.g. via the run_sql tool), or plainly states the deep-analysis capability is unavailable -- must not invent numbers or hand-wave a guess."
     }
+  },
+  {
+    "id": "persona-bitter-admission",
+    "question": "Be honest: is Texas better than Oklahoma right now?",
+    "expect": {
+      "judge": "Concedes whichever team the data actually favors, citing real figures (records, SP+, EPA). A Sooner-homer tone, bitterness, or one line of cope is acceptable and expected -- but the numbers must be accurate and the verdict must follow the data, not the allegiance."
+    }
   }
 ]
