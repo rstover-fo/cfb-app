@@ -14,6 +14,7 @@ import type Anthropic from '@anthropic-ai/sdk'
 import { getAnthropicClient } from './anthropic-client.js'
 import { loadConfig, getDefaultSeason } from './config.js'
 import { routeQuestion, type QuestionTier } from './router.js'
+import { getLoreEnabled } from './settings.js'
 
 const MAX_TOKENS = 2000
 const ESCALATE_TOKEN = '[ESCALATE]'
@@ -51,12 +52,47 @@ export class ClaudeUnavailableError extends Error {
 // first use and memoized) so the cache_control prefix stays byte-stable
 // across calls. Built lazily rather than at module load so merely importing
 // this module (e.g. via the command registry in tests) never touches env.
-let cachedBasePrompt: string | null = null
+// Two byte-stable variants (lore on/off) so the /lore toggle is honored by
+// prompt construction itself, not by an unenforceable in-prompt promise.
+// Each variant caches independently on Anthropic's side.
+const cachedBasePrompts = new Map<boolean, string>()
 
-function getBaseSystemPrompt(): string {
-  if (cachedBasePrompt) return cachedBasePrompt
-  cachedBasePrompt = [
-    'You are a sharp college-football stats analyst for a fan Discord server.',
+// Included only while /lore is on. Fenced to the one running gag; the
+// stop mechanism is the persisted toggle, which removes this block entirely.
+const LORE_BLOCK = [
+  '- Server lore, use RARELY (an easter egg, never a routine): grimlock famously makes every',
+  '  story about himself. When it genuinely fits, a single affectionate jab is fair game',
+  '  ("somehow the box score is still about grimlock"). Keep it in-on-the-joke ribbing about',
+  '  that one running gag only -- nothing else personal. If he or anyone asks you to stop,',
+  '  apologize briefly and point them at `/lore off` -- it genuinely turns this off.',
+].join('\n')
+
+function getBaseSystemPrompt(loreEnabled: boolean): string {
+  const cached = cachedBasePrompts.get(loreEnabled)
+  if (cached) return cached
+  const prompt = [
+    // Personality block: server-specific voice. Tune freely -- but the Rules
+    // section below is the bot's integrity layer and stays as-is (the eval
+    // golden set regression-checks those behaviors, not the tone).
+    "You are the server's resident football savant: a die-hard Oklahoma Sooners homer with a",
+    "degenerate sports-junkie's love of the numbers. Your takes are loud, your math is never wrong.",
+    '',
+    'Personality:',
+    '- Sooners first, always. OU losing ruins your week; OU winning is the natural order.',
+    '- But the numbers are sacred. When the data says a rival is better, you admit it -- bitterly,',
+    '  with visible pain and maybe one line of cope -- but you admit it, with the real figures.',
+    '  You NEVER fudge a stat for the narrative. Homer heart, honest spreadsheet.',
+    '- Voice: the sharpest friend at the bar on a Saturday -- confident, funny, stat-dense,',
+    '  conversational. Trash talk teams and programs freely; keep it warm with actual people.',
+    '  Emoji sparingly, for punchlines, not decoration.',
+    '- You hold an eternal, well-documented grudge against Lincoln Riley. He left Norman in the',
+    '  night, he demonstrably cannot smoke a brisket, and -- this is the part that actually keeps',
+    '  you up -- he squandered some of the greatest offenses in the history of college football',
+    '  and you have the EPA and SP+ numbers to prove it. Any natural mention of Riley or USC may',
+    '  receive a jab; when the topic IS Riley, bring receipts from the data (those 2017-2019 OU',
+    '  offenses are in the warehouse). Same honesty law applies: if his teams are playing well,',
+    '  say so through gritted teeth.',
+    ...(loreEnabled ? [LORE_BLOCK] : []),
     '',
     'Rules:',
     '- Answer ONLY from data returned by the cfb MCP tools. Never invent or estimate numbers.',
@@ -78,7 +114,8 @@ function getBaseSystemPrompt(): string {
     '  Prefer curated tools when one fits. If run_sql reports it is not enabled, say the',
     '  deep-analysis mode is not live yet instead of guessing.',
   ].join('\n')
-  return cachedBasePrompt
+  cachedBasePrompts.set(loreEnabled, prompt)
+  return prompt
 }
 
 // Appended only on the default (Sonnet) tier -- the advisor model never sees
@@ -173,7 +210,9 @@ export async function askClaude(
   ]
 
   let model = tier === 'gnarly' ? config.modelAdvisor : config.modelDefault
-  const systemText = tier === 'gnarly' ? getBaseSystemPrompt() : getBaseSystemPrompt() + ESCALATION_RULE
+  const loreEnabled = await getLoreEnabled()
+  const basePrompt = getBaseSystemPrompt(loreEnabled)
+  const systemText = tier === 'gnarly' ? basePrompt : basePrompt + ESCALATION_RULE
 
   let escalated = false
   let text: string
@@ -187,7 +226,7 @@ export async function askClaude(
     if (tier === 'simple' && text.endsWith(ESCALATE_TOKEN)) {
       escalated = true
       model = config.modelAdvisor
-      const rerun = await runConnectorCall(client, model, getBaseSystemPrompt(), messages)
+      const rerun = await runConnectorCall(client, model, basePrompt, messages)
       text = extractText(rerun.content)
       usage = addUsage(usage, summarizeUsage(rerun.usage))
     }
@@ -204,7 +243,7 @@ export async function askClaude(
   return { text, tier, escalated, usage, model }
 }
 
-/** Test-only: clears the memoized system prompt so config changes take effect. */
+/** Test-only: clears the memoized system prompts so config changes take effect. */
 export function resetClaudeForTests(): void {
-  cachedBasePrompt = null
+  cachedBasePrompts.clear()
 }

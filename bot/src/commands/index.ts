@@ -25,6 +25,7 @@ import { leadersCommand } from './leaders.js'
 import { playerCommand } from './player.js'
 import { askCommand } from './ask.js'
 import { myTeamCommand } from './myteam.js'
+import { loreCommand } from './lore.js'
 import { helpCommand } from './help.js'
 
 export const commands: Command[] = [
@@ -37,6 +38,7 @@ export const commands: Command[] = [
   playerCommand,
   askCommand,
   myTeamCommand,
+  loreCommand,
   helpCommand,
 ]
 
