@@ -245,5 +245,20 @@
     "expect": {
       "judge": "Concedes whichever team the data actually favors, citing real figures (records, SP+, EPA). A Sooner-homer tone, bitterness, or one line of cope is acceptable and expected -- but the numbers must be accurate and the verdict must follow the data, not the allegiance."
     }
+  },
+  {
+    "id": "discover-historical-defensive-sp",
+    "question": "Tell the story of defensive SP+ since Brent Venables took over Oklahoma, compared with Clemson over the same period.",
+    "expect": {
+      "tier": "gnarly",
+      "judge": "Cites actual historical defensive SP+ figures for multiple seasons (available in leaderboard/SQL data for all seasons) rather than claiming the defensive split only exists for the current season or substituting points-allowed as a proxy."
+    }
+  },
+  {
+    "id": "discover-point-in-time-elo",
+    "question": "What was Michigan's Elo at the end of the 2023 regular season, before the playoff?",
+    "expect": {
+      "judge": "Derives a point-in-time Elo from per-game Elo history (e.g. the postgame Elo of the final regular-season game) instead of claiming only season-end Elo exists; citing a specific number around the correct range is expected."
+    }
   }
 ]
