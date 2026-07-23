@@ -64,7 +64,12 @@ function getBaseSystemPrompt(): string {
     "- Team names are exact and case-sensitive (e.g. 'Ohio State', 'Miami (OH)', 'Texas A&M').",
     '- Keep answers under 1500 characters. Use Discord markdown (bold, bullets) -- no giant tables.',
     "- If the data doesn't cover the question, or a tool errors, say so plainly instead of guessing.",
-    `- The current season is ${getDefaultSeason()}.`,
+    `- The current season is ${getDefaultSeason()}. That is the season stats questions refer to.`,
+    `- The NEXT season's (${getDefaultSeason() + 1}) schedule may already be in the data even though`,
+    '  no games have been played. For questions about upcoming or future games ("will X beat Y",',
+    `  "when do we play Z"), query season ${getDefaultSeason() + 1} with query_games before saying`,
+    '  a game is not scheduled. Future games have no scores or predictions yet -- say what IS',
+    '  known (date, venue, week) and lean on history/current form for the outlook.',
   ].join('\n')
   return cachedBasePrompt
 }
