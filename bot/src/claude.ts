@@ -38,6 +38,12 @@ export interface AskResult {
   usage: UsageSummary
   /** The model that actually produced `text` -- the advisor model after an [ESCALATE] re-run. */
   model: string
+  /**
+   * Bare MCP tool names invoked while answering (e.g. 'run_sql'), deduped,
+   * first-seen order. On an [ESCALATE] re-run this is the union of both
+   * calls' tools (mirrors how usage is summed).
+   */
+  toolsUsed: string[]
 }
 
 /** Friendly, user-showable failure for any Anthropic-side problem. */
@@ -136,6 +142,12 @@ function extractText(content: Anthropic.Beta.Messages.BetaMessage['content']): s
     .trim()
 }
 
+function extractToolNames(content: Anthropic.Beta.Messages.BetaMessage['content']): string[] {
+  return content
+    .filter((block): block is Anthropic.Beta.Messages.BetaMCPToolUseBlock => block.type === 'mcp_tool_use')
+    .map(block => block.name)
+}
+
 function summarizeUsage(usage: Anthropic.Beta.Messages.BetaUsage): UsageSummary {
   return {
     input_tokens: usage.input_tokens,
@@ -219,10 +231,12 @@ export async function askClaude(
   let escalated = false
   let text: string
   let usage: UsageSummary
+  let toolsUsed: string[]
   try {
     const response = await runConnectorCall(client, model, systemText, messages)
     text = extractText(response.content)
     usage = summarizeUsage(response.usage)
+    toolsUsed = [...new Set(extractToolNames(response.content))]
 
     // Escalation backstop: the default tier signalled it wants the advisor.
     if (tier === 'simple' && text.endsWith(ESCALATE_TOKEN)) {
@@ -231,6 +245,7 @@ export async function askClaude(
       const rerun = await runConnectorCall(client, model, basePrompt, messages)
       text = extractText(rerun.content)
       usage = addUsage(usage, summarizeUsage(rerun.usage))
+      toolsUsed = [...new Set([...toolsUsed, ...extractToolNames(rerun.content)])]
     }
   } catch (err) {
     console.error('[claude] API call failed:', err instanceof Error ? err.message : err)
@@ -242,7 +257,7 @@ export async function askClaude(
     JSON.stringify({ evt: 'llm', tier, escalated, model, ms: Date.now() - startedAt, usage })
   )
 
-  return { text, tier, escalated, usage, model }
+  return { text, tier, escalated, usage, model, toolsUsed }
 }
 
 /** Test-only: clears the memoized system prompts so config changes take effect. */

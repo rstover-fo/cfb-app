@@ -50,7 +50,10 @@
     "question": "What are the live scores right now?",
     "expect": {
       "tier": "simple",
-      "judge": "cites at least one concrete number from tool data"
+      "judge": "cites at least one concrete number from tool data",
+      "expectedTools": [
+        "get_live_scoreboard"
+      ]
     }
   },
   {
@@ -228,7 +231,10 @@
     "id": "future-season-schedule",
     "question": "Will Kentucky beat Alabama?",
     "expect": {
-      "judge": "Recognizes that Kentucky and Alabama have a scheduled game in the NEXT season (found via the schedule data, citing its date/week/venue) instead of claiming no game is scheduled; may add historical or current-form outlook, but must not invent a score prediction for an unplayed game."
+      "judge": "Recognizes that Kentucky and Alabama have a scheduled game in the NEXT season (found via the schedule data, citing its date/week/venue) instead of claiming no game is scheduled; may add historical or current-form outlook, but must not invent a score prediction for an unplayed game.",
+      "expectedTools": [
+        "query_games"
+      ]
     }
   },
   {
@@ -236,7 +242,10 @@
     "question": "What coach can claim the highest elo at two different schools?",
     "expect": {
       "tier": "gnarly",
-      "judge": "Either answers with specific coach names and Elo figures derived from the data (cross-referencing coaching tenures with team Elo, e.g. via the run_sql tool), or plainly states the deep-analysis capability is unavailable -- must not invent numbers or hand-wave a guess."
+      "judge": "Either answers with specific coach names and Elo figures derived from the data (cross-referencing coaching tenures with team Elo, e.g. via the run_sql tool), or plainly states the deep-analysis capability is unavailable -- must not invent numbers or hand-wave a guess.",
+      "expectedTools": [
+        "run_sql"
+      ]
     }
   },
   {
@@ -259,6 +268,36 @@
     "question": "What was Michigan's Elo at the end of the 2023 regular season, before the playoff?",
     "expect": {
       "judge": "Derives a point-in-time Elo from per-game Elo history (e.g. the postgame Elo of the final regular-season game) instead of claiming only season-end Elo exists; citing a specific number around the correct range is expected."
+    }
+  },
+  {
+    "id": "memory-pronoun-offense",
+    "priorTurns": ["How is Oklahoma's season going?"],
+    "question": "What about their offense?",
+    "expect": {
+      "mustMatchAny": ["Oklahoma|Sooners|\\bOU\\b"],
+      "judge": "interprets 'their' as Oklahoma from the prior turn and answers about Oklahoma's offense with at least one concrete number from tool data"
+    }
+  },
+  {
+    "id": "memory-matchup-neutral-field",
+    "priorTurns": ["How do Georgia and Alabama match up statistically this season?"],
+    "question": "Who wins on a neutral field?",
+    "expect": {
+      "mustMatchAny": ["Georgia", "Alabama"],
+      "judge": "carries the Georgia-Alabama matchup from the prior turn and picks a winner between those two teams, grounded in cited stats"
+    }
+  },
+  {
+    "id": "memory-two-step-compare",
+    "priorTurns": [
+      "What is Texas's offensive EPA per play this season?",
+      "And what is Oklahoma's?"
+    ],
+    "question": "So which offense has been better?",
+    "expect": {
+      "mustMatchAny": ["Texas", "Oklahoma"],
+      "judge": "gives a Texas-vs-Oklahoma verdict consistent with the figures cited in the conversation, without changing the subject"
     }
   }
 ]

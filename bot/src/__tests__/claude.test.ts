@@ -44,10 +44,11 @@ import { resetAnthropicClientForTests } from '../anthropic-client.js'
 
 function apiResponse(
   text: string,
-  usage: Partial<Record<'input_tokens' | 'output_tokens' | 'cache_creation_input_tokens' | 'cache_read_input_tokens', number>> = {}
+  usage: Partial<Record<'input_tokens' | 'output_tokens' | 'cache_creation_input_tokens' | 'cache_read_input_tokens', number>> = {},
+  extraContent: unknown[] = []
 ) {
   return {
-    content: [{ type: 'text', text }],
+    content: [...extraContent, { type: 'text', text }],
     usage: {
       input_tokens: usage.input_tokens ?? 100,
       output_tokens: usage.output_tokens ?? 50,
@@ -121,6 +122,7 @@ describe('askClaude request shape', () => {
       escalated: false,
       usage: { input_tokens: 100, output_tokens: 50, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
       model: 'claude-sonnet-5',
+      toolsUsed: [],
     })
   })
 
@@ -207,6 +209,20 @@ describe('askClaude text extraction', () => {
       cache_creation_input_tokens: 3,
       cache_read_input_tokens: 4,
     })
+    expect(result.toolsUsed).toEqual(['get_rankings'])
+  })
+
+  it('dedupes tool names preserving first-seen order', async () => {
+    betaCreateMock.mockResolvedValueOnce(
+      apiResponse('answer', {}, [
+        { type: 'mcp_tool_use', id: 't1', name: 'query_team', input: {} },
+        { type: 'mcp_tool_use', id: 't2', name: 'run_sql', input: {} },
+        { type: 'mcp_tool_use', id: 't3', name: 'query_team', input: {} },
+      ])
+    )
+
+    const result = await askClaude('question')
+    expect(result.toolsUsed).toEqual(['query_team', 'run_sql'])
   })
 })
 
@@ -240,6 +256,26 @@ describe('askClaude escalation backstop', () => {
       cache_creation_input_tokens: 7,
       cache_read_input_tokens: 5,
     })
+  })
+
+  it('unions tool names from both calls, deduped, when it re-runs on escalation', async () => {
+    betaCreateMock
+      .mockResolvedValueOnce(
+        apiResponse('Partial answer.\n[ESCALATE]', {}, [
+          { type: 'mcp_tool_use', id: 't1', name: 'query_team', input: {} },
+        ])
+      )
+      .mockResolvedValueOnce(
+        apiResponse('Advisor-grade answer.', {}, [
+          { type: 'mcp_tool_use', id: 't2', name: 'query_team', input: {} },
+          { type: 'mcp_tool_use', id: 't3', name: 'run_sql', input: {} },
+        ])
+      )
+
+    const result = await askClaude('sneaky-deep question')
+
+    expect(result.toolsUsed).toEqual(['query_team', 'run_sql'])
+    expect(result.escalated).toBe(true)
   })
 
   it('does not re-run when a gnarly-tier answer happens to contain the token', async () => {
