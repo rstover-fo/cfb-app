@@ -9,6 +9,8 @@ export const DEFAULT_MAX_CHARS = 2000
 
 export const GoldenEntrySchema = z.object({
   id: z.string().min(1),
+  /** Scripted user turns sent before `question`; the harness runs each for real and threads the bot's answers back as history. Absent = single-turn. */
+  priorTurns: z.array(z.string().min(1)).min(1).optional(),
   question: z.string().min(1),
   expect: z.object({
     /** Expected router tier. Omit if the question could reasonably land on either. */
@@ -21,6 +23,10 @@ export const GoldenEntrySchema = z.object({
     maxChars: z.number().int().positive().optional(),
     /** Natural-language criterion for the Haiku judge call. Omit to skip judging this entry. */
     judge: z.string().min(1).optional(),
+    /** MCP tool names that must ALL appear, unordered, in the FINAL answer's trajectory. */
+    expectedTools: z.array(z.string().min(1)).optional(),
+    /** MCP tool names that must NOT appear in the FINAL answer's trajectory. */
+    forbidTools: z.array(z.string().min(1)).optional(),
   }),
 })
 

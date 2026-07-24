@@ -44,10 +44,11 @@ import { resetAnthropicClientForTests } from '../anthropic-client.js'
 
 function apiResponse(
   text: string,
-  usage: Partial<Record<'input_tokens' | 'output_tokens' | 'cache_creation_input_tokens' | 'cache_read_input_tokens', number>> = {}
+  usage: Partial<Record<'input_tokens' | 'output_tokens' | 'cache_creation_input_tokens' | 'cache_read_input_tokens', number>> = {},
+  extraContent: unknown[] = []
 ) {
   return {
-    content: [{ type: 'text', text }],
+    content: [...extraContent, { type: 'text', text }],
     stop_reason: 'end_turn',
     usage: {
       input_tokens: usage.input_tokens ?? 100,
@@ -140,6 +141,7 @@ describe('askClaude request shape', () => {
       escalated: false,
       usage: { input_tokens: 100, output_tokens: 50, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
       model: 'claude-sonnet-5',
+      toolsUsed: [],
     })
   })
 
@@ -226,6 +228,20 @@ describe('askClaude text extraction', () => {
       cache_creation_input_tokens: 3,
       cache_read_input_tokens: 4,
     })
+    expect(result.toolsUsed).toEqual(['get_rankings'])
+  })
+
+  it('dedupes tool names preserving first-seen order', async () => {
+    betaCreateMock.mockResolvedValueOnce(
+      apiResponse('answer', {}, [
+        { type: 'mcp_tool_use', id: 't1', name: 'query_team', input: {} },
+        { type: 'mcp_tool_use', id: 't2', name: 'run_sql', input: {} },
+        { type: 'mcp_tool_use', id: 't3', name: 'query_team', input: {} },
+      ])
+    )
+
+    const result = await askClaude('question')
+    expect(result.toolsUsed).toEqual(['query_team', 'run_sql'])
   })
 })
 
@@ -250,6 +266,27 @@ describe('askClaude pause_turn continuation', () => {
     // Usage summed across the paused call and the resume
     expect(result.usage.output_tokens).toBe(800)
     expect(result.usage.input_tokens).toBe(200)
+    // Tools invoked BEFORE the pause survive into the final trajectory
+    expect(result.toolsUsed).toEqual(['run_sql'])
+  })
+
+  it('unions tools across a pause and its resume, deduped in first-seen order', async () => {
+    // Paused response used run_sql; the resumed response uses run_sql again
+    // plus get_team_elo before answering -- the trajectory must be the union.
+    betaCreateMock
+      .mockResolvedValueOnce(pausedResponse(500))
+      .mockResolvedValueOnce(
+        apiResponse('Answer.', {}, [
+          { type: 'mcp_tool_use', id: 't2', name: 'run_sql', input: {} },
+          { type: 'mcp_tool_result', tool_use_id: 't2', content: [] },
+          { type: 'mcp_tool_use', id: 't3', name: 'get_team_elo', input: {} },
+          { type: 'mcp_tool_result', tool_use_id: 't3', content: [] },
+        ])
+      )
+
+    const result = await askClaude('deep multi-tool question')
+
+    expect(result.toolsUsed).toEqual(['run_sql', 'get_team_elo'])
   })
 
   it('gives up after the continuation cap instead of looping forever', async () => {
@@ -310,6 +347,26 @@ describe('askClaude escalation backstop', () => {
       cache_creation_input_tokens: 7,
       cache_read_input_tokens: 5,
     })
+  })
+
+  it('unions tool names from both calls, deduped, when it re-runs on escalation', async () => {
+    betaCreateMock
+      .mockResolvedValueOnce(
+        apiResponse('Partial answer.\n[ESCALATE]', {}, [
+          { type: 'mcp_tool_use', id: 't1', name: 'query_team', input: {} },
+        ])
+      )
+      .mockResolvedValueOnce(
+        apiResponse('Advisor-grade answer.', {}, [
+          { type: 'mcp_tool_use', id: 't2', name: 'query_team', input: {} },
+          { type: 'mcp_tool_use', id: 't3', name: 'run_sql', input: {} },
+        ])
+      )
+
+    const result = await askClaude('sneaky-deep question')
+
+    expect(result.toolsUsed).toEqual(['query_team', 'run_sql'])
+    expect(result.escalated).toBe(true)
   })
 
   it('does not re-run when a gnarly-tier answer happens to contain the token', async () => {

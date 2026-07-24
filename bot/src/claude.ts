@@ -47,6 +47,12 @@ export interface AskResult {
   usage: UsageSummary
   /** The model that actually produced `text` -- the advisor model after an [ESCALATE] re-run. */
   model: string
+  /**
+   * Bare MCP tool names invoked while answering (e.g. 'run_sql'), deduped,
+   * first-seen order. Accumulated across every pause_turn resume and, on an
+   * [ESCALATE] re-run, unioned across both turns (mirrors usage summing).
+   */
+  toolsUsed: string[]
 }
 
 /** Friendly, user-showable failure for any Anthropic-side problem. */
@@ -145,6 +151,12 @@ function extractText(content: Anthropic.Beta.Messages.BetaMessage['content']): s
     .trim()
 }
 
+function extractToolNames(content: Anthropic.Beta.Messages.BetaMessage['content']): string[] {
+  return content
+    .filter((block): block is Anthropic.Beta.Messages.BetaMCPToolUseBlock => block.type === 'mcp_tool_use')
+    .map(block => block.name)
+}
+
 function summarizeUsage(usage: Anthropic.Beta.Messages.BetaUsage): UsageSummary {
   return {
     input_tokens: usage.input_tokens,
@@ -194,10 +206,18 @@ async function runConnectorTurn(
   model: string,
   systemText: string,
   messages: Anthropic.Beta.Messages.BetaMessageParam[]
-): Promise<{ response: Anthropic.Beta.Messages.BetaMessage; usage: UsageSummary; continuations: number }> {
+): Promise<{
+  response: Anthropic.Beta.Messages.BetaMessage
+  usage: UsageSummary
+  continuations: number
+  toolsUsed: string[]
+}> {
   let turnMessages = messages
   let response = await runConnectorCall(client, model, systemText, turnMessages)
   let usage = summarizeUsage(response.usage)
+  // Tools invoked before a pause only appear in that paused response's
+  // content -- accumulate across every resume or the trajectory loses them.
+  let toolsUsed = extractToolNames(response.content)
 
   let continuations = 0
   while (response.stop_reason === 'pause_turn' && continuations < MAX_PAUSE_CONTINUATIONS) {
@@ -205,9 +225,10 @@ async function runConnectorTurn(
     turnMessages = [...turnMessages, { role: 'assistant', content: response.content }]
     response = await runConnectorCall(client, model, systemText, turnMessages)
     usage = addUsage(usage, summarizeUsage(response.usage))
+    toolsUsed = [...toolsUsed, ...extractToolNames(response.content)]
   }
 
-  return { response, usage, continuations }
+  return { response, usage, continuations, toolsUsed: [...new Set(toolsUsed)] }
 }
 
 /**
@@ -256,12 +277,14 @@ export async function askClaude(
   let escalated = false
   let text: string
   let usage: UsageSummary
+  let toolsUsed: string[]
   let stopReason: string | null
   let continuations: number
   try {
     const turn = await runConnectorTurn(client, model, systemText, messages)
     text = extractText(turn.response.content)
     usage = turn.usage
+    toolsUsed = turn.toolsUsed
     stopReason = turn.response.stop_reason
     continuations = turn.continuations
 
@@ -272,6 +295,7 @@ export async function askClaude(
       const rerun = await runConnectorTurn(client, model, basePrompt, messages)
       text = extractText(rerun.response.content)
       usage = addUsage(usage, rerun.usage)
+      toolsUsed = [...new Set([...toolsUsed, ...rerun.toolsUsed])]
       stopReason = rerun.response.stop_reason
       continuations += rerun.continuations
     }
@@ -295,7 +319,7 @@ export async function askClaude(
     })
   )
 
-  return { text, tier, escalated, usage, model }
+  return { text, tier, escalated, usage, model, toolsUsed }
 }
 
 /** Test-only: clears the memoized system prompts so config changes take effect. */
