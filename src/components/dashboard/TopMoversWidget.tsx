@@ -25,6 +25,7 @@ function MoverRow({ mover, index }: { mover: Mover; index: number }) {
           width={24}
           height={24}
           className="w-6 h-6 object-contain"
+          unoptimized
         />
       ) : (
         <div

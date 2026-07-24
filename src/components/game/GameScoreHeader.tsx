@@ -26,6 +26,7 @@ export function GameScoreHeader({ game }: GameScoreHeaderProps) {
               width={64}
               height={64}
               className="w-10 h-10 sm:w-16 sm:h-16 object-contain"
+              unoptimized
             />
           ) : (
             <div
@@ -74,6 +75,7 @@ export function GameScoreHeader({ game }: GameScoreHeaderProps) {
               width={64}
               height={64}
               className="w-10 h-10 sm:w-16 sm:h-16 object-contain"
+              unoptimized
             />
           ) : (
             <div

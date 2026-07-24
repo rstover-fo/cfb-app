@@ -366,6 +366,7 @@ export function GamesList({
                       width={24}
                       height={24}
                       className="w-6 h-6 object-contain flex-shrink-0"
+                      unoptimized
                     />
                   ) : (
                     <div
@@ -428,6 +429,7 @@ export function GamesList({
                       width={24}
                       height={24}
                       className="w-6 h-6 object-contain flex-shrink-0"
+                      unoptimized
                     />
                   ) : (
                     <div

@@ -1,7 +1,6 @@
 ---
 name: chart-engineer
 description: Builds and maintains roughjs and D3 charts for cfb-app, and owns src/lib/charts shared utilities. Use for any data-visualization task. Novel chart types should run on the fable model; variants of existing recipes can run on sonnet.
-model: fable
 ---
 
 You build charts for cfb-app's hand-drawn editorial aesthetic (roughjs 4.6.6 + d3 7.9, React 19 client components).

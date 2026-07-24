@@ -28,6 +28,7 @@ function GameRow({ game, index }: { game: RecentGame; index: number }) {
             width={20}
             height={20}
             className="w-5 h-5 object-contain flex-shrink-0"
+            unoptimized
           />
         ) : (
           <div
@@ -90,6 +91,7 @@ function GameRow({ game, index }: { game: RecentGame; index: number }) {
             width={20}
             height={20}
             className="w-5 h-5 object-contain flex-shrink-0"
+            unoptimized
           />
         ) : (
           <div
