@@ -66,8 +66,8 @@ track record** -- which is what's scoped here.
   ~$0.05-0.10 per Sonnet question (~$0.15-0.25 on Opus escalation). The daily
   question cap is what keeps a $49 pass margin-positive; an uncapped heavy user
   would cost more than their pass.
-- Add CFBD Tier 3+ ($10-30/mo, see Phase 0) and Stripe fees (~2.9% + $0.30) to
-  the fixed side. Break-even is still under ~10 passes.
+- Add CFBD Tier 3 ($10/mo, already subscribed) and Stripe fees (~2.9% + $0.30)
+  to the fixed side. Break-even is still under ~10 passes at $49.
 - The bot's existing guardrails (20s cooldown, 10 q/user/day, $10/day global
   budget in `bot/src/limits.ts`) carry over as the safety net. Worst-case LLM
   spend is structurally capped at ~$300/month.
@@ -108,7 +108,20 @@ Exposure here is **contractual and relational** (key revocation, burned
 relationship with a solo maintainer), not IP -- the underlying facts aren't
 copyrightable (*Feist*; *NBA v. Motorola*).
 
-- [ ] Subscribe to **CFBD Tier 3+** ($10-30/mo via Patreon) before charging.
+- [x] ~~Subscribe to **CFBD Tier 3+**~~ -- **already on Tier 3** ($10/mo,
+      confirmed 2026-07-24): 75,000 requests/mo shared across the football and
+      basketball APIs, experimental GraphQL endpoint with real-time
+      subscriptions, and weekly model-training-data downloads from week 5.
+      This is the tier CFBD's own docs point product builders at, so the
+      "are we on a commercial-appropriate plan" question is settled.
+      - Quota is **not** a scaling risk: cfb-app never calls CFBD at runtime --
+        ingestion happens in cfb-database's dlt pipelines, so request volume
+        tracks pipeline frequency, not subscriber count. Paying users add zero
+        CFBD calls.
+      - Two Tier 3 benefits worth designing around later: **GraphQL real-time
+        subscriptions** (a cheaper path for `/live` than polling) and the
+        **weekly model training data** drops (direct input to the house models
+        and any future O/U model).
 - [ ] Email `admin@collegefootballdata.com` (or ask in their Discord):
       one paragraph describing the product -- paid CFB analytics site, stores
       CFBD data in our own Postgres for serving, no data export or API resale,
