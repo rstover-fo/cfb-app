@@ -14,8 +14,14 @@ revenue-critical phases (1-2) target a mid-August launch.
   explorer, and the `/models` accuracy page. The public, verifiable model track
   record *is* the marketing. Never paywall it.
 - **What's paid:** the opinionated, time-sensitive content -- scored matchup
-  edges (`/predictions`), over/under picks (`/ou`), the in-app chat agent, and
-  MCP access.
+  edges and ATS picks (`/predictions`), the in-app chat agent, and MCP access.
+  - Note: there is **no over/under picks product today**. The house models
+    (`elo_v1`, `elo_epa_blend_v1`) produce an expected margin and an `edge` /
+    `edge_pick` against `market_spread` -- i.e. ATS only. O/U *lines* are
+    stored and displayed as context (`over_under`, `ou_result`), but no model
+    predicts totals. An O/U model is a **candidate future feature**, not
+    launch inventory. (`/ou` is an unrelated legacy vanity redirect to the
+    Oklahoma team page.)
 - **Pricing shape:** a one-time **season pass** (not a monthly sub). CFB is a
   5-month sport; monthly subs churn to zero every January and make revenue look
   broken. A season pass matches the fan's mental model.
@@ -25,7 +31,7 @@ revenue-critical phases (1-2) target a mid-August launch.
 | Tier | Price (starting point) | Includes |
 |------|------------------------|----------|
 | Free | $0 | Dashboard, teams, games, rankings, model accuracy page; 3 lifetime chat questions |
-| Season Pass | $29 early-bird / $39 in-season | Predictions, edges, O/U, chat agent (5 questions/day) |
+| Season Pass | $29 early-bird / $39 in-season | Predictions, scored ATS edges, chat agent (5 questions/day) |
 | MCP add-on | +$19/season (or $5/mo) | Personal API key for the MCP endpoint -- bring-your-own-Claude access to the full data surface |
 
 Prices are hypotheses to validate, not commitments. The comparable market
@@ -60,7 +66,7 @@ No code. Blocking items:
       risk. Decide: neutral logo set / plain wordmarks on gated pages, or
       accept the risk knowingly.
 - [ ] **Disclaimer copy.** "Entertainment/informational purposes, not betting
-      advice" on `/predictions` and `/ou`. Selling analytics content is fine
+      advice" on `/predictions`. Selling analytics content is fine
       under Stripe's terms (media product, not a gambling operator), but the
       disclaimer needs to exist.
 - [ ] **Pick launch pricing** (see ladder above) and an early-bird window.
@@ -94,9 +100,9 @@ distinguishable from an anonymous visitor in a server component.
   the `entitlements` row. Verify the webhook signature; make the handler
   idempotent on `event.id`.
 - Gate at the **server-action layer** -- the existing pattern is perfect for
-  this. `fetchScoredMatchupEdges` / the O/U route check entitlement before
-  querying; client components never receive gated data.
-- Gating style: hard paywall on `/predictions` + `/ou` for anonymous users, or
+  this. `fetchScoredMatchupEdges` checks entitlement before querying; client
+  components never receive gated data.
+- Gating style: hard paywall on `/predictions` for anonymous users, or
   **freshness gating** (subscribers see picks Tuesday, free users Saturday
   morning). Freshness gating is a strong option because the free tier still
   demonstrates the product every week.
