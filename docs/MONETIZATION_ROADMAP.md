@@ -31,19 +31,43 @@ revenue-critical phases (1-2) target a mid-August launch.
 | Tier | Price (starting point) | Includes |
 |------|------------------------|----------|
 | Free | $0 | Dashboard, teams, games, rankings, model accuracy page; 3 lifetime chat questions |
-| Season Pass | $29 early-bird / $39 in-season | Predictions, scored ATS edges, chat agent (5 questions/day) |
-| MCP add-on | +$19/season (or $5/mo) | Personal API key for the MCP endpoint -- bring-your-own-Claude access to the full data surface |
+| Season Pass | **$49/season** (one-time, no auto-renew) | Predictions, scored ATS edges, chat agent (5 questions/day) |
+| Week pass | $14.99 | One week of the above -- the trial mechanic |
+| MCP add-on | +$19/season | Personal API key for the MCP endpoint -- bring-your-own-Claude access to the full data surface |
 
-Prices are hypotheses to validate, not commitments. The comparable market
-(picks Discords, Action Network-style products) sits in the $30-100/season band.
+**Why $49 and not $29** (revised after market research, 2026-07-24): $29 sits
+*below* the credibility floor for this category. Normalized to a ~5-month
+season the comparables are SportsLine ~$50, Action Network PRO ~$100/yr,
+Dimers ~$150-200, TeamRankings ~$299/yr, Sharp Football NCAAF **$950/season**.
+Nothing credible sells model ATS picks under ~$10/mo. To an audience anchored
+on $99-950, cheap reads as "no edge" -- $29 would attract *fewer* buyers, not
+more. $49 is the defensible bottom of the real-product band and gives a legible
+value story: a real CFB model at a fan price.
+
+**No auto-renew, deliberately.** The FTC's click-to-cancel Negative Option Rule
+was vacated by the 8th Circuit on 2025-07-08, but ROSCA and state auto-renewal
+laws survive (California's amended ARL took effect 2025-07-01; MN/OR/CO have
+their own). A true one-time season pass sidesteps essentially that entire
+compliance surface. Re-sell manually each August.
+
+A weekly pass is the football-native trial: Dimers ($14.99/wk), Action
+($19.99/wk), and Sharp ($79.99+/wk) all run one. It captures people who only
+care about rivalry week and the CFP.
+
+**Competitive note -- the paid product cannot be "ratings."** Bill Connelly's
+SP+ left the ESPN paywall in May 2025 and is now free alongside Massey and
+Sagarin. The paid tier has to be the **ATS edges plus an honest, timestamped
+track record** -- which is what's scoped here.
 
 ### Unit economics
 
 - Fixed infra: ~$10-45/month (Railway + Supabase). Break-even at 2-10 passes.
 - Marginal cost per subscriber: cents -- **except** the chat agent, which costs
   ~$0.05-0.10 per Sonnet question (~$0.15-0.25 on Opus escalation). The daily
-  question cap is what keeps a $29 pass margin-positive; an uncapped heavy user
+  question cap is what keeps a $49 pass margin-positive; an uncapped heavy user
   would cost more than their pass.
+- Add CFBD Tier 3+ ($10-30/mo, see Phase 0) and Stripe fees (~2.9% + $0.30) to
+  the fixed side. Break-even is still under ~10 passes.
 - The bot's existing guardrails (20s cooldown, 10 q/user/day, $10/day global
   budget in `bot/src/limits.ts`) carry over as the safety net. Worst-case LLM
   spend is structurally capped at ~$300/month.
@@ -56,20 +80,141 @@ Prices are hypotheses to validate, not commitments. The comparable market
 
 ## Phase 0 -- Prerequisites (now, before any paid launch)
 
-No code. Blocking items:
+Researched 2026-07-24. **Nothing found blocks a paid launch.** No license is
+required to sell picks/analytics content in the US, and Stripe does not treat
+it as gambling. What follows is one cheap subscription, one email, one
+component, and a page of boilerplate.
 
-- [ ] **CFBD licensing.** cfb-database is fed by CollegeFootballData.com;
-      commercial use requires their permission / Patreon tier. Get it in
-      writing before charging anyone.
-- [ ] **Logo strategy for paid surfaces.** Team logos come from `a.espncdn.com`.
-      ESPN-hosted trademarked logos inside a *paid* product is a small but real
-      risk. Decide: neutral logo set / plain wordmarks on gated pages, or
-      accept the risk knowingly.
-- [ ] **Disclaimer copy.** "Entertainment/informational purposes, not betting
-      advice" on `/predictions`. Selling analytics content is fine
-      under Stripe's terms (media product, not a gambling operator), but the
-      disclaimer needs to exist.
-- [ ] **Pick launch pricing** (see ladder above) and an early-bird window.
+*Not legal advice. The CFBD redistribution question and any auto-renew
+structure are worth 30 minutes with a lawyer before charging.*
+
+### CFBD -- subscribe and get permission in writing
+
+CFBD's terms (effective 2025-07-01, Rad Sports Analytics LLC) contain **no
+commercial-use prohibition** -- no non-commercial clause, no written-permission
+requirement to build a paid product. Their own API-tiers page explicitly points
+product builders at Tier 3+: *"Move into Tier 3 or above when you are building
+products, using GraphQL, or expecting repeated in-season traffic."*
+
+The one clause that matters: *"Reselling or redistributing data obtained from
+the API **without explicit permission**."* Our architecture is a mirror, not a
+client -- cfb-database's dlt pipelines persist CFBD data into our Supabase and
+cfb-app serves it. Once end users are *paying*, an unsympathetic reading of
+that clause reaches us. Mitigating: we serve rendered pages and derived model
+outputs, not bulk exports or an API. And the clause is conditional -- permission
+is obtainable.
+
+Exposure here is **contractual and relational** (key revocation, burned
+relationship with a solo maintainer), not IP -- the underlying facts aren't
+copyrightable (*Feist*; *NBA v. Motorola*).
+
+- [ ] Subscribe to **CFBD Tier 3+** ($10-30/mo via Patreon) before charging.
+- [ ] Email `admin@collegefootballdata.com` (or ask in their Discord):
+      one paragraph describing the product -- paid CFB analytics site, stores
+      CFBD data in our own Postgres for serving, no data export or API resale,
+      attribution in footer. Ask for explicit written OK on the store-and-serve
+      pattern. **Keep the reply.**
+- [ ] Add a site-wide footer credit: "Data: CollegeFootballData.com."
+      (Attribution is optional per the terms but is the cheapest goodwill
+      available from a maintainer who can revoke the key at will. There is no
+      footer component in the app today.)
+- [ ] Verify the CFBD key never ships to the client and isn't in the repo.
+- [ ] **Never** expose a bulk export / CSV download / public API of
+      CFBD-derived rows. That is the line between "product" and "reseller."
+
+### Team logos -- disclaimer, not license
+
+Hotlinking `a.espncdn.com` inside a paid product is a technical breach of the
+Disney/ESPN ToU ("personal, noncommercial use only"). Calibrate it, though:
+**ESPN doesn't own these marks** -- the schools do; ESPN is a host. Their
+realistic remedy is referer-blocking or URL rotation, not litigation. No
+reported enforcement against a sports-analytics site was found.
+
+CLC (Learfield) represents 800+ schools but licenses **merchandise** -- there is
+no editorial/informational program to buy. The operative doctrine is nominative
+fair use (*New Kids on the Block*): prongs 1 and 3 are easy for us; prong 2
+("only so much of the mark as reasonably necessary") is where a full-color logo
+is weaker than a plain school name. Enforcement history targets apparel and
+uniforms, not stats sites.
+
+Industry answer, from **TeamRankings** -- a *paid* CFB ATS picks product at
+~$299/yr -- is a footer disclaimer and no license. CFBD's own About page does
+the same.
+
+- [ ] **Keep `unoptimized` on team-logo `<Image>` calls** (`ScheduleView`,
+      `TeamPageClient`, `CompareView`, `PollTable`, `PlayerBioHeader`). The
+      browser fetches from ESPN directly and **our server never copies the
+      bytes**. Dropping it makes Next's optimizer fetch, cache, and re-serve
+      ESPN assets from our domain -- server-side copying, materially worse.
+- [ ] **Build a `TeamMark` component** -- one abstraction that renders either
+      the ESPN logo or a color-chip + abbreviation wordmark in Libre
+      Baskerville. Logo URLs currently flow from `teams_with_logos` straight
+      into five separate call sites. Centralizing means the whole site's team
+      branding flips with one env flag if ESPN referer-blocks us or a
+      compliance office emails. **Highest-leverage item in Phase 0; ~1
+      afternoon.**
+- [ ] **Zero logos in marketing** -- not on the pricing page, OG/social share
+      images, ads, or favicon. Logos inside the analytics UI are informational;
+      logos on a page that says "$49" look like endorsement, and that is the
+      fact pattern that generates letters.
+- [ ] Do **not** switch to Wikipedia/Wikimedia logos as a "safer" source --
+      those are hosted under non-free fair-use rationales, not free licenses,
+      and self-hosting adds server-side copying.
+
+### Picks content -- legal and platform posture
+
+Selling analysis is not accepting wagers, and **no US state licenses B2C
+handicapping content**. The usual counterexample, Nevada's "information
+service" licensing (NRS 463.01642), reaches only those who sell information
+*to a licensed sports pool* -- B2B, not consumer content.
+
+**Stripe does not prohibit this.** Every gambling bullet on their US restricted
+list is qualified by a prize ("sports forecasting or odds-making **with a
+monetary or material prize**"). We sell content: no prize, no entry fee, no
+wager. Confirmed empirically -- Action Network, DubClub, and Establish The Run
+all run on Stripe today. (Notably Stripe's *Japan* list does name prediction
+services for gambling; they know how to name the category when they mean to.)
+
+The Stripe clauses that actually bite are about **marketing, not product**:
+"get rich quick," "outrageous claims," "fake testimonials." So *"the model beat
+the closing line by 1.4 pts/game over 2019-2025"* is fine; *"guaranteed
+winners"* closes the account. Same standard as FTC Act §5 substantiation.
+
+- [ ] Ship `/terms`, `/privacy`, `/disclaimer` routes -- **the app has none
+      today.** Minimum content:
+      1. "For entertainment and informational purposes only. This site does not
+         accept or facilitate wagers of any kind."
+      2. "No outcome is guaranteed. Past model performance does not predict
+         future results."
+      3. 18+ age statement.
+      4. Responsible-gambling block (1-800-GAMBLER plus the NY/CT/MD lines,
+         mirroring RotoWire).
+      5. Non-affiliation disclaimer (NCAA, conferences, member institutions,
+         ESPN) -- does double duty for the logo section above.
+      6. Clear refund policy. "No refunds, no credits for partial periods" is
+         the industry standard and is fine *if disclosed pre-purchase*.
+- [ ] Describe the business to Stripe at onboarding as **"sports analytics
+      content subscription"** -- which is what it is.
+- [ ] **Enable Stripe Tax from day one.** Digital subscriptions are taxable in
+      ~25 states; economic nexus is typically $100k or 200 transactions per
+      state per year. A checkbox now, a mess later.
+- [ ] **Public methodology page** and a timestamped, auditable pick log --
+      record each pick *before kickoff* with the line and book graded against,
+      disclose the vig assumption, publish losing weeks. It is both the FTC §5
+      defense and the best conversion asset. Sites that quietly regrade are the
+      ones that draw complaints.
+
+### Keep off the roadmap
+
+- **Sportsbook affiliate links.** A different regulatory regime entirely -- NJ
+  requires DGE vendor registration, AZ an affiliate license ($1,500 initial /
+  $500 renewal). Don't bolt these on casually.
+- **Any bulk data export or public API** of CFBD-derived rows (see above).
+
+### Remaining decision
+
+- [ ] Confirm **$49 season pass, no auto-renew**, plus a $14.99 week pass
+      (see the tier ladder above for the reasoning).
 
 ## Phase 1 -- Auth + entitlements foundation (~1 weekend)
 
@@ -94,8 +239,13 @@ distinguishable from an anonymous visitor in a server component.
 
 ## Phase 2 -- Stripe season pass (~1 weekend; target mid-August)
 
-- **Stripe Checkout** (hosted page), one-time payment mode. No card data ever
-  touches the app; no subscription lifecycle to manage.
+- **Stripe Checkout** (hosted page), one-time payment mode -- **not** a
+  subscription. No card data touches the app, no subscription lifecycle, and
+  per Phase 0 the one-time structure sidesteps the ROSCA / state auto-renewal
+  compliance surface entirely.
+- Two prices against the same `season_pass_2026` product: $49 season, $14.99
+  week (the week pass writes a short `expires_at`).
+- **Enable Stripe Tax** on the prices at setup (Phase 0).
 - `/api/stripe/webhook` route handler: on `checkout.session.completed`, write
   the `entitlements` row. Verify the webhook signature; make the handler
   idempotent on `event.id`.
@@ -106,9 +256,13 @@ distinguishable from an anonymous visitor in a server component.
   **freshness gating** (subscribers see picks Tuesday, free users Saturday
   morning). Freshness gating is a strong option because the free tier still
   demonstrates the product every week.
-- Stripe Customer Portal link on the account page for receipts/refunds.
+- Stripe Customer Portal link on the account page for receipts.
 - Upgrade CTA components on the gated pages (styled to the editorial theme --
-  this is a sales page, treat it like one).
+  this is a sales page, treat it like one). **No team logos on it** (Phase 0),
+  and no guarantee/"easy money" language -- that copy is what actually
+  jeopardizes a Stripe account.
+- Ship the `/terms`, `/privacy`, `/disclaimer` routes and the footer
+  (attribution + non-affiliation) from Phase 0 **before** the first charge.
 
 **Exit criteria:** a stranger can pay real money and see this week's edges
 without any manual step.
