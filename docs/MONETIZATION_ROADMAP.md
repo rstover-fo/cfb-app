@@ -137,15 +137,67 @@ fair use (*New Kids on the Block*): prongs 1 and 3 are easy for us; prong 2
 is weaker than a plain school name. Enforcement history targets apparel and
 uniforms, not stats sites.
 
-Industry answer, from **TeamRankings** -- a *paid* CFB ATS picks product at
-~$299/yr -- is a footer disclaimer and no license. CFBD's own About page does
-the same.
+**Market practice: paid products display official college logos, and they
+self-host them.** Verified by fetching:
 
-- [ ] **Keep `unoptimized` on team-logo `<Image>` calls** (`ScheduleView`,
-      `TeamPageClient`, `CompareView`, `PollTable`, `PlayerBioHeader`). The
-      browser fetches from ESPN directly and **our server never copies the
-      bytes**. Dropping it makes Next's optimizer fetch, cache, and re-serve
-      ESPN assets from our domain -- server-side copying, materially worse.
+| Product | Paid? | Logos | How |
+|---|---|---|---|
+| **PFF** | $24.99/mo | Yes | Self-hosts a 2.9 MB SVG sprite of **vectorized** official school + conference marks on its own CDN |
+| **TeamRankings** | ~$27-57/mo | Yes | Self-hosts school logos as GIFs (`/images/logo/ncf/…`) |
+| **Action Network** | PRO tier | Yes | Self-hosts a full NCAAF set (`static.sprtactn.co/teamlogos/ncaaf/`) |
+| **Sports Reference / Stathead** | $80+/yr | Yes | Self-hosts; **licensed the aggregation from SportsLogos.net** |
+| **CFBD itself** | Patreon $1-30/mo | Yes | Self-hosts at `/api/logos/{size}/{espn_id}.png` -- recompressed ESPN 500px assets |
+| **gameonpaper** | Free | Yes | **Hotlinks** ESPN directly (396 refs on one page) |
+
+Two things fall out of that. First, **displaying college logos in a paid
+product is unambiguously the industry norm** -- including for the person who
+supplies our data. Second, **hotlinking ESPN is the *free* site's pattern**;
+every paid comparable self-hosts, which reads as not wanting to depend on a
+third party's CDN.
+
+**But do not copy the self-hosting half.** The paid players who self-host either
+**licensed** the aggregation (Sports Reference, from SportsLogos.net) or
+**redrew** the marks as vectors (PFF). Copying ESPN's PNGs to our own origin is
+the one move that is both a clearer Disney ToU breach (§2.A "reproduce,
+distribute … or transform") *and* forfeits the server-test defense that
+protects a true inline link. Hotlink now; if we ever want to self-host, license
+or redraw first.
+
+> **Conflicting agent findings, unresolved.** One research pass reported a
+> verbatim NCAA non-affiliation disclaimer in TeamRankings' footer and a
+> similar line on CFBD's About page; a second pass found **no** disclaimer on
+> either (CFBD's terms are client-rendered and could not be read). Treat "every
+> comparable ships a disclaimer" as **unverified**. It does not change the
+> recommendation -- a disclaimer is cheap and *Toyota v. Tabari* confirms courts
+> weigh one -- but do not repeat the claim as fact.
+
+- [ ] **Add `unoptimized` to the 9 logo `<Image>` sites that lack it.**
+      *Audited 2026-07-24: 14 of 23 logo call sites pass `unoptimized`; these
+      9 do not:*
+
+      | File | Lines |
+      |---|---|
+      | `src/components/GamesList.tsx` | 363, 425 |
+      | `src/components/game/GameScoreHeader.tsx` | 23, 71 |
+      | `src/components/dashboard/RecentGamesWidget.tsx` | 25, 87 |
+      | `src/components/dashboard/StandingsWidget.tsx` | 22 |
+      | `src/components/dashboard/StatLeadersTabs.tsx` | 43 |
+      | `src/components/dashboard/TopMoversWidget.tsx` | 22 |
+
+      Why it matters: with `unoptimized`, the browser fetches from ESPN
+      directly and **our server never touches the bytes** -- an inline link,
+      protected by the "server test" (*Perfect 10*; *Hunley v. Instagram*,
+      9th Cir. 2023 -- though note a 2025 circuit split). Without it,
+      `next/image` server-side fetches, re-encodes, caches under
+      `<distDir>/cache/images`, and re-serves the asset from **our** domain
+      via `/_next/image`. That is server-side reproduction and redistribution
+      -- not protected by the server test, and squarely within the Disney ToU
+      §2.A bar on "reproduce, distribute … or transform."
+      **~15 minutes; the highest legal delta per minute of work in Phase 0.**
+      Tradeoff: those images lose Next's resizing/WebP conversion, matching
+      the 14 sites that already opt out. If dashboard performance regresses,
+      the alternative is self-hosting a logo set (see `TeamMark` below), not
+      re-enabling the optimizer against ESPN.
 - [ ] **Build a `TeamMark` component** -- one abstraction that renders either
       the ESPN logo or a color-chip + abbreviation wordmark in Libre
       Baskerville. Logo URLs currently flow from `teams_with_logos` straight
@@ -158,8 +210,17 @@ the same.
       logos on a page that says "$49" look like endorsement, and that is the
       fact pattern that generates letters.
 - [ ] Do **not** switch to Wikipedia/Wikimedia logos as a "safer" source --
-      those are hosted under non-free fair-use rationales, not free licenses,
-      and self-hosting adds server-side copying.
+      those are hosted under non-free fair-use rationales (en.wiki
+      `Template:Non-free school logo`; Commons refuses fair-use files
+      outright), not free licenses, and self-hosting adds server-side copying.
+      No permissively-licensed CFB logo set exists -- the GitHub repos that
+      look like one are ESPN/SportsLogos scrapers whose MIT license covers the
+      *code*, not the images.
+- [ ] **Separate exposure worth a look: Disney ToU §2.B.x** bans automated
+      extraction "compiling, building, creating or contributing to any
+      collection of data, data set or database." If any `cfb-database` dlt
+      pipeline pulls from ESPN endpoints, that is a **larger** commercial-terms
+      problem than the logos are. Audit the pipeline's sources.
 
 ### Picks content -- legal and platform posture
 
