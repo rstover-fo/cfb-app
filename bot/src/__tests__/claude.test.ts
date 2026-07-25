@@ -129,6 +129,20 @@ describe('askClaude request shape', () => {
     expect(text).toMatch(/max ~5 rows/)
   })
 
+  it('tells the model not to duplicate a chart as a monospace table', async () => {
+    betaCreateMock.mockResolvedValueOnce(apiResponse('answer'))
+    await askClaude('anything')
+
+    const text = betaCreateMock.mock.calls[0]?.[0].system[0].text as string
+    // The first real chart reply in #matrix rendered the six run/pass splits
+    // twice -- once as a monospace table, once as the chart -- because the
+    // table rule predates charts existing. The instruction is deliberately
+    // CONDITIONAL: a monospace block is still the only way to align columns
+    // when there is no chart, so this must not read as a blanket ban.
+    expect(text).toMatch(/do NOT also lay the same values out in a monospace block/)
+    expect(text).toMatch(/still the right call when there is no chart/)
+  })
+
   it('keeps the two lore variants byte-identical except for the lore block, and stable across calls', async () => {
     betaCreateMock.mockResolvedValueOnce(apiResponse('answer'))
     getLoreEnabledMock.mockResolvedValueOnce(true)

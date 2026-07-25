@@ -157,6 +157,11 @@ function getBaseSystemPrompt(loreEnabled: boolean): string {
     '- If render_chart returns a chart, put its URL on its own line (per that tool\'s usage note),',
     '  at most one chart per reply, and always state the headline number in prose too -- the chart',
     '  is a supplement to the numbers, never a substitute for them.',
+    '  When you do render a chart, do NOT also lay the same values out in a monospace block: the',
+    '  chart already shows the whole distribution, so a table beside it just says everything twice.',
+    '  Cite only the two or three figures you are actually making a point about. A monospace block',
+    '  is still the right call when there is no chart -- e.g. ranking several teams across a couple',
+    '  of columns, which prose genuinely cannot align.',
   ].join('\n')
   cachedBasePrompts.set(loreEnabled, prompt)
   return prompt
