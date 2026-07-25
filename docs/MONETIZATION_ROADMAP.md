@@ -361,7 +361,52 @@ distinguishable from an anonymous visitor in a server component.
 - `/api/stripe/webhook` route handler: on `checkout.session.completed`, write
   the `entitlements` row. Verify the webhook signature; make the handler
   idempotent on `event.id`.
-- Gate at the **server-action layer** -- the existing pattern is perfect for
+> ### ⚠️ BLOCKER: server-action gating alone is cosmetic today
+>
+> Measured 2026-07-25 against the live project. The `anon` role -- whose key is
+> public by design and ships in the browser bundle -- currently holds `SELECT`
+> on **40 objects in `api`**, 44 in `core`, and more in `ref`, `stats`,
+> `ratings`, `recruiting`, `analytics`, `betting`, `draft`, `predictions`.
+> cfb-app reads 35 `api` objects, so the prediction views that *are* the paid
+> product are almost certainly in that anon-readable set (confirm the exact
+> list before designing the fix).
+>
+> **Consequence:** gating `fetchScoredMatchupEdges` in a server action stops
+> nobody. Anyone can lift the anon key from the deployed bundle and
+> `select * from api.scored_matchup_edges` over PostgREST. The paywall would be
+> a UI convention, not an access control.
+>
+> **`public.run_analyst_query` makes it worse, and independently.** It is
+> `SECURITY INVOKER` (verified: `prosecdef = false`) with `anon=X/postgres` in
+> its ACL -- so any anon caller gets an arbitrary read-only SQL interface
+> running with anon's own grants. Two things follow:
+> - The MCP endpoint's bearer token is **not** the boundary for this RPC. The
+>   token gates our route handler; the RPC is reachable directly.
+> - **Un-exposing schemas does not close it.** The function executes inside
+>   Postgres, so PostgREST's exposed-schema list never applies. Only the
+>   *role's grants* constrain it.
+>
+> **The principled fix is to make `anon`'s grants match the schema contract.**
+> The contract says cfb-app reads `api` + `public` + `app`; the grants
+> currently say far more. Revoke anon's `SELECT` outside those three, and both
+> problems collapse at once -- the RPC becomes contract-bounded, and
+> un-exposing schemas becomes belt-and-braces rather than the only defense.
+>
+> Then gated data needs a real boundary. Options, cheapest first:
+> 1. RLS on the paid views keyed to `app.entitlements`.
+> 2. Serve gated reads with the service-role client from server actions only,
+>    and revoke anon `SELECT` on those specific views.
+> 3. A `SECURITY DEFINER` view/function that checks entitlement internally.
+>
+> **Caveat before revoking anything:** cfb-database and cfb-scout share this
+> project. Confirm neither depends on anon-role reads (dlt pipelines normally
+> connect as `postgres`/service_role, so this is likely safe -- but verify).
+>
+> `app.entitlements` and `app.usage_counters` are **not** affected: anon has no
+> grants on either, by design.
+
+- Gate at the **server-action layer** -- necessary but NOT sufficient (see the
+  blocker above). The existing pattern is right for
   this. `fetchScoredMatchupEdges` checks entitlement before querying; client
   components never receive gated data.
 - Gating style: hard paywall on `/predictions` for anonymous users, or
