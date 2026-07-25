@@ -20,3 +20,26 @@ export const PBP_MIN_SEASON = 2014
 export const PREDICTION_MODEL_VERSIONS = ['elo_v1', 'elo_epa_blend_v1'] as const
 export type PredictionModelVersion = typeof PREDICTION_MODEL_VERSIONS[number]
 export const DEFAULT_PREDICTION_MODEL: PredictionModelVersion = 'elo_epa_blend_v1'
+
+// ---------------------------------------------------------------------------
+// Monetization (docs/MONETIZATION_ROADMAP.md)
+// ---------------------------------------------------------------------------
+
+// Entitlement season. Deliberately NOT derived from CURRENT_SEASON:
+// CURRENT_SEASON is the season with *data* (2025), while the pass being sold is
+// for the *upcoming* season. `season_pass_${CURRENT_SEASON}` would mint
+// season_pass_2025 and silently sell the wrong product.
+export const ENTITLEMENT_SEASON = 2026
+export const SEASON_PASS_PRODUCT = `season_pass_${ENTITLEMENT_SEASON}` as const
+export const MCP_ADDON_PRODUCT = `mcp_addon_${ENTITLEMENT_SEASON}` as const
+
+// Tier ladder. Lives in TypeScript rather than the DB so a pricing or limit
+// experiment is a deploy, not a migration -- app.consume_chat_question takes
+// both limits as parameters for exactly this reason.
+export const FREE_CHAT_QUESTIONS_LIFETIME = 3
+export const PASS_CHAT_QUESTIONS_PER_DAY = 5
+
+// Day boundary for app.usage_counters. MUST match the timezone hardcoded in
+// app.consume_chat_question() -- a mismatch means the UI and the enforcement
+// disagree about when the cap resets.
+export const USAGE_TIMEZONE = 'America/Chicago'
