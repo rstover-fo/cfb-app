@@ -3,6 +3,7 @@ import { Libre_Baskerville, DM_Sans } from "next/font/google";
 import { cookies } from "next/headers";
 import "./globals.css";
 import { Sidebar } from "@/components/Sidebar";
+import { SiteFooter } from "@/components/SiteFooter";
 import { PaperTexture } from "@/components/PaperTexture";
 import { TEAM_THEME_COOKIE, parseTeamThemeCookie } from "@/lib/theme/team-theme";
 import { getDataFreshness, getFreshestUpdateDays } from "@/lib/queries/dashboard";
@@ -62,6 +63,7 @@ export default async function RootLayout({
           className="ml-0 pt-14 md:pt-0 md:ml-60 min-h-screen transition-all duration-200 focus:outline-none"
         >
           {children}
+          <SiteFooter />
         </main>
       </body>
     </html>
