@@ -122,16 +122,29 @@ copyrightable (*Feist*; *NBA v. Motorola*).
         subscriptions** (a cheaper path for `/live` than polling) and the
         **weekly model training data** drops (direct input to the house models
         and any future O/U model).
-- [ ] Email `admin@collegefootballdata.com` (or ask in their Discord):
+- [ ] **Send the permission email.** Draft ready at
+      `docs/plans/cfbd-permission-email.md` -- send it and file the reply.
+      *This is the last genuine unknown in Phase 0.*
+      Email `admin@collegefootballdata.com` (or ask in their Discord):
       one paragraph describing the product -- paid CFB analytics site, stores
       CFBD data in our own Postgres for serving, no data export or API resale,
       attribution in footer. Ask for explicit written OK on the store-and-serve
       pattern. **Keep the reply.**
-- [ ] Add a site-wide footer credit: "Data: CollegeFootballData.com."
+- [x] ~~Add a site-wide footer credit~~ -- shipped in
+      `src/components/SiteFooter.tsx`, wired into the root layout. Carries the
+      CFBD credit, the non-affiliation disclaimer, and the
+      entertainment-purposes line.
+      Original note: add a site-wide footer credit: "Data: CollegeFootballData.com."
       (Attribution is optional per the terms but is the cheapest goodwill
       available from a maintainer who can revoke the key at will. There is no
       footer component in the app today.)
-- [ ] Verify the CFBD key never ships to the client and isn't in the repo.
+- [x] ~~Verify the CFBD key never ships to the client and isn't in the repo.~~
+      **Verified 2026-07-25:** no `CFBD_API_KEY` reference anywhere in cfb-app,
+      no `.env` files tracked, and the only `NEXT_PUBLIC_*` vars are
+      `SUPABASE_URL`, `SUPABASE_ANON_KEY` (both public by design),
+      `SCOUT_API_URL`, and `TEAM_LOGOS`. Expected -- cfb-app never calls CFBD;
+      ingestion lives in cfb-database. **Re-run this check in cfb-database**,
+      which is where the key actually lives.
 - [ ] **Never** expose a bulk export / CSV download / public API of
       CFBD-derived rows. That is the line between "product" and "reseller."
 
@@ -184,9 +197,13 @@ or redraw first.
 > recommendation -- a disclaimer is cheap and *Toyota v. Tabari* confirms courts
 > weigh one -- but do not repeat the claim as fact.
 
-- [ ] **Add `unoptimized` to the 9 logo `<Image>` sites that lack it.**
-      *Audited 2026-07-24: 14 of 23 logo call sites pass `unoptimized`; these
-      9 do not:*
+- [x] ~~**Add `unoptimized` to the 9 logo `<Image>` sites that lack it.**~~
+      **Done** -- all 23 sites now opt out (verified by re-audit; lint,
+      typecheck, and 779 tests green). Since superseded by `TeamMark`, which
+      owns the `unoptimized` prop centrally and has a regression test asserting
+      the `src` never routes through `/_next/image`.
+      *Audited 2026-07-24: 14 of 23 logo call sites passed `unoptimized`; these
+      9 did not:*
 
       | File | Lines |
       |---|---|
@@ -211,7 +228,13 @@ or redraw first.
       the 14 sites that already opt out. If dashboard performance regresses,
       the alternative is self-hosting a logo set (see `TeamMark` below), not
       re-enabling the optimizer against ESPN.
-- [ ] **Build a `TeamMark` component** -- one abstraction that renders either
+- [x] ~~**Build a `TeamMark` component**~~ -- shipped in
+      `src/components/TeamMark.tsx` with 8 tests. The flag is
+      `NEXT_PUBLIC_TEAM_LOGOS=espn` (default) or `off` (neutral color-chip +
+      initials mark sitewide). Note `abbreviation` is **not** in the app's data
+      (`teams_with_logos` selects `school, logo, color, conference`), so the
+      neutral mark derives initials from the school name.
+      Original note: build a `TeamMark` component -- one abstraction that renders either
       the ESPN logo or a color-chip + abbreviation wordmark in Libre
       Baskerville. Logo URLs currently flow from `teams_with_logos` straight
       into five separate call sites. Centralizing means the whole site's team
@@ -254,8 +277,17 @@ The Stripe clauses that actually bite are about **marketing, not product**:
 the closing line by 1.4 pts/game over 2019-2025"* is fine; *"guaranteed
 winners"* closes the account. Same standard as FTC Act §5 substantiation.
 
-- [ ] Ship `/terms`, `/privacy`, `/disclaimer` routes -- **the app has none
-      today.** Minimum content:
+- [x] ~~Ship `/terms`, `/privacy`, `/disclaimer` routes~~ -- **shipped**
+      (`src/app/{terms,privacy,disclaimer}/page.tsx`), linked from the footer.
+      **Two caveats, both live:**
+      1. **Unreviewed by a lawyer.** Each file carries a `DRAFT CONTENT`
+         docblock saying so. Have counsel read them before the first charge.
+      2. **Terms and Privacy describe Phase 1/2 architecture that does not
+         exist yet** -- accounts, Stripe, usage caps. Accurate as of Phase 2,
+         aspirational today. Re-read and correct when auth and billing ship; a
+         privacy policy claiming a practice we don't follow is worse than none.
+
+      Content shipped:
       1. "For entertainment and informational purposes only. This site does not
          accept or facilitate wagers of any kind."
       2. "No outcome is guaranteed. Past model performance does not predict
