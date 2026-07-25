@@ -60,11 +60,23 @@ against the real server once everything checks out.
 5. Build an invite URL, substituting your Application ID:
 
    ```
-   https://discord.com/oauth2/authorize?client_id=<APP_ID>&scope=bot+applications.commands&permissions=2147568640
+   https://discord.com/oauth2/authorize?client_id=<APP_ID>&scope=bot+applications.commands&permissions=2147601408
    ```
 
-   Permission `2147568640` covers View Channels, Send Messages, Embed Links, Read Message
-   History, and Use Application Commands. Open the URL and invite the bot to your test server.
+   Permission `2147601408` covers View Channels, Send Messages, Embed Links, Attach Files, Read
+   Message History, and Use Application Commands. Open the URL and invite the bot to your test
+   server.
+
+   Attach Files (`1 << 15`) is what lets the bot upload an image rather than only linking one.
+   Chart images are referenced by URL (which needs just Embed Links), so the bot works without
+   it — but `attachment://` references in Components V2 `MediaGallery`/`File`/`Thumbnail`
+   components require it, and uploading the bytes directly is the documented workaround for
+   Discord's intermittent 0x0-size bug on proxied external images.
+
+   Re-inviting a bot that is already in the server re-authorizes it rather than duplicating it.
+   If the bot is already installed, granting the new permission via Server Settings -> Roles ->
+   the bot's managed role -> Attach Files has the same effect. Check for channel-level permission
+   overwrites if the grant does not seem to take.
 6. In Discord, enable **Developer Mode** (User Settings -> Advanced), then right-click your test
    server's icon -> **Copy Server ID** -- this is `DISCORD_GUILD_ID`.
 7. With `DISCORD_TOKEN`, `DISCORD_APP_ID`, and `DISCORD_GUILD_ID` set (see [Environment

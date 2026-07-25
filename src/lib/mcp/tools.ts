@@ -28,6 +28,13 @@ import {
 } from '@/lib/queries/predictions'
 import { getPlaycallingProfile, getTeamWeekFeatures } from '@/lib/queries/playcalling'
 import { getLiveScoreboard } from '@/lib/queries/live'
+// Type-only: erased by the compiler (isolatedModules), so this contributes
+// nothing to this module's runtime bundle -- svg.ts's real (value) exports
+// pull in react-dom/server.edge and roughjs, and its sibling ./index further
+// pulls in @resvg/resvg-js's native binary. render_chart mints URLs only, so
+// the sole real import from the charts-server tree stays `./signing` below.
+import type { ChartId } from '@/lib/charts/server/svg'
+import { signChartUrl } from '@/lib/charts/server/signing'
 import { getWepaLeaders, getUsageLeaders, getPlayerComparison, type WepaCategory } from '@/lib/queries/players'
 import { getConferenceComparison } from '@/lib/queries/conferences'
 import { getCoachingHistory } from '@/lib/queries/coaches'
@@ -84,6 +91,15 @@ import { CURRENT_SEASON, PREDICTION_MODEL_VERSIONS, DEFAULT_PREDICTION_MODEL } f
 // error-string branches; get_penalty_profile additionally aggregates the raw
 // rows in JS (PostgREST has no GROUP BY) and follows search_players'
 // partial-result precedent when only a secondary fetch fails.
+// Tool 23 (render_chart, phase 2.3) is unlike every tool before it: it never
+// touches Supabase at all. It mints a signed chart-image URL via
+// src/lib/charts/server/signing.ts's signChartUrl -- the producer half of the
+// HMAC scheme the chart image route (src/app/api/chart/[chart]/route.ts)
+// verifies -- so a bogus team/season still returns a URL (the route renders
+// an empty-state PNG for it) rather than a tool-level error. This is what
+// makes charts *model-selected*: the model calls render_chart alongside a
+// data tool whenever a picture would help, at ~1ms added latency instead of
+// a second database round trip.
 // Tool implementations are exported as plain async (args) => string
 // functions (below) so they're unit-testable without spinning up the MCP
 // transport; registerMcpTools() is the only place that touches the SDK's
@@ -852,6 +868,76 @@ export async function getPenaltyLogTool(args: GetPenaltyLogArgs): Promise<string
     )
   }
   return dump(wrap('api.penalty_log', result.rows))
+}
+
+// ---------------------------------------------------------------------------
+// 23. render_chart
+// ---------------------------------------------------------------------------
+
+/**
+ * Static per-chart metadata: nominal render dimensions (the actual PNG height
+ * for 'team-playcalling' varies with row count -- see teamPlaycalling.tsx --
+ * so `height` here is a description-scale hint, not a pixel guarantee) plus a
+ * short human description used to build the `alt` text.
+ *
+ * Typed `Record<ChartId, ...>` rather than a loose object so this literal is
+ * required to name every id in svg.ts's CHART_IDS registry: add a chart
+ * there and this fails to typecheck until a matching entry is added here.
+ * That is the "derive from the existing registry" requirement, done without
+ * a real (value) import of svg.ts -- see the `ChartId` import above.
+ */
+const CHART_METADATA: Record<ChartId, { width: number; height: number; description: string }> = {
+  'team-playcalling': {
+    width: 700,
+    height: 350,
+    description:
+      'run/pass play-call split by situation (overall, early downs, 3rd down, red zone, leading vs trailing)',
+  },
+}
+
+// z.enum() needs a real, non-empty tuple of string literals -- Object.keys()
+// over the Record above is that tuple, kept in sync with CHART_METADATA (and
+// therefore with svg.ts's registry) by construction rather than retyped here.
+const RENDER_CHART_IDS = Object.keys(CHART_METADATA) as [ChartId, ...ChartId[]]
+
+export interface RenderChartArgs {
+  chart: ChartId
+  team: string
+  season?: number
+  mode?: 'light' | 'dark'
+}
+
+export async function renderChartTool(args: RenderChartArgs): Promise<string> {
+  const season = args.season ?? CURRENT_SEASON
+  const mode = args.mode ?? 'light'
+  const meta = CHART_METADATA[args.chart]
+
+  let url: string
+  try {
+    url = signChartUrl(args.chart, { team: args.team, season, mode })
+  } catch {
+    // signChartUrl throws when CHART_SIGNING_SECRET is unset; it also calls
+    // chartBaseUrl() internally, which throws when no base URL is
+    // resolvable. Both are deployment-configuration problems, not something
+    // fixable mid-conversation -- degrade to a plain string so the model
+    // just answers in text instead of surfacing a tool-call error.
+    return 'Chart rendering is not configured on this deployment. Answer in text instead.'
+  }
+
+  return dump({
+    _source: 'chart-renderer',
+    chart: args.chart,
+    url,
+    alt: `${args.team} -- ${meta.description} (${season})`,
+    width: meta.width,
+    height: meta.height,
+    usage:
+      'Post this URL on its own line in your reply so it renders as an image -- do not wrap it in ' +
+      'markdown link syntax or describe it as a hyperlink. This tool never queries the database and ' +
+      'this response carries no numbers, so also call the matching data tool (e.g. ' +
+      "get_playcalling_profile for chart='team-playcalling') and state the key figures in prose -- " +
+      'the chart supplements the numbers, it does not replace them. Include at most one chart per answer.',
+  })
 }
 
 // ---------------------------------------------------------------------------
@@ -1705,5 +1791,57 @@ export function registerMcpTools(server: McpServer): void {
       annotations: { title: 'Get Penalty Log', ...READ_ONLY_ANNOTATIONS },
     },
     async args => textResult(await getPenaltyLogTool(args))
+  )
+
+  server.registerTool(
+    'render_chart',
+    {
+      title: 'Render Chart',
+      description:
+        'Mint a signed, ready-to-post PNG chart URL for a team -- without querying the database. Use ' +
+        'this whenever the user asks to *see*, *show*, *chart*, *plot*, or *visualize* something, or ' +
+        'whenever the answer would otherwise be more than a handful of numbers spread across several ' +
+        'categories (e.g. a run/pass split across five situations reads far faster as bars than as a ' +
+        'list of percentages in a chat reply). This tool is effectively instant (~1ms, no Supabase ' +
+        'round trip) and safe to call speculatively alongside a data tool without adding latency to an ' +
+        'already-slow /ask -- it can never fail on missing data: an unrecognized team, or a team/season ' +
+        'with nothing to chart, still returns a valid URL, and the image itself renders a friendly ' +
+        'empty-state card rather than a broken link. Because this tool never touches the database, ' +
+        'ALWAYS also call the matching data tool for the actual figures (e.g. get_playcalling_profile ' +
+        "for chart='team-playcalling') -- this tool's response carries a URL and a usage note, never " +
+        "the chart's underlying numbers. Currently supports: 'team-playcalling' (a team's run/pass " +
+        'play-call split by situation -- overall, early downs, 3rd down, red zone, leading vs trailing ' +
+        '-- as diverging hand-drawn bars; backed by the same api.team_playcalling_profile view as ' +
+        'get_playcalling_profile). Post the returned URL on its own line in the reply so it renders as ' +
+        'an image, and still state the key numbers in prose alongside it; include at most one chart per ' +
+        'answer. Returns JSON {"_source": "chart-renderer", "chart", "url", "alt", "width", "height", ' +
+        '"usage"}, or a plain "Chart rendering is not configured on this deployment..." string if the ' +
+        'deployment is missing required signing configuration -- in that case just answer in text.',
+      inputSchema: {
+        chart: z
+          .enum(RENDER_CHART_IDS)
+          .describe(
+            "Which chart to render. 'team-playcalling' is the only chart currently available: a run/pass " +
+              'play-call split by situation for one team/season, backed by api.team_playcalling_profile.'
+          ),
+        team: z
+          .string()
+          .describe(
+            "Exact school name as used by CFBD, e.g. 'Oklahoma', 'Ohio State', 'Texas A&M'. This is an " +
+              'exact, case-sensitive match, not a fuzzy search.'
+          ),
+        season: z
+          .number()
+          .int()
+          .optional()
+          .describe(`Season year, e.g. 2024. Defaults to the current season (${CURRENT_SEASON}) if omitted.`),
+        mode: z
+          .enum(['light', 'dark'])
+          .optional()
+          .describe("Color palette to render in, matching the site's light/dark themes. Defaults to 'light'."),
+      },
+      annotations: { title: 'Render Chart', ...READ_ONLY_ANNOTATIONS },
+    },
+    async args => textResult(await renderChartTool(args))
   )
 }

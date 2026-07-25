@@ -297,36 +297,41 @@ describe('splitMessage', () => {
     expect(splitMessage('   ')).toEqual([])
   })
 
+  // The literals below track CHUNK_MAX in src/format.ts, raised from 1900 to
+  // 3800 when both answer paths moved to Components V2 containers (CV2 allows
+  // 4000 chars of text per message, vs 2000 for plain `content`). The
+  // invariants under test are unchanged -- only the cap they are scaled
+  // against moved.
   it('prefers a paragraph break when present', () => {
-    const p1 = 'A'.repeat(1000)
-    const p2 = 'B'.repeat(1000)
+    const p1 = 'A'.repeat(2000)
+    const p2 = 'B'.repeat(2000)
     expect(splitMessage(`${p1}\n\n${p2}`)).toEqual([p1, p2])
   })
 
-  it('falls back to a hard cut for exactly-2000 chars with no separators', () => {
-    const text = 'x'.repeat(2000)
+  it('falls back to a hard cut for exactly-4000 chars with no separators', () => {
+    const text = 'x'.repeat(4000)
     const chunks = splitMessage(text)
     expect(chunks).toHaveLength(2)
-    expect(chunks[0]).toHaveLength(1900)
-    expect(chunks[1]).toBe('x'.repeat(100))
+    expect(chunks[0]).toHaveLength(3800)
+    expect(chunks[1]).toBe('x'.repeat(200))
     expect(chunks.join('')).toBe(text)
   })
 
   it('splits long sentence-separated text (no paragraph breaks) under the cap', () => {
-    const text = 'Sentence number goes here. '.repeat(150) // ~4200 chars, one long paragraph
+    const text = 'Sentence number goes here. '.repeat(300) // ~8100 chars, one long paragraph
     const chunks = splitMessage(text)
     expect(chunks.length).toBeGreaterThan(1)
     expect(chunks.length).toBeLessThanOrEqual(3)
-    for (const c of chunks) expect(c.length).toBeLessThanOrEqual(1900)
+    for (const c of chunks) expect(c.length).toBeLessThanOrEqual(3800)
   })
 
   it('caps output at 3 chunks and marks the last as truncated', () => {
-    const text = (`${'x'.repeat(1900)}\n\n`).repeat(5)
+    const text = (`${'x'.repeat(3800)}\n\n`).repeat(5)
     const chunks = splitMessage(text)
     expect(chunks).toHaveLength(3)
-    expect(chunks[0]).toHaveLength(1900)
-    expect(chunks[1]).toHaveLength(1900)
+    expect(chunks[0]).toHaveLength(3800)
+    expect(chunks[1]).toHaveLength(3800)
     expect(chunks[2]).toMatch(/truncated/)
-    for (const c of chunks) expect(c.length).toBeLessThanOrEqual(1900)
+    for (const c of chunks) expect(c.length).toBeLessThanOrEqual(3800)
   })
 })

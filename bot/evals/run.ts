@@ -70,7 +70,18 @@ export interface DeterministicVerdict {
   failures: string[]
 }
 
-/** Applies tier/mustMatchAny/mustNotMatch/maxChars against an answer. Pure/sync -- no network. */
+/**
+ * Applies tier/mustMatchAny/mustNotMatch/maxChars against an answer. Pure/sync -- no network.
+ *
+ * NOTE for golden.json's "chart-oklahoma-playcalling" entry: its
+ * `mustMatchAny: ["/api/chart/"]` passes because `answer.text` here is
+ * askClaude()'s raw string, BEFORE the chart URL is stripped out --
+ * stripping happens downstream, in src/render/answer.ts's buildAnswerPayloads(),
+ * which this harness never calls. If chart-URL stripping is ever moved
+ * upstream into askClaude()/claude.ts, that assertion silently stops
+ * testing anything (the URL would already be gone from `text`) -- update
+ * this entry's `expect` if that refactor happens.
+ */
 export function evaluateDeterministic(entry: GoldenEntry, answer: { text: string; tier: string }): DeterministicVerdict {
   const failures: string[] = []
   const { expect } = entry

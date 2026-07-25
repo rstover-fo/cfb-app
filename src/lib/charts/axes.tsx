@@ -1,10 +1,22 @@
 /**
  * Scaffold helpers (docs/chart-style-spec.md §1.1, §10): grid lines, axis
- * tick labels. These render plain React SVG with `var(--token)` refs --
- * theme-safe natively, never rough-drawn. Call them inside the chart's
- * static `<svg>` scaffold, before the rough layer.
+ * tick labels. These render plain React SVG -- theme-safe natively, never
+ * rough-drawn. Call them inside the chart's static `<svg>` scaffold, before
+ * the rough layer.
+ *
+ * Each helper takes an OPTIONAL `ink` (`src/lib/charts/tokens.ts`):
+ *
+ * - **omitted** -- browser behaviour, unchanged: Tailwind classes and
+ *   `var(--token)` refs, with the browser resolving colors and font metrics.
+ * - **supplied** -- literal colors plus explicit `font-family` / `font-size`,
+ *   and vertical centering expressed as an explicit `dy` rather than
+ *   `dominant-baseline`. This is what the server-side renderer needs: resvg is
+ *   an SVG 1.1 static renderer with no custom properties, no stylesheets, no
+ *   class resolution, and only partial `dominant-baseline` support.
  */
 import type { ReactNode } from 'react'
+import type { ChartInk } from './tokens'
+import { CHART_FONT_SIZE, centerDy } from './presets'
 
 export interface ChartLayout {
   width: number
@@ -28,10 +40,20 @@ function plotHeight(layout: ChartLayout): number {
   return layout.height - layout.padding.top - layout.padding.bottom
 }
 
-/** Horizontal gridlines across the plot area: `var(--border)`, 1px, 0.4 opacity. */
+/**
+ * Presentation attributes for a muted tick label. With `ink` these are literal
+ * and self-contained; without it the Tailwind class carries them as before.
+ */
+function tickTextProps(ink: ChartInk | undefined) {
+  if (!ink) return { className: 'fill-[var(--text-muted)] text-xs' }
+  return { fill: ink.textMuted, fontFamily: ink.fontBody, fontSize: CHART_FONT_SIZE.xs }
+}
+
+/** Horizontal gridlines across the plot area: `--border`, 1px, 0.4 opacity. */
 export function gridLinesY(
   ticks: ReadonlyArray<Pick<YTick, 'pct'>>,
   layout: ChartLayout,
+  ink?: ChartInk,
 ): ReactNode {
   return ticks.map(({ pct }) => (
     <line
@@ -40,7 +62,7 @@ export function gridLinesY(
       y1={layout.padding.top + pct * plotHeight(layout)}
       x2={layout.width - layout.padding.right}
       y2={layout.padding.top + pct * plotHeight(layout)}
-      stroke="var(--border)"
+      stroke={ink ? ink.border : 'var(--border)'}
       strokeWidth={1}
       opacity={0.4}
     />
@@ -52,6 +74,7 @@ export function axisLabelsY(
   ticks: ReadonlyArray<YTick>,
   format: (val: number) => string,
   layout: ChartLayout,
+  ink?: ChartInk,
 ): ReactNode {
   return ticks.map(({ pct, val }) => (
     <text
@@ -59,8 +82,10 @@ export function axisLabelsY(
       x={layout.padding.left - 10}
       y={layout.padding.top + pct * plotHeight(layout)}
       textAnchor="end"
-      dominantBaseline="middle"
-      className="fill-[var(--text-muted)] text-xs"
+      // resvg's dominant-baseline support is partial, so with server ink the
+      // centering becomes an explicit baseline shift instead.
+      {...(ink ? { dy: centerDy(CHART_FONT_SIZE.xs) } : { dominantBaseline: 'middle' as const })}
+      {...tickTextProps(ink)}
     >
       {format(val)}
     </text>
@@ -68,14 +93,18 @@ export function axisLabelsY(
 }
 
 /** X-axis tick labels, centered in the bottom padding gutter. */
-export function axisLabelsX(ticks: ReadonlyArray<XTick>, layout: ChartLayout): ReactNode {
+export function axisLabelsX(
+  ticks: ReadonlyArray<XTick>,
+  layout: ChartLayout,
+  ink?: ChartInk,
+): ReactNode {
   return ticks.map(({ x, label }) => (
     <text
       key={`${x}-${label}`}
       x={x}
       y={layout.height - 15}
       textAnchor="middle"
-      className="fill-[var(--text-muted)] text-xs"
+      {...tickTextProps(ink)}
     >
       {label}
     </text>

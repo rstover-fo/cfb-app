@@ -20,7 +20,7 @@ const FIELD_VALUE_MAX = 1024
 const FIELD_NAME_MAX = 256
 const FIELD_COUNT_MAX = 25
 
-const COLOR_INFO = 0x3b6ea5
+export const COLOR_INFO = 0x3b6ea5
 const COLOR_ERROR = 0xb33a3a
 
 function truncate(text: string, max: number): string {
@@ -518,12 +518,18 @@ export function buildHelpEmbed(): EmbedBuilder {
 }
 
 // ---------------------------------------------------------------------------
-// splitMessage -- ≤1900-char chunks for plain-text replies (Phase B's /ask),
-// split at a paragraph boundary first, then a sentence boundary, hard cap 3
-// chunks with the final one marked as truncated if content remains.
+// splitMessage -- chunks text for both conversational answer paths (/ask and
+// @-mention), which now render each chunk as a Components V2 container (see
+// src/render/answer.ts) instead of a plain-text reply. CV2's hard limit is
+// 4000 characters total across all text components in ONE message; CHUNK_MAX
+// is held at 3800 to leave headroom for container/component JSON overhead
+// (the 4000 cap applies to rendered text content, but staying a bit under it
+// avoids edge cases from how Discord counts nested component text). Splits at
+// a paragraph boundary first, then a sentence boundary, hard cap 3 chunks
+// with the final one marked as truncated if content remains.
 // ---------------------------------------------------------------------------
 
-const CHUNK_MAX = 1900
+const CHUNK_MAX = 3800
 const MAX_CHUNKS = 3
 const TRUNCATION_MARKER = '\n\n…(truncated)'
 

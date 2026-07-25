@@ -108,6 +108,53 @@ describe('askClaude request shape', () => {
     expect(betaCreateMock.mock.calls[1]?.[0].system[0].text).not.toContain('grimlock')
   })
 
+  it('sets the character ceiling below CHUNK_MAX and forbids ANSI while allowing the wider markdown vocabulary', async () => {
+    betaCreateMock.mockResolvedValueOnce(apiResponse('answer'))
+    await askClaude('anything')
+
+    const text = betaCreateMock.mock.calls[0]?.[0].system[0].text as string
+    // 3000 sits under format.ts's 3800 CHUNK_MAX, which in turn sits under
+    // Components V2's hard 4000-char-per-message text budget -- so a
+    // well-behaved answer renders as one container rather than splitting.
+    expect(text).toContain('under 3000 characters')
+    expect(text).not.toMatch(/\b1500 characters\b/)
+    expect(text).not.toMatch(/\b4000 characters\b/)
+    expect(text).toContain('```ansi')
+    expect(text).toMatch(/never use.*```ansi/i)
+    expect(text).toContain('##')
+    expect(text).toContain('-# subtext')
+    expect(text).toContain('`>` blockquote')
+    expect(text).toContain('[label](url)')
+    expect(text).toContain('<t:UNIX:R>')
+    expect(text).toMatch(/max ~5 rows/)
+  })
+
+  it('keeps the two lore variants byte-identical except for the lore block, and stable across calls', async () => {
+    betaCreateMock.mockResolvedValueOnce(apiResponse('answer'))
+    getLoreEnabledMock.mockResolvedValueOnce(true)
+    await askClaude('anything')
+    const withLore = betaCreateMock.mock.calls[0]?.[0].system[0].text as string
+
+    resetClaudeForTests()
+    betaCreateMock.mockResolvedValueOnce(apiResponse('answer'))
+    getLoreEnabledMock.mockResolvedValueOnce(false)
+    await askClaude('anything')
+    const withoutLore = betaCreateMock.mock.calls[1]?.[0].system[0].text as string
+
+    // The only allowed difference is the lore block itself (plus its blank-line
+    // separator) -- strip it out and the two variants must match exactly.
+    const loreBlockPattern = /- Server lore[\s\S]*?point them at `\/lore off` -- it genuinely turns this off\.\n/
+    expect(withLore.replace(loreBlockPattern, '')).toBe(withoutLore)
+
+    // Cache-stability: repeated calls with the same lore setting must return
+    // the exact same string instance's content (memoized, not rebuilt).
+    betaCreateMock.mockResolvedValueOnce(apiResponse('answer'))
+    getLoreEnabledMock.mockResolvedValueOnce(true)
+    await askClaude('anything else')
+    const withLoreAgain = betaCreateMock.mock.calls[2]?.[0].system[0].text as string
+    expect(withLoreAgain).toBe(withLore)
+  })
+
   it('sends one MCP-connector beta call on the default model for a simple question', async () => {
     betaCreateMock.mockResolvedValueOnce(apiResponse('Ohio State is ranked #1.'))
 
@@ -140,6 +187,7 @@ describe('askClaude request shape', () => {
       escalated: false,
       usage: { input_tokens: 100, output_tokens: 50, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
       model: 'claude-sonnet-5',
+      charts: [],
     })
   })
 
@@ -318,6 +366,130 @@ describe('askClaude escalation backstop', () => {
 
     await askClaude('question')
     expect(betaCreateMock).toHaveBeenCalledTimes(1)
+  })
+})
+
+// Charts are extracted STRUCTURALLY from mcp_tool_use/mcp_tool_result blocks,
+// never by regex over the answer text -- see src/claude.ts's extractCharts.
+const CHART_URL = 'https://example.com/api/chart/team-playcalling.png?mode=light&season=2025&team=Oklahoma&sig=v1.abc123'
+
+function chartToolBlocks(toolUseId: string, resultJson: Record<string, unknown> | null, isError = false) {
+  return [
+    { type: 'mcp_tool_use', id: toolUseId, name: 'render_chart', input: {}, server_name: 'cfb' },
+    {
+      type: 'mcp_tool_result',
+      tool_use_id: toolUseId,
+      is_error: isError,
+      content: [{ type: 'text', text: resultJson ? JSON.stringify(resultJson) : 'boom' }],
+    },
+  ]
+}
+
+const VALID_CHART_JSON = { _source: 'chart-renderer', chart: 'team-playcalling', url: CHART_URL, alt: 'Oklahoma playcalling chart' }
+
+describe('askClaude chart extraction', () => {
+  it('extracts a chart from a render_chart tool result in the final response', async () => {
+    betaCreateMock.mockResolvedValueOnce({
+      content: [...chartToolBlocks('t1', VALID_CHART_JSON), { type: 'text', text: 'Here you go.' }],
+      stop_reason: 'end_turn',
+      usage: { input_tokens: 1, output_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+    })
+
+    const result = await askClaude('show me a chart')
+    expect(result.charts).toEqual([{ url: CHART_URL, alt: 'Oklahoma playcalling chart' }])
+  })
+
+  it('accumulates chart blocks across a paused turn (chart lands in a non-final response)', async () => {
+    betaCreateMock
+      .mockResolvedValueOnce({
+        content: [...chartToolBlocks('t1', VALID_CHART_JSON)],
+        stop_reason: 'pause_turn',
+        usage: { input_tokens: 1, output_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      })
+      .mockResolvedValueOnce(apiResponse('Final answer, no more tool calls.'))
+
+    const result = await askClaude('deep question with a chart')
+    expect(result.charts).toEqual([{ url: CHART_URL, alt: 'Oklahoma playcalling chart' }])
+  })
+
+  it('discards the first run\'s chart on [ESCALATE] -- only the advisor rerun\'s chart survives', async () => {
+    betaCreateMock
+      .mockResolvedValueOnce({
+        content: [...chartToolBlocks('t1', VALID_CHART_JSON), { type: 'text', text: 'Partial.\n[ESCALATE]' }],
+        stop_reason: 'end_turn',
+        usage: { input_tokens: 1, output_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      })
+      .mockResolvedValueOnce(apiResponse('Advisor-grade answer, no chart this time.'))
+
+    const result = await askClaude('sneaky-deep question with a chart')
+    expect(result.escalated).toBe(true)
+    expect(result.charts).toEqual([])
+  })
+
+  it('ignores an is_error mcp_tool_result even when it names render_chart', async () => {
+    betaCreateMock.mockResolvedValueOnce({
+      content: [...chartToolBlocks('t1', null, true), { type: 'text', text: 'Chart tool failed.' }],
+      stop_reason: 'end_turn',
+      usage: { input_tokens: 1, output_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+    })
+
+    const result = await askClaude('question')
+    expect(result.charts).toEqual([])
+  })
+
+  it('rejects a URL that is not under /api/chart/ or does not end in .png', async () => {
+    const badUrls = [
+      'https://example.com/api/other/team-playcalling.png',
+      'https://example.com/api/chart/team-playcalling.jpg',
+      'http://example.com/api/chart/team-playcalling.png', // not https
+    ]
+    for (const url of badUrls) {
+      betaCreateMock.mockResolvedValueOnce({
+        content: [...chartToolBlocks('t1', { url, alt: 'alt' }), { type: 'text', text: 'answer' }],
+        stop_reason: 'end_turn',
+        usage: { input_tokens: 1, output_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      })
+      const result = await askClaude('question')
+      expect(result.charts).toEqual([])
+    }
+  })
+
+  it('accepts a chart URL on a foreign host but logs a warning (chartBaseUrl need not match MCP_URL)', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const foreignUrl = 'https://charts.other-host.example/api/chart/team-playcalling.png?sig=v1.xyz'
+    betaCreateMock.mockResolvedValueOnce({
+      content: [...chartToolBlocks('t1', { url: foreignUrl, alt: 'alt' }), { type: 'text', text: 'answer' }],
+      stop_reason: 'end_turn',
+      usage: { input_tokens: 1, output_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+    })
+
+    const result = await askClaude('question')
+    expect(result.charts).toEqual([{ url: foreignUrl, alt: 'alt' }])
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('other-host.example'))
+    warnSpy.mockRestore()
+  })
+
+  it('caps more than one render_chart call at one chart', async () => {
+    const secondUrl = 'https://example.com/api/chart/team-defense.png?sig=v1.def456'
+    betaCreateMock.mockResolvedValueOnce({
+      content: [
+        ...chartToolBlocks('t1', VALID_CHART_JSON),
+        ...chartToolBlocks('t2', { url: secondUrl, alt: 'Defense chart' }),
+        { type: 'text', text: 'answer' },
+      ],
+      stop_reason: 'end_turn',
+      usage: { input_tokens: 1, output_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+    })
+
+    const result = await askClaude('question')
+    expect(result.charts).toHaveLength(1)
+    expect(result.charts[0]).toEqual({ url: CHART_URL, alt: 'Oklahoma playcalling chart' })
+  })
+
+  it('produces an empty charts array when no render_chart call was made', async () => {
+    betaCreateMock.mockResolvedValueOnce(apiResponse('a plain answer'))
+    const result = await askClaude('question')
+    expect(result.charts).toEqual([])
   })
 })
 

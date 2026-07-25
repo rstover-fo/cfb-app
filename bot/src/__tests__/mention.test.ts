@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { MessageFlags } from 'discord.js'
 
 const { askClaudeMock, checkAllowanceMock, recordUsageMock, getFavoriteTeamMock } = vi.hoisted(() => ({
   askClaudeMock: vi.fn(),
@@ -24,11 +25,23 @@ vi.mock('../limits.js', async () => {
 
 vi.mock('../profiles.js', () => ({ getFavoriteTeam: getFavoriteTeamMock, setFavoriteTeam: vi.fn() }))
 
+import { loadConfig, resetConfigForTests } from '../config.js'
 import { handleMention } from '../mention.js'
 import { ClaudeUnavailableError } from '../claude.js'
+import { COLOR_INFO } from '../format.js'
 import { clearMemoryForTests, appendTurns } from '../memory.js'
+import { firstComponentJson } from '../commands/__tests__/helpers.js'
 
 const BOT_ID = '999888777'
+const ALLOWED_GUILD_ID = 'allowed-guild'
+
+const VALID_ENV = {
+  DISCORD_TOKEN: 'token',
+  DISCORD_APP_ID: 'app-id',
+  DISCORD_GUILD_ID: ALLOWED_GUILD_ID,
+  MCP_URL: 'https://example.com/api/mcp',
+  MCP_AUTH_TOKEN: 'secret',
+}
 
 interface FakeMessageOptions {
   content?: string
@@ -38,6 +51,7 @@ interface FakeMessageOptions {
   referencedMessage?: { author: { username: string }; content: string }
   authorId?: string
   channelId?: string
+  guildId?: string | null
 }
 
 function fakeMessage(options: FakeMessageOptions = {}) {
@@ -45,6 +59,7 @@ function fakeMessage(options: FakeMessageOptions = {}) {
     content: options.content ?? '',
     author: { bot: options.bot ?? false, username: 'fan', id: options.authorId ?? 'fan-id' },
     channelId: options.channelId ?? 'test-channel',
+    guildId: options.guildId === undefined ? ALLOWED_GUILD_ID : options.guildId,
     client: { user: { id: BOT_ID } },
     mentions: { users: { has: vi.fn((id: string) => (options.mentionsBot ?? false) && id === BOT_ID) } },
     reference: options.reference ?? null,
@@ -74,10 +89,55 @@ beforeEach(() => {
   clearMemoryForTests()
   checkAllowanceMock.mockReturnValue({ ok: true })
   getFavoriteTeamMock.mockResolvedValue(undefined)
+  resetConfigForTests()
+  loadConfig(VALID_ENV)
 })
 
 afterEach(() => {
   vi.useRealTimers()
+  resetConfigForTests()
+})
+
+describe('handleMention guild allowlist', () => {
+  it('answers as before in an allowed guild', async () => {
+    askClaudeMock.mockResolvedValue(askResult('Georgia is good.'))
+    const message = fakeMessage({ mentionsBot: true, content: `<@${BOT_ID}> how good is Georgia?`, guildId: ALLOWED_GUILD_ID })
+
+    await handleMention(message)
+
+    expect(askClaudeMock).toHaveBeenCalledTimes(1)
+    const json = firstComponentJson(message.reply)
+    expect(json).toEqual({
+      type: 17, // ContainerBuilder
+      accent_color: COLOR_INFO,
+      components: [{ type: 10, content: 'Georgia is good.' }], // TextDisplayBuilder
+    })
+    expect(message.reply.mock.calls[0]?.[0].flags).toBe(MessageFlags.IsComponentsV2)
+  })
+
+  it('silently ignores a mention from a disallowed guild', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const message = fakeMessage({ mentionsBot: true, content: `<@${BOT_ID}> hi`, guildId: 'stranger-guild' })
+
+    await handleMention(message)
+
+    expect(askClaudeMock).not.toHaveBeenCalled()
+    expect(checkAllowanceMock).not.toHaveBeenCalled()
+    expect(message.channel.sendTyping).not.toHaveBeenCalled()
+    expect(message.reply).not.toHaveBeenCalled()
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('stranger-guild'))
+    warnSpy.mockRestore()
+  })
+
+  it('silently ignores a DM (guildId null)', async () => {
+    const message = fakeMessage({ mentionsBot: true, content: `<@${BOT_ID}> hi`, guildId: null })
+
+    await handleMention(message)
+
+    expect(askClaudeMock).not.toHaveBeenCalled()
+    expect(checkAllowanceMock).not.toHaveBeenCalled()
+    expect(message.reply).not.toHaveBeenCalled()
+  })
 })
 
 describe('handleMention guards', () => {
@@ -109,6 +169,9 @@ describe('handleMention guards', () => {
     expect(message.channel.sendTyping).not.toHaveBeenCalled()
     expect(message.reply).toHaveBeenCalledTimes(1)
     expect(message.reply.mock.calls[0]?.[0]).toContain('college-football question')
+    // Plain-string help reply -- never CV2 (message.reply was called with a bare
+    // string, so there is no flags field to read at all).
+    expect(message.reply.mock.calls[0]?.[0]).not.toHaveProperty('flags')
   })
 })
 
@@ -123,6 +186,7 @@ describe('handleMention allowance guard', () => {
     expect(message.channel.sendTyping).not.toHaveBeenCalled()
     expect(message.reply).toHaveBeenCalledTimes(1)
     expect(message.reply.mock.calls[0]?.[0]).toContain("today's question limit")
+    expect(message.reply.mock.calls[0]?.[0]).not.toHaveProperty('flags')
   })
 
   it('checks allowance for the message author', async () => {
@@ -143,18 +207,27 @@ describe('handleMention happy path', () => {
     await handleMention(message)
 
     expect(askClaudeMock).toHaveBeenCalledWith('how good is Georgia?', { history: [], userContext: undefined })
-    expect(message.reply).toHaveBeenCalledWith('Georgia is good.')
+    const json = firstComponentJson(message.reply)
+    expect(json.components).toEqual([{ type: 10, content: 'Georgia is good.' }])
   })
 
   it('replies with multiple chunks for a long answer', async () => {
-    const longText = `${'a'.repeat(1000)}\n\n${'b'.repeat(1500)}`
+    // Sized against the 3800-char CHUNK_MAX (src/format.ts): each paragraph
+    // fits under the cap on its own but together they exceed it, so
+    // splitMessage's paragraph-break preference produces exactly two chunks.
+    const longText = `${'a'.repeat(2000)}\n\n${'b'.repeat(3000)}`
     askClaudeMock.mockResolvedValue(askResult(longText))
     const message = fakeMessage({ mentionsBot: true, content: `<@${BOT_ID}> long one` })
 
     await handleMention(message)
 
-    expect(message.reply).toHaveBeenNthCalledWith(1, 'a'.repeat(1000))
-    expect(message.reply).toHaveBeenNthCalledWith(2, 'b'.repeat(1500))
+    expect(message.reply).toHaveBeenCalledTimes(2)
+    const first = firstComponentJson(message.reply, 0)
+    const second = firstComponentJson(message.reply, 1)
+    expect(first.components).toEqual([{ type: 10, content: 'a'.repeat(2000) }])
+    expect(second.components).toEqual([{ type: 10, content: 'b'.repeat(3000) }])
+    expect(message.reply.mock.calls[0]?.[0].flags).toBe(MessageFlags.IsComponentsV2)
+    expect(message.reply.mock.calls[1]?.[0].flags).toBe(MessageFlags.IsComponentsV2)
   })
 
   it('starts typing immediately, re-fires every 8s, and stops once askClaude settles', async () => {
@@ -174,7 +247,7 @@ describe('handleMention happy path', () => {
 
     await vi.advanceTimersByTimeAsync(30_000)
     expect(message.channel.sendTyping).toHaveBeenCalledTimes(3) // interval cleared
-    expect(message.reply).toHaveBeenCalledWith('finally')
+    expect(firstComponentJson(message.reply).components).toEqual([{ type: 10, content: 'finally' }])
   })
 
   it('fetches the referenced message once and appends it after channel memory', async () => {
@@ -207,7 +280,7 @@ describe('handleMention happy path', () => {
     await handleMention(message)
 
     expect(askClaudeMock).toHaveBeenCalledWith('is that true?', { history: [], userContext: undefined })
-    expect(message.reply).toHaveBeenCalledWith('answer')
+    expect(firstComponentJson(message.reply).components).toEqual([{ type: 10, content: 'answer' }])
   })
 })
 
@@ -319,6 +392,7 @@ describe('handleMention error paths', () => {
 
     expect(message.reply).toHaveBeenCalledTimes(1)
     expect(message.reply.mock.calls[0]?.[0]).toContain("Couldn't reach the stats brain")
+    expect(message.reply.mock.calls[0]?.[0]).not.toHaveProperty('flags')
   })
 
   it('replies with a generic apology on an unexpected error, and never throws', async () => {
@@ -330,6 +404,7 @@ describe('handleMention error paths', () => {
 
     expect(message.reply).toHaveBeenCalledTimes(1)
     expect(message.reply.mock.calls[0]?.[0]).toContain('Something went wrong')
+    expect(message.reply.mock.calls[0]?.[0]).not.toHaveProperty('flags')
     errorSpy.mockRestore()
   })
 

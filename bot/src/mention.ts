@@ -3,15 +3,18 @@
  * cooldown/cap/budget guards first, strips the bot mention, keeps a typing
  * indicator alive while Claude works (Discord's typing state lasts ~10s, so
  * re-fire every 8s), pulls in per-channel memory plus (optionally) the
- * replied-to message as context, and replies in splitMessage chunks. Never
- * throws -- every failure path ends in a friendly reply attempt.
+ * replied-to message as context, and replies with one Components V2 message
+ * per chunk (see src/render/answer.ts, shared with /ask). Never throws --
+ * every failure path ends in a friendly reply attempt.
  */
 import type { Message } from 'discord.js'
 import { askClaude, ClaudeUnavailableError, type HistoryTurn } from './claude.js'
-import { splitMessage } from './format.js'
+import { isAllowedGuild } from './config.js'
+import { COLOR_INFO } from './format.js'
 import { getHistory, appendTurns } from './memory.js'
 import { getFavoriteTeam } from './profiles.js'
 import { checkAllowance, recordUsage, refusalMessage } from './limits.js'
+import { buildAnswerPayloads } from './render/answer.js'
 
 const TYPING_INTERVAL_MS = 8_000
 
@@ -45,6 +48,24 @@ export async function handleMention(message: Message): Promise<void> {
 
   const botUser = message.client.user
   if (!botUser || !message.mentions.users.has(botUser.id)) return
+
+  // Public Bot is enabled on the Discord application, so anyone with the
+  // (public) Application ID can add this bot to their own server. Gate on the
+  // runtime allowlist before checkAllowance, the typing loop, and anything
+  // that reaches the Anthropic budget -- DMs (guildId === null) are refused
+  // too. Silent: replying would make the bot a spam amplifier for whoever
+  // added it to an unapproved server.
+  //
+  // Deliberately placed AFTER the bot/mention filters above, which are free
+  // and non-I/O: handleMention runs on EVERY message the bot can see, so
+  // gating first would emit a warn line per message in a busy unapproved
+  // guild. Here it only fires when someone actually mentioned the bot.
+  if (!isAllowedGuild(message.guildId)) {
+    if (message.guildId) {
+      console.warn(`[mention] ignoring mention from disallowed guild ${message.guildId}`)
+    }
+    return
+  }
 
   const question = stripBotMention(message.content, botUser.id)
   if (question.length === 0) {
@@ -83,16 +104,20 @@ export async function handleMention(message: Message): Promise<void> {
     const favoriteTeam = await getFavoriteTeam(userId)
     const userContext = favoriteTeam ? `this user's favorite team is ${favoriteTeam}` : undefined
 
-    const { text, usage, model } = await askClaude(question, { history, userContext })
+    const { text, usage, model, charts } = await askClaude(question, { history, userContext })
     recordUsage(userId, usage, model)
-    const chunks = splitMessage(text)
+    const payloads = buildAnswerPayloads(text, { accentColor: COLOR_INFO, charts })
 
-    if (chunks.length === 0) {
+    if (payloads.length === 0) {
       await message.reply('The stats brain came back empty — try rephrasing your question.')
       return
     }
-    for (const chunk of chunks) {
-      await message.reply(chunk)
+    // Each payload is a CV2-flagged container -- one Discord message per
+    // payload. MessageReplyOptions extends MessageCreateOptions, so
+    // components/flags need no special handling here (contrast ask.ts's
+    // deferred editReply, which must null out the fields CV2 disables).
+    for (const payload of payloads) {
+      await message.reply(payload)
     }
 
     appendTurns(channelId, question, text)

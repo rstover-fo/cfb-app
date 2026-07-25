@@ -9,10 +9,11 @@
 import { SlashCommandBuilder, MessageFlags, type ChatInputCommandInteraction } from 'discord.js'
 import type { Command } from './index.js'
 import { askClaude, ClaudeUnavailableError } from '../claude.js'
-import { errorEmbed, splitMessage } from '../format.js'
+import { COLOR_INFO, errorEmbed } from '../format.js'
 import { getHistory, appendTurns } from '../memory.js'
 import { getFavoriteTeam } from '../profiles.js'
 import { checkAllowance, recordUsage, refusalMessage } from '../limits.js'
+import { buildAnswerPayloads } from '../render/answer.js'
 
 const definition = new SlashCommandBuilder()
   .setName('ask')
@@ -41,20 +42,27 @@ async function execute(interaction: ChatInputCommandInteraction): Promise<void> 
     const favoriteTeam = await getFavoriteTeam(userId)
     const userContext = favoriteTeam ? `this user's favorite team is ${favoriteTeam}` : undefined
 
-    const { text, usage, model } = await askClaude(question, { history, userContext })
+    const { text, usage, model, charts } = await askClaude(question, { history, userContext })
     recordUsage(userId, usage, model)
-    const chunks = splitMessage(text)
+    const payloads = buildAnswerPayloads(text, { accentColor: COLOR_INFO, charts })
 
-    if (chunks.length === 0) {
+    if (payloads.length === 0) {
       await interaction.editReply({
         embeds: [errorEmbed('No answer', 'The stats brain came back empty — try rephrasing your question.')],
       })
       return
     }
 
-    await interaction.editReply(chunks[0]!)
-    for (const chunk of chunks.slice(1)) {
-      await interaction.followUp(chunk)
+    // The deferred reply may carry leftover content/embeds fields from
+    // Discord's placeholder -- null them out explicitly alongside
+    // components/flags. discord.js 14.27's InteractionEditReplyOptions types
+    // `embeds` as an array (no `null` variant, unlike `content`) and has no
+    // `poll`/`stickers` field at all, so `embeds: []` is the type-correct
+    // equivalent and poll/stickers are omitted (neither is ever set on this
+    // reply to begin with).
+    await interaction.editReply({ ...payloads[0]!, content: null, embeds: [] })
+    for (const payload of payloads.slice(1)) {
+      await interaction.followUp(payload)
     }
 
     appendTurns(channelId, question, text)
