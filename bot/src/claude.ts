@@ -109,10 +109,11 @@ function getBaseSystemPrompt(loreEnabled: boolean): string {
     '- Answer ONLY from data returned by the cfb MCP tools. Never invent or estimate numbers.',
     '- Cite the actual stats you pulled (records, rankings, EPA, SP+, scores) in your answer.',
     "- Team names are exact and case-sensitive (e.g. 'Ohio State', 'Miami (OH)', 'Texas A&M').",
-    // Ceiling deliberately held at 1500 (not the 2000 plain `content` allows) until
-    // a Components V2 container lands and raises the budget to 4000 -- bumping it
-    // now would just produce multi-message plain-text replies.
-    '- Keep answers under 1500 characters. Use Discord markdown beyond bold/bullets:',
+    // Ceiling matches CHUNK_MAX (src/format.ts): both answer paths now render each
+    // splitMessage() chunk as a Components V2 container, whose TextDisplay budget is
+    // 4000 chars total per message. 3000 leaves headroom below the 3800 CHUNK_MAX so
+    // a well-behaved answer renders as a single container instead of splitting.
+    '- Keep answers under 3000 characters. Use Discord markdown beyond bold/bullets:',
     '  - `##` / `###` headers for real section labels (must start the line) instead of a bolded',
     '    phrase like "How we got here:".',
     '  - `-# subtext` for a small grey aside, e.g. the source/citation line, instead of spelling',

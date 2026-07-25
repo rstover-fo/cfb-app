@@ -108,13 +108,16 @@ describe('askClaude request shape', () => {
     expect(betaCreateMock.mock.calls[1]?.[0].system[0].text).not.toContain('grimlock')
   })
 
-  it('holds the character ceiling at 1500 and forbids ANSI while allowing the wider markdown vocabulary', async () => {
+  it('sets the character ceiling below CHUNK_MAX and forbids ANSI while allowing the wider markdown vocabulary', async () => {
     betaCreateMock.mockResolvedValueOnce(apiResponse('answer'))
     await askClaude('anything')
 
     const text = betaCreateMock.mock.calls[0]?.[0].system[0].text as string
-    expect(text).toContain('under 1500 characters')
-    expect(text).not.toMatch(/\b2000 characters\b/)
+    // 3000 sits under format.ts's 3800 CHUNK_MAX, which in turn sits under
+    // Components V2's hard 4000-char-per-message text budget -- so a
+    // well-behaved answer renders as one container rather than splitting.
+    expect(text).toContain('under 3000 characters')
+    expect(text).not.toMatch(/\b1500 characters\b/)
     expect(text).not.toMatch(/\b4000 characters\b/)
     expect(text).toContain('```ansi')
     expect(text).toMatch(/never use.*```ansi/i)

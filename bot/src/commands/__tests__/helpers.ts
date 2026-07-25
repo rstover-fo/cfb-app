@@ -50,3 +50,14 @@ export function firstEmbedJson(mockFn: ReturnType<typeof vi.fn>): Record<string,
   if (!embed) throw new Error('No embed found in reply payload')
   return embed.toJSON()
 }
+
+/** Pulls the first component's (the Components V2 ContainerBuilder's) plain-object
+ * JSON out of a reply()/editReply()/followUp() mock call. Sibling to
+ * firstEmbedJson() for the CV2 payload shape buildAnswerPayloads() produces
+ * (src/render/answer.ts): `{ components: [ContainerBuilder], flags }`. */
+export function firstComponentJson(mockFn: ReturnType<typeof vi.fn>, callIndex = 0): Record<string, unknown> {
+  const call = mockFn.mock.calls[callIndex]?.[0] as { components: { toJSON: () => Record<string, unknown> }[] }
+  const component = call.components[0]
+  if (!component) throw new Error('No component found in reply payload')
+  return component.toJSON()
+}

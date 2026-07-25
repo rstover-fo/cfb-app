@@ -27,8 +27,9 @@ vi.mock('../../profiles.js', () => ({ getFavoriteTeam: getFavoriteTeamMock, setF
 
 import { askCommand } from '../ask.js'
 import { ClaudeUnavailableError } from '../../claude.js'
+import { COLOR_INFO } from '../../format.js'
 import { clearMemoryForTests, appendTurns } from '../../memory.js'
-import { fakeChatInputInteraction, firstEmbedJson } from './helpers.js'
+import { fakeChatInputInteraction, firstEmbedJson, firstComponentJson } from './helpers.js'
 
 function askResult(text: string, overrides: Partial<ReturnType<typeof rawResult>> = {}) {
   return { ...rawResult(text), ...overrides }
@@ -62,6 +63,8 @@ describe('askCommand allowance guard', () => {
     expect(interaction.deferReply).not.toHaveBeenCalled()
     expect(interaction.reply).toHaveBeenCalledWith(expect.objectContaining({ flags: MessageFlags.Ephemeral }))
     expect(interaction.reply.mock.calls[0]?.[0].content).toContain('7s')
+    // Ephemeral refusal is a plain-string reply -- never CV2.
+    expect(interaction.reply.mock.calls[0]?.[0].components).toBeUndefined()
   })
 
   it('checks allowance for the interacting user', async () => {
@@ -83,6 +86,9 @@ describe('askCommand', () => {
     await askCommand.execute(interaction)
 
     expect(interaction.deferReply).toHaveBeenCalledTimes(1)
+    // deferReply must NOT carry the CV2 flag -- it takes no flag param for this;
+    // the flag is applied on the later editReply call instead.
+    expect(interaction.deferReply).toHaveBeenCalledWith()
     expect(askClaudeMock).toHaveBeenCalledTimes(1)
     const deferOrder = interaction.deferReply.mock.invocationCallOrder[0]
     const askOrder = askClaudeMock.mock.invocationCallOrder[0]
@@ -98,26 +104,52 @@ describe('askCommand', () => {
     expect(askClaudeMock).toHaveBeenCalledWith('how good is Georgia?', { history: [], userContext: undefined })
   })
 
-  it('editReplies a short answer as a single chunk with no followUps', async () => {
+  it('editReplies a short answer as a single CV2 container with no followUps', async () => {
     askClaudeMock.mockResolvedValue(askResult('Ohio State is #1.'))
     const interaction = fakeChatInputInteraction({ strings: { question: 'who is #1?' } })
 
     await askCommand.execute(interaction)
 
-    expect(interaction.editReply).toHaveBeenCalledWith('Ohio State is #1.')
+    const json = firstComponentJson(interaction.editReply)
+    expect(json).toEqual({
+      type: 17, // ContainerBuilder
+      accent_color: COLOR_INFO,
+      components: [{ type: 10, content: 'Ohio State is #1.' }], // TextDisplayBuilder
+    })
     expect(interaction.followUp).not.toHaveBeenCalled()
   })
 
+  it('nulls content/embeds on the deferred editReply alongside components/flags', async () => {
+    askClaudeMock.mockResolvedValue(askResult('answer'))
+    const interaction = fakeChatInputInteraction({ strings: { question: 'q' } })
+
+    await askCommand.execute(interaction)
+
+    const payload = interaction.editReply.mock.calls[0]?.[0]
+    expect(payload.flags).toBe(MessageFlags.IsComponentsV2)
+    expect(payload.content).toBeNull()
+    expect(payload.embeds).toEqual([])
+    expect(Array.isArray(payload.components)).toBe(true)
+  })
+
   it('sends the first chunk via editReply and the rest via followUp for a long answer', async () => {
-    const longText = `${'a'.repeat(1000)}\n\n${'b'.repeat(1500)}`
+    // Sized against the 3800-char CHUNK_MAX (src/format.ts): each paragraph
+    // fits under the cap on its own but together they exceed it, so
+    // splitMessage's paragraph-break preference produces exactly two chunks.
+    const longText = `${'a'.repeat(2000)}\n\n${'b'.repeat(3000)}`
     askClaudeMock.mockResolvedValue(askResult(longText))
     const interaction = fakeChatInputInteraction({ strings: { question: 'long one' } })
 
     await askCommand.execute(interaction)
 
-    expect(interaction.editReply).toHaveBeenCalledWith('a'.repeat(1000))
+    const editJson = firstComponentJson(interaction.editReply)
+    expect(editJson.components).toEqual([{ type: 10, content: 'a'.repeat(2000) }])
+    expect(interaction.editReply.mock.calls[0]?.[0].flags).toBe(MessageFlags.IsComponentsV2)
+
     expect(interaction.followUp).toHaveBeenCalledTimes(1)
-    expect(interaction.followUp).toHaveBeenCalledWith('b'.repeat(1500))
+    const followUpJson = firstComponentJson(interaction.followUp)
+    expect(followUpJson.components).toEqual([{ type: 10, content: 'b'.repeat(3000) }])
+    expect(interaction.followUp.mock.calls[0]?.[0].flags).toBe(MessageFlags.IsComponentsV2)
   })
 
   it('editReplies an error embed when Claude is unavailable, and never throws', async () => {
@@ -129,6 +161,10 @@ describe('askCommand', () => {
     const json = firstEmbedJson(interaction.editReply)
     expect(json.title).toBe('Stats brain unavailable')
     expect(json.description).toContain("Couldn't reach the stats brain")
+    // Error paths stay plain embeds -- never opt into CV2.
+    const payload = interaction.editReply.mock.calls[0]?.[0]
+    expect(payload.flags).toBeUndefined()
+    expect(payload.components).toBeUndefined()
   })
 
   it('editReplies a generic error embed on an unexpected error, and never throws', async () => {
@@ -140,6 +176,9 @@ describe('askCommand', () => {
     const json = firstEmbedJson(interaction.editReply)
     expect(json.title).toBe('Something went wrong')
     expect(json.description).toContain('boom')
+    const payload = interaction.editReply.mock.calls[0]?.[0]
+    expect(payload.flags).toBeUndefined()
+    expect(payload.components).toBeUndefined()
   })
 
   it('editReplies a "No answer" embed when the model returns empty text', async () => {
@@ -151,6 +190,9 @@ describe('askCommand', () => {
     const json = firstEmbedJson(interaction.editReply)
     expect(json.title).toBe('No answer')
     expect(interaction.followUp).not.toHaveBeenCalled()
+    const payload = interaction.editReply.mock.calls[0]?.[0]
+    expect(payload.flags).toBeUndefined()
+    expect(payload.components).toBeUndefined()
   })
 })
 

@@ -3,16 +3,18 @@
  * cooldown/cap/budget guards first, strips the bot mention, keeps a typing
  * indicator alive while Claude works (Discord's typing state lasts ~10s, so
  * re-fire every 8s), pulls in per-channel memory plus (optionally) the
- * replied-to message as context, and replies in splitMessage chunks. Never
- * throws -- every failure path ends in a friendly reply attempt.
+ * replied-to message as context, and replies with one Components V2 message
+ * per chunk (see src/render/answer.ts, shared with /ask). Never throws --
+ * every failure path ends in a friendly reply attempt.
  */
 import type { Message } from 'discord.js'
 import { askClaude, ClaudeUnavailableError, type HistoryTurn } from './claude.js'
 import { isAllowedGuild } from './config.js'
-import { splitMessage } from './format.js'
+import { COLOR_INFO } from './format.js'
 import { getHistory, appendTurns } from './memory.js'
 import { getFavoriteTeam } from './profiles.js'
 import { checkAllowance, recordUsage, refusalMessage } from './limits.js'
+import { buildAnswerPayloads } from './render/answer.js'
 
 const TYPING_INTERVAL_MS = 8_000
 
@@ -104,14 +106,18 @@ export async function handleMention(message: Message): Promise<void> {
 
     const { text, usage, model } = await askClaude(question, { history, userContext })
     recordUsage(userId, usage, model)
-    const chunks = splitMessage(text)
+    const payloads = buildAnswerPayloads(text, { accentColor: COLOR_INFO })
 
-    if (chunks.length === 0) {
+    if (payloads.length === 0) {
       await message.reply('The stats brain came back empty — try rephrasing your question.')
       return
     }
-    for (const chunk of chunks) {
-      await message.reply(chunk)
+    // Each payload is a CV2-flagged container -- one Discord message per
+    // payload. MessageReplyOptions extends MessageCreateOptions, so
+    // components/flags need no special handling here (contrast ask.ts's
+    // deferred editReply, which must null out the fields CV2 disables).
+    for (const payload of payloads) {
+      await message.reply(payload)
     }
 
     appendTurns(channelId, question, text)
