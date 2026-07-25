@@ -6,10 +6,10 @@
  *
  * ```ts
  * const profile = await getPlaycallingProfile(team, season)
- * const png = profile
+ * const png = await (profile
  *   ? renderChartPng({ chart: 'team-playcalling', profile }, { theme })
  *   : renderChartPng({ chart: 'empty', title: 'No playcalling profile yet',
- *                      message: `Nothing charted for ${team} in ${season}.` }, { theme })
+ *                      message: `Nothing charted for ${team} in ${season}.` }, { theme }))
  * ```
  *
  * Everything here is pure given its input: data fetching belongs to the caller,

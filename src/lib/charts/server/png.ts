@@ -39,7 +39,12 @@ export function rasterizeChartSvg(svg: string, scale: number = DEFAULT_PNG_SCALE
   return resvg.render().asPng()
 }
 
-/** Convenience: spec straight to PNG bytes. What the image route will call. */
-export function renderChartPng(spec: ChartSpec, options: ChartPngOptions = {}): Buffer {
-  return rasterizeChartSvg(renderChartSvg(spec, options), options.scale ?? DEFAULT_PNG_SCALE)
+/**
+ * Convenience: spec straight to PNG bytes. What the image route calls.
+ *
+ * Async because `renderChartSvg` is (React's server-condition build only ships
+ * the streaming renderer -- see ./svg). Rasterization itself stays synchronous.
+ */
+export async function renderChartPng(spec: ChartSpec, options: ChartPngOptions = {}): Promise<Buffer> {
+  return rasterizeChartSvg(await renderChartSvg(spec, options), options.scale ?? DEFAULT_PNG_SCALE)
 }

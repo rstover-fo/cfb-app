@@ -38,9 +38,9 @@ function viewBoxSize(svg: string): { width: number; height: number } {
 const chartSpec = { chart: 'team-playcalling', profile: PLAYCALLING_PROFILE } as const
 
 describe('renderChartPng', () => {
-  it('produces a real PNG at 2x the viewBox, sized like a drawn chart', () => {
-    const png = renderChartPng(chartSpec)
-    const box = viewBoxSize(renderChartSvg(chartSpec))
+  it('produces a real PNG at 2x the viewBox, sized like a drawn chart', async () => {
+    const png = await renderChartPng(chartSpec)
+    const box = viewBoxSize(await renderChartSvg(chartSpec))
 
     const { width, height } = readIhdr(png)
     expect(width).toBe(box.width * DEFAULT_PNG_SCALE)
@@ -52,20 +52,20 @@ describe('renderChartPng', () => {
     expect(png.byteLength).toBeLessThan(500_000)
   })
 
-  it('honours an explicit scale', () => {
-    const { width } = readIhdr(renderChartPng(chartSpec, { scale: 1 }))
+  it('honours an explicit scale', async () => {
+    const { width } = readIhdr(await renderChartPng(chartSpec, { scale: 1 }))
     expect(width).toBe(700)
   })
 
-  it('renders the dark palette to a different image', () => {
-    const light = renderChartPng(chartSpec, { theme: 'light' })
-    const dark = renderChartPng(chartSpec, { theme: 'dark' })
+  it('renders the dark palette to a different image', async () => {
+    const light = await renderChartPng(chartSpec, { theme: 'light' })
+    const dark = await renderChartPng(chartSpec, { theme: 'dark' })
     expect(readIhdr(light)).toEqual(readIhdr(dark))
     expect(light.equals(dark)).toBe(false)
   })
 
-  it('rasterizes the empty card', () => {
-    const png = renderChartPng({ chart: 'empty', title: 'No playcalling profile yet', message: 'Nothing charted yet.' })
+  it('rasterizes the empty card', async () => {
+    const png = await renderChartPng({ chart: 'empty', title: 'No playcalling profile yet', message: 'Nothing charted yet.' })
     const { width, height } = readIhdr(png)
     expect(width).toBe(1400)
     expect(height).toBe(400)

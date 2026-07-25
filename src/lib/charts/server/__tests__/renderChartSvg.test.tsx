@@ -32,76 +32,76 @@ const emptySpec = {
 } as const
 
 describe('renderChartSvg — resvg safety', () => {
-  it('emits resvg-safe markup for the chart', () => {
-    expectResvgSafe(renderChartSvg(chartSpec))
+  it('emits resvg-safe markup for the chart', async () => {
+    expectResvgSafe(await renderChartSvg(chartSpec))
   })
 
-  it('emits resvg-safe markup for the chart in dark mode', () => {
-    expectResvgSafe(renderChartSvg(chartSpec, { theme: 'dark' }))
+  it('emits resvg-safe markup for the chart in dark mode', async () => {
+    expectResvgSafe(await renderChartSvg(chartSpec, { theme: 'dark' }))
   })
 
-  it('emits resvg-safe markup for the empty card', () => {
-    expectResvgSafe(renderChartSvg(emptySpec))
+  it('emits resvg-safe markup for the empty card', async () => {
+    expectResvgSafe(await renderChartSvg(emptySpec))
   })
 
-  it('emits resvg-safe markup for an empty card with no message', () => {
-    expectResvgSafe(renderChartSvg({ chart: 'empty', title: 'No data' }))
+  it('emits resvg-safe markup for an empty card with no message', async () => {
+    expectResvgSafe(await renderChartSvg({ chart: 'empty', title: 'No data' }))
   })
 })
 
 describe('renderChartSvg — determinism', () => {
-  it('is byte-identical across renders (seeded roughjs)', () => {
-    expect(renderChartSvg(chartSpec)).toBe(renderChartSvg(chartSpec))
+  it('is byte-identical across renders (seeded roughjs)', async () => {
+    expect(await renderChartSvg(chartSpec)).toBe(await renderChartSvg(chartSpec))
   })
 
-  it('pins the full-byte output', () => {
+  it('pins the full-byte output', async () => {
     // A one-line guard on the exact bytes, including every path coordinate.
     // The reviewable form of the same output is the snapshot below.
-    expect(cheapHash(renderChartSvg(chartSpec))).toMatchInlineSnapshot(`"51d2cf58"`)
+    expect(cheapHash(await renderChartSvg(chartSpec))).toMatchInlineSnapshot(`"51d2cf58"`)
   })
 
-  it('matches the reviewable structural snapshot', () => {
+  it('matches the reviewable structural snapshot', async () => {
     // Path geometry is digested so the diff stays readable: colors, fonts,
     // sizes and coordinates are all still visible and still asserted.
-    expect(elidePathData(renderChartSvg(chartSpec))).toMatchSnapshot()
+    expect(elidePathData(await renderChartSvg(chartSpec))).toMatchSnapshot()
   })
 
-  it('matches the empty-card snapshot in full', () => {
-    expect(renderChartSvg(emptySpec)).toMatchSnapshot()
+  it('matches the empty-card snapshot in full', async () => {
+    expect(await renderChartSvg(emptySpec)).toMatchSnapshot()
   })
 })
 
 describe('renderChartSvg — theming', () => {
-  it('bakes literal light-mode ink into the markup', () => {
-    const svg = renderChartSvg(chartSpec, { theme: 'light' })
+  it('bakes literal light-mode ink into the markup', async () => {
+    const svg = await renderChartSvg(chartSpec, { theme: 'light' })
     expect(svg).toContain('#FFFFFF') // --bg-surface
     expect(svg).toContain('#6B635A') // --text-muted
     expect(svg).toContain('#C47A5A') // --color-run
   })
 
-  it('bakes literal dark-mode ink into the markup', () => {
-    const svg = renderChartSvg(chartSpec, { theme: 'dark' })
+  it('bakes literal dark-mode ink into the markup', async () => {
+    const svg = await renderChartSvg(chartSpec, { theme: 'dark' })
     expect(svg).toContain('#252019') // --bg-surface, dark
     expect(svg).toContain('#8A847A') // --text-muted, dark
     expect(svg).not.toContain('#FFFFFF')
   })
 
-  it('keeps semantic series colors theme-invariant (spec §6)', () => {
+  it('keeps semantic series colors theme-invariant (spec §6)', async () => {
     for (const theme of ['light', 'dark'] as const) {
-      const svg = renderChartSvg(chartSpec, { theme })
+      const svg = await renderChartSvg(chartSpec, { theme })
       expect(svg).toContain('#C47A5A') // --color-run
       expect(svg).toContain('#5C5A7A') // --color-pass
     }
   })
 
-  it('defaults to light', () => {
-    expect(renderChartSvg(chartSpec)).toBe(renderChartSvg(chartSpec, { theme: 'light' }))
+  it('defaults to light', async () => {
+    expect(await renderChartSvg(chartSpec)).toBe(await renderChartSvg(chartSpec, { theme: 'light' }))
   })
 })
 
 describe('renderChartSvg — content', () => {
-  it('renders the team, season and every situation row', () => {
-    const svg = renderChartSvg(chartSpec)
+  it('renders the team, season and every situation row', async () => {
+    const svg = await renderChartSvg(chartSpec)
     expect(svg).toContain('playcalling')
     expect(svg).toContain(String(profile.season))
     for (const row of buildPlaycallingRows(profile)) {
@@ -109,9 +109,9 @@ describe('renderChartSvg — content', () => {
     }
   })
 
-  it('escapes XML-hostile team names instead of producing invalid markup', () => {
+  it('escapes XML-hostile team names instead of producing invalid markup', async () => {
     // A hand-built SVG string would emit a bare `&` here and yield a blank PNG.
-    const svg = renderChartSvg({
+    const svg = await renderChartSvg({
       chart: 'team-playcalling',
       profile: createPlaycallingProfileRow({ team: 'Texas A&M <Aggies>' }),
     })
@@ -120,7 +120,7 @@ describe('renderChartSvg — content', () => {
     expectResvgSafe(svg)
   })
 
-  it('drops situations the view did not publish, and sizes the canvas to fit', () => {
+  it('drops situations the view did not publish, and sizes the canvas to fit', async () => {
     const sparse = createPlaycallingProfileRow({
       red_zone_run_rate: null,
       leading_run_rate: null,
@@ -129,14 +129,14 @@ describe('renderChartSvg — content', () => {
     const rows = buildPlaycallingRows(sparse)
     expect(rows).toHaveLength(3)
 
-    const svg = renderChartSvg({ chart: 'team-playcalling', profile: sparse })
+    const svg = await renderChartSvg({ chart: 'team-playcalling', profile: sparse })
     expect(svg).not.toContain('Red zone')
     expect(svg).toContain(`viewBox="0 0 700 ${teamPlaycallingHeight(3)}"`)
     expectResvgSafe(svg)
   })
 
-  it('renders a percentile caption only where the view publishes one', () => {
-    const svg = renderChartSvg({
+  it('renders a percentile caption only where the view publishes one', async () => {
+    const svg = await renderChartSvg({
       chart: 'team-playcalling',
       profile: createPlaycallingProfileRow({ overall_run_rate_pctl: 0.55 }),
     })
