@@ -410,7 +410,82 @@ distinguishable from an anonymous visitor in a server component.
 > | Date | Action | Result |
 > |---|---|---|
 > | 2026-07-25 | Confirmed cfb-database does not use the anon role -- it connects via `psycopg2` + `SUPABASE_DB_URL` (`tests/conftest.py`). Only doc/vendored false positives in the grep. | Safe to revoke |
-> | 2026-07-25 | `revoke select on all tables in schema core from anon` + matching `alter default privileges` | **Done.** Verified 0 remaining anon grants on `core` (44 objects closed) |
+> | 2026-07-25 | `revoke select on all tables in schema core from anon` + matching `alter default privileges` | **BROKE PRODUCTION. Rolled back.** Analytics and other pages went blank. Restored with `grant select on all tables in schema core to anon`. |
+>
+> #### Why the revoke broke production -- read before retrying
+>
+> The reasoning that led to it was: cfb-app's code only calls `.schema('api')`,
+> `.schema('app')`, and implicit `public`, therefore revoking `core` is safe.
+> The premise was verified and correct. **The conclusion does not follow.**
+>
+> `api` and `public` are largely **views over `core` tables**. Whether a view
+> needs the *caller* to hold privileges on its base tables depends on the view's
+> `security_invoker` setting:
+>
+> - default (`security_invoker = false`) -- runs with the **view owner's**
+>   privileges; base-table grants are irrelevant to the caller
+> - `security_invoker = true` -- runs with the **caller's** privileges, so
+>   `anon` must hold SELECT on the base tables in `core`
+>
+> Measured after the fact, and the split is stark:
+>
+> | Schema | Views | Invoker-mode |
+> |---|---|---|
+> | `api` | 41 | **1** (`matchup_forecast`) |
+> | `public` | 13 | **13 -- all of them** |
+>
+> So `api` was nearly immune and **every `public` view broke at once**:
+> `teams_with_logos`, `games`, `roster`, `team_epa_season`, `team_style_profile`,
+> `defensive_havoc`, `team_tempo_metrics`, `team_season_trajectory`,
+> `team_special_teams_sos`, `teams`, `team_season_epa`, `recruits_search`,
+> `transfer_portal_search`.
+>
+> `teams_with_logos` alone backs `getTeamLookup()`, which feeds most pages in the
+> app -- which is why the blast radius looked like "lots of views" rather than
+> one page.
+>
+> **The distinction to hold onto:** "cfb-app does not *query* `core`" is true.
+> "cfb-app does not *depend on* `core` grants" is false. Auditing the
+> application's query layer says nothing about the database's view-dependency
+> graph.
+>
+> #### Corrected prerequisite for any future revoke
+>
+> 1. Audit `security_invoker` across **every** exposed schema's views, not just
+>    `api`:
+>    ```sql
+>    select n.nspname, c.relname,
+>           coalesce(c.reloptions::text like '%security_invoker=true%', false) as security_invoker
+>    from pg_class c join pg_namespace n on n.oid = c.relnamespace
+>    where c.relkind in ('v','m') and n.nspname in ('api','public')
+>    order by security_invoker desc, n.nspname, c.relname;
+>    ```
+> 2. Any invoker-mode view that reads a schema you plan to revoke must first be
+>    converted to owner-privileged (a cfb-database change), or it goes dark.
+> 3. Only then revoke -- and still one schema at a time, with the app open.
+>
+> **All remaining schemas are on hold** pending step 1. The same failure mode is
+> waiting in each of them.
+>
+> #### What this means for the anon-exposure problem
+>
+> Revoking base-schema grants **cannot** be the fix, because cfb-app's own
+> `public` views are 100% invoker-mode and depend on exactly those grants. The
+> exposure and the app's read path are currently the same permission.
+>
+> The order that actually works:
+> 1. **Convert `public`'s 13 views to owner-privileged** (drop
+>    `security_invoker`) in cfb-database. `anon` then needs SELECT on the views
+>    only, not on `core` and friends.
+> 2. **Then** revoke anon's SELECT on the base schemas. Now it is a no-op for
+>    the app and a real closure of the exposure.
+>
+> Note the tension: Supabase's advisor flags `security_definer_view` as a risk,
+> because an owner-privileged view can serve rows past RLS on its base tables.
+> That is the correct concern in general -- but these base tables have no RLS
+> today (89 `rls_disabled_in_public` findings), so step 1 exposes nothing that
+> is not already world-readable, while step 2 closes a great deal. If RLS is
+> ever added to `core`, revisit this: owner-privileged views would bypass it.
 >
 > **Remaining schemas**, same treatment, one at a time with a pipeline cycle
 > between: `ref`, `stats`, `ratings`, `recruiting`, `analytics`, `betting`,
