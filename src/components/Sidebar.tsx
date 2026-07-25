@@ -24,6 +24,8 @@ import {
   X,
 } from '@phosphor-icons/react'
 import { ThemeToggle } from './ThemeToggle'
+import { AccountNavItem } from './auth/AccountNavItem'
+import type { SessionUser } from '@/app/account/actions'
 
 const navItems = [
   { href: '/', label: 'Home', icon: House },
@@ -45,9 +47,13 @@ interface SidebarProps {
    *  when freshness data is unavailable. See src/lib/queries/dashboard.ts's
    *  getDataFreshness()/getFreshestUpdateDays(). */
   dataUpdatedLabel?: string | null
+  /** Current signed-in user, or null when anonymous. Passed down from
+   *  layout.tsx's getCurrentUser() -- the sidebar must not fetch, it only
+   *  ever renders props. */
+  user?: SessionUser | null
 }
 
-export function Sidebar({ dataUpdatedLabel = null }: SidebarProps = {}) {
+export function Sidebar({ dataUpdatedLabel = null, user = null }: SidebarProps = {}) {
   const [collapsed, setCollapsed] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
   const pathname = usePathname()
@@ -171,6 +177,7 @@ export function Sidebar({ dataUpdatedLabel = null }: SidebarProps = {}) {
         {/* Bottom Section */}
         <div className="p-3 border-t border-[var(--border)] space-y-1">
           <ThemeToggle />
+          <AccountNavItem user={user} collapsed={collapsed} />
           <button
             className={`flex items-center gap-3 w-full px-3 py-2 rounded text-[var(--text-muted)] hover:bg-[var(--bg-surface-alt)] transition-colors ${
               collapsed ? 'md:justify-center' : ''

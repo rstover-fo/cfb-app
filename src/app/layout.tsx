@@ -8,6 +8,7 @@ import { PaperTexture } from "@/components/PaperTexture";
 import { TEAM_THEME_COOKIE, parseTeamThemeCookie } from "@/lib/theme/team-theme";
 import { getDataFreshness, getFreshestUpdateDays } from "@/lib/queries/dashboard";
 import { formatRelativeDays } from "@/lib/utils";
+import { getCurrentUser } from "@/lib/auth/session";
 
 const libreBaskerville = Libre_Baskerville({
   variable: "--font-headline",
@@ -44,6 +45,10 @@ export default async function RootLayout({
   const freshestDays = getFreshestUpdateDays(freshnessRows);
   const dataUpdatedLabel = freshestDays == null ? null : formatRelativeDays(freshestDays);
 
+  // Phase 1: identity only, no gating. cache()d, so this costs one auth
+  // round trip shared with any page-level requireUser()/getViewerAccess() call.
+  const user = await getCurrentUser();
+
   return (
     <html lang="en" data-team-theme={teamTheme ?? undefined}>
       <body
@@ -56,7 +61,7 @@ export default async function RootLayout({
           Skip to main content
         </a>
         <PaperTexture />
-        <Sidebar dataUpdatedLabel={dataUpdatedLabel} />
+        <Sidebar dataUpdatedLabel={dataUpdatedLabel} user={user} />
         <main
           id="main-content"
           tabIndex={-1}

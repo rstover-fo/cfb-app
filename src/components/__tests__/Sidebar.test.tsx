@@ -33,3 +33,25 @@ describe('Sidebar data freshness note', () => {
     expect(screen.queryByText(/Data updated/)).not.toBeInTheDocument()
   })
 })
+
+describe('Sidebar account nav item', () => {
+  it('renders a "Sign in" link when no user prop is passed (anonymous)', () => {
+    render(<Sidebar />)
+
+    const link = screen.getByRole('link', { name: 'Sign in' })
+    expect(link).toHaveAttribute('href', '/signin')
+  })
+
+  it('renders a "Sign in" link when user is explicitly null', () => {
+    render(<Sidebar user={null} />)
+
+    expect(screen.getByRole('link', { name: 'Sign in' })).toHaveAttribute('href', '/signin')
+  })
+
+  it('renders a link to /account showing the email when signed in', () => {
+    render(<Sidebar user={{ id: 'user-1', email: 'rob@example.com' }} />)
+
+    const link = screen.getByRole('link', { name: 'rob@example.com' })
+    expect(link).toHaveAttribute('href', '/account')
+  })
+})
