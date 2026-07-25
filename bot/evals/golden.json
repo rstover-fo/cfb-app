@@ -260,5 +260,15 @@
     "expect": {
       "judge": "Derives a point-in-time Elo from per-game Elo history (e.g. the postgame Elo of the final regular-season game) instead of claiming only season-end Elo exists; citing a specific number around the correct range is expected."
     }
+  },
+  {
+    "id": "chart-oklahoma-playcalling",
+    "question": "Show me Oklahoma's playcalling tendencies this season.",
+    "expect": {
+      "mustMatchAny": [
+        "/api/chart/"
+      ],
+      "judge": "Cites at least one concrete playcalling number in prose (e.g. run/pass rate) in addition to rendering a chart."
+    }
   }
 ]

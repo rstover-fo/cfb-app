@@ -28,6 +28,11 @@ const MAX_TOKENS = 8000
 const MAX_PAUSE_CONTINUATIONS = 5
 const ESCALATE_TOKEN = '[ESCALATE]'
 
+// The render_chart MCP tool mints a signed URL; cap how many we'll surface
+// per answer regardless of how many the model happens to call.
+const RENDER_CHART_TOOL_NAME = 'render_chart'
+const MAX_CHARTS_PER_ANSWER = 1
+
 export interface HistoryTurn {
   role: 'user' | 'assistant'
   content: string
@@ -40,6 +45,11 @@ export interface UsageSummary {
   cache_read_input_tokens: number
 }
 
+export interface ChartInfo {
+  url: string
+  alt: string
+}
+
 export interface AskResult {
   text: string
   tier: QuestionTier
@@ -47,6 +57,9 @@ export interface AskResult {
   usage: UsageSummary
   /** The model that actually produced `text` -- the advisor model after an [ESCALATE] re-run. */
   model: string
+  /** Chart image(s) surfaced via the render_chart MCP tool, extracted structurally (never regexed
+   * from `text`). At most MAX_CHARTS_PER_ANSWER long; [] when no chart was rendered this turn. */
+  charts: ChartInfo[]
 }
 
 /** Friendly, user-showable failure for any Anthropic-side problem. */
@@ -141,6 +154,9 @@ function getBaseSystemPrompt(loreEnabled: boolean): string {
     '  SELECT over the api views, following its schema card; always include ORDER BY and LIMIT.',
     '  Prefer curated tools when one fits. If run_sql reports it is not enabled, say the',
     '  deep-analysis mode is not live yet instead of guessing.',
+    '- If render_chart returns a chart, put its URL on its own line (per that tool\'s usage note),',
+    '  at most one chart per reply, and always state the headline number in prose too -- the chart',
+    '  is a supplement to the numbers, never a substitute for them.',
   ].join('\n')
   cachedBasePrompts.set(loreEnabled, prompt)
   return prompt
@@ -154,12 +170,94 @@ const ESCALATION_RULE = [
   `end your reply with the exact token ${ESCALATE_TOKEN} on its own line.`,
 ].join('\n')
 
+type BetaContentBlock = Anthropic.Beta.Messages.BetaMessage['content'][number]
+
 function extractText(content: Anthropic.Beta.Messages.BetaMessage['content']): string {
   return content
     .filter((block): block is Anthropic.Beta.Messages.BetaTextBlock => block.type === 'text')
     .map(block => block.text)
     .join('')
     .trim()
+}
+
+/** An mcp_tool_result's `content` is either a plain string or an array of text blocks. */
+function toolResultText(content: Anthropic.Beta.Messages.BetaMCPToolResultBlock['content']): string {
+  if (typeof content === 'string') return content
+  return content.map(block => block.text).join('')
+}
+
+/**
+ * Accepts a signed chart URL without pinning its host: chartBaseUrl() in the
+ * parent app resolves CHART_BASE_URL first, falling back to
+ * VERCEL_PROJECT_PRODUCTION_URL -- NOT derived from MCP_URL -- so on a
+ * preview deployment the chart host can legitimately differ from the MCP
+ * host. Pinning the host would silently drop legitimate charts; instead we
+ * only warn when the hosts differ, so misconfiguration is visible but never
+ * fatal to the answer.
+ */
+function isValidChartUrl(rawUrl: string, mcpUrl: string): boolean {
+  let parsed: URL
+  try {
+    parsed = new URL(rawUrl)
+  } catch {
+    return false
+  }
+  if (parsed.protocol !== 'https:') return false
+  if (!parsed.pathname.includes('/api/chart/')) return false
+  if (!parsed.pathname.endsWith('.png')) return false
+
+  try {
+    const mcpHost = new URL(mcpUrl).host
+    if (parsed.host !== mcpHost) {
+      console.warn(`[claude] render_chart URL host "${parsed.host}" differs from MCP_URL host "${mcpHost}"`)
+    }
+  } catch {
+    // MCP_URL failed to parse -- shouldn't happen (it's zod-validated as a URL
+    // in config.ts) but a comparison failure must never block a valid chart.
+  }
+  return true
+}
+
+/**
+ * Extracts chart URLs from render_chart MCP tool calls, structurally rather
+ * than by regex over the answer prose: collects mcp_tool_use blocks named
+ * render_chart, maps their `id` to the matching mcp_tool_result by
+ * `tool_use_id`, skips errored results, and JSON-parses the result content
+ * for `url`/`alt`. `blocks` should be every content block across the whole
+ * turn (all pause_turn continuations), not just the final response -- a
+ * render_chart call can complete in an earlier paused response before the
+ * final response emits the visible text. Capped at MAX_CHARTS_PER_ANSWER.
+ */
+function extractCharts(blocks: BetaContentBlock[], mcpUrl: string): ChartInfo[] {
+  const chartToolUseIds = new Set(
+    blocks
+      .filter(
+        (block): block is Anthropic.Beta.Messages.BetaMCPToolUseBlock =>
+          block.type === 'mcp_tool_use' && block.name === RENDER_CHART_TOOL_NAME
+      )
+      .map(block => block.id)
+  )
+  if (chartToolUseIds.size === 0) return []
+
+  const charts: ChartInfo[] = []
+  for (const block of blocks) {
+    if (charts.length >= MAX_CHARTS_PER_ANSWER) break
+    if (block.type !== 'mcp_tool_result') continue
+    if (!chartToolUseIds.has(block.tool_use_id)) continue
+    if (block.is_error) continue
+
+    try {
+      const parsed: unknown = JSON.parse(toolResultText(block.content))
+      const url = (parsed as { url?: unknown } | null)?.url
+      const alt = (parsed as { alt?: unknown } | null)?.alt
+      if (typeof url !== 'string' || typeof alt !== 'string') continue
+      if (!isValidChartUrl(url, mcpUrl)) continue
+      charts.push({ url, alt })
+    } catch (err) {
+      console.error('[claude] failed to parse render_chart tool result:', err instanceof Error ? err.message : err)
+    }
+  }
+  return charts
 }
 
 function summarizeUsage(usage: Anthropic.Beta.Messages.BetaUsage): UsageSummary {
@@ -211,10 +309,20 @@ async function runConnectorTurn(
   model: string,
   systemText: string,
   messages: Anthropic.Beta.Messages.BetaMessageParam[]
-): Promise<{ response: Anthropic.Beta.Messages.BetaMessage; usage: UsageSummary; continuations: number }> {
+): Promise<{
+  response: Anthropic.Beta.Messages.BetaMessage
+  usage: UsageSummary
+  continuations: number
+  /** Every content block from every response in this turn (initial call plus
+   * all pause_turn resumes) -- needed for chart extraction, since a
+   * render_chart call can land in an earlier paused response rather than
+   * the final one. */
+  allContent: BetaContentBlock[]
+}> {
   let turnMessages = messages
   let response = await runConnectorCall(client, model, systemText, turnMessages)
   let usage = summarizeUsage(response.usage)
+  let allContent: BetaContentBlock[] = [...response.content]
 
   let continuations = 0
   while (response.stop_reason === 'pause_turn' && continuations < MAX_PAUSE_CONTINUATIONS) {
@@ -222,9 +330,10 @@ async function runConnectorTurn(
     turnMessages = [...turnMessages, { role: 'assistant', content: response.content }]
     response = await runConnectorCall(client, model, systemText, turnMessages)
     usage = addUsage(usage, summarizeUsage(response.usage))
+    allContent = [...allContent, ...response.content]
   }
 
-  return { response, usage, continuations }
+  return { response, usage, continuations, allContent }
 }
 
 /**
@@ -275,12 +384,17 @@ export async function askClaude(
   let usage: UsageSummary
   let stopReason: string | null
   let continuations: number
+  // Chart-bearing blocks for whichever run actually produced `text` -- on an
+  // [ESCALATE] re-run the first run's charts are discarded along with its
+  // text, since the user never sees that reply.
+  let chartBlocks: BetaContentBlock[]
   try {
     const turn = await runConnectorTurn(client, model, systemText, messages)
     text = extractText(turn.response.content)
     usage = turn.usage
     stopReason = turn.response.stop_reason
     continuations = turn.continuations
+    chartBlocks = turn.allContent
 
     // Escalation backstop: the default tier signalled it wants the advisor.
     if (tier === 'simple' && text.endsWith(ESCALATE_TOKEN)) {
@@ -291,11 +405,14 @@ export async function askClaude(
       usage = addUsage(usage, rerun.usage)
       stopReason = rerun.response.stop_reason
       continuations += rerun.continuations
+      chartBlocks = rerun.allContent
     }
   } catch (err) {
     console.error('[claude] API call failed:', err instanceof Error ? err.message : err)
     throw new ClaudeUnavailableError()
   }
+
+  const charts = extractCharts(chartBlocks, config.mcpUrl)
 
   if (text.length === 0) {
     // The caller shows a friendly "came back empty" reply; leave the reason in
@@ -312,7 +429,7 @@ export async function askClaude(
     })
   )
 
-  return { text, tier, escalated, usage, model }
+  return { text, tier, escalated, usage, model, charts }
 }
 
 /** Test-only: clears the memoized system prompts so config changes take effect. */

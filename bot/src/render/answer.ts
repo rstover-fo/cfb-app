@@ -17,9 +17,18 @@
  *    message once sent. That is per-MESSAGE, so error/refusal paths still
  *    send plain strings or embeds as their own separate messages -- what the
  *    API rejects is a container and a `content` string in ONE payload.
+ *
+ * Chart images (from the render_chart MCP tool, see src/claude.ts's
+ * ChartInfo/askClaude) render as a MediaGallery attached to the FIRST
+ * payload's container, using the chart's external URL directly -- the bot
+ * has no ATTACH_FILES permission, so `attachment://` is never an option, and
+ * external image URLs need only Embed Links. The URL is stripped out of the
+ * chunked text first (splitMessage is URL-unaware and could otherwise cut a
+ * bare URL mid-string at a chunk boundary).
  */
-import { ContainerBuilder, MessageFlags, TextDisplayBuilder } from 'discord.js'
+import { ContainerBuilder, MediaGalleryBuilder, MediaGalleryItemBuilder, MessageFlags, TextDisplayBuilder } from 'discord.js'
 import { splitMessage } from '../format.js'
+import type { ChartInfo } from '../claude.js'
 
 export interface AnswerPayload {
   components: ContainerBuilder[]
@@ -29,6 +38,34 @@ export interface AnswerPayload {
 export interface AnswerRenderOptions {
   /** Container accent bar, e.g. a team's brand color as 0xRRGGBB. */
   accentColor?: number
+  /** Chart(s) to render as a MediaGallery on the first payload. Extracted
+   * structurally from tool results (src/claude.ts) -- never derived from
+   * `text` here. */
+  charts?: ChartInfo[]
+}
+
+/**
+ * Removes a chart's URL from the answer text before chunking, so
+ * splitMessage (URL-unaware) can't slice it mid-string at a chunk boundary.
+ * Only strips URLs actually passed in `charts` -- never anything merely
+ * chart-shaped -- so if chart extraction ever misses one, that URL survives
+ * as a plain clickable link in the text instead of vanishing outright.
+ * Cleans up any blank line the removal leaves behind.
+ */
+function stripChartUrls(text: string, charts: ChartInfo[]): string {
+  let result = text
+  for (const chart of charts) {
+    result = result.split(chart.url).join('')
+  }
+  // Collapse runs of 3+ newlines (a removed URL's own line plus the
+  // paragraph breaks around it) down to a single blank line, and trim
+  // leftover trailing/leading whitespace on each line the removal produced.
+  return result
+    .split('\n')
+    .map(line => line.trimEnd())
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
 }
 
 /**
@@ -41,11 +78,24 @@ export interface AnswerRenderOptions {
  * sites already branch on that to show their own "came back empty" message.
  */
 export function buildAnswerPayloads(text: string, opts: AnswerRenderOptions = {}): AnswerPayload[] {
-  return splitMessage(text).map(chunk => {
+  const charts = opts.charts ?? []
+  const strippedText = charts.length > 0 ? stripChartUrls(text, charts) : text
+
+  const payloads = splitMessage(strippedText).map(chunk => {
     const container = new ContainerBuilder().addTextDisplayComponents(
       new TextDisplayBuilder().setContent(chunk)
     )
     if (opts.accentColor != null) container.setAccentColor(opts.accentColor)
-    return { components: [container], flags: MessageFlags.IsComponentsV2 }
+    return { components: [container], flags: MessageFlags.IsComponentsV2 as const }
   })
+
+  const firstContainer = payloads[0]?.components[0]
+  if (firstContainer && charts.length > 0) {
+    const gallery = new MediaGalleryBuilder().addItems(
+      charts.map(chart => new MediaGalleryItemBuilder().setURL(chart.url).setDescription(chart.alt))
+    )
+    firstContainer.addMediaGalleryComponents(gallery)
+  }
+
+  return payloads
 }

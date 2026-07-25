@@ -104,9 +104,9 @@ export async function handleMention(message: Message): Promise<void> {
     const favoriteTeam = await getFavoriteTeam(userId)
     const userContext = favoriteTeam ? `this user's favorite team is ${favoriteTeam}` : undefined
 
-    const { text, usage, model } = await askClaude(question, { history, userContext })
+    const { text, usage, model, charts } = await askClaude(question, { history, userContext })
     recordUsage(userId, usage, model)
-    const payloads = buildAnswerPayloads(text, { accentColor: COLOR_INFO })
+    const payloads = buildAnswerPayloads(text, { accentColor: COLOR_INFO, charts })
 
     if (payloads.length === 0) {
       await message.reply('The stats brain came back empty — try rephrasing your question.')
