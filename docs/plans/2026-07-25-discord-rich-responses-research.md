@@ -82,6 +82,15 @@ instead of a fixed embed shape:
   `stickers` explicitly `null`. There is history here (discord-api-docs #7515, discord.js #10855
   typings) — verify the exact call shape against 14.27 before building on it.
 
+**Mentions get this too, and more easily.** `message.reply()` takes `MessageReplyOptions`, which
+extends `MessageCreateOptions` — whose `flags` field accepts exactly `SuppressEmbeds`,
+`SuppressNotifications`, and `IsComponentsV2`. So the mention path is a plain
+`message.reply({ components: [container], flags: MessageFlags.IsComponentsV2 })`, with **none of
+the deferral dance** `/ask` needs: the flag just goes on the send. The reply-to reference is set by
+the endpoint, not by a field CV2 disables, so replies still thread and still ping the author
+(`allowedMentions.repliedUser` remains available — note that with CV2 it now governs mentions
+inside `TextDisplay` markdown, since there is no `content`). Section §3 covers the shared plumbing.
+
 **Recommendation: put Components V2 on the `/ask` and mention path only.** Because CV2 forbids
 `embeds` on the same message, migrating the deterministic commands means porting all of
 `format.ts` at once. Not worth coupling those two changes.
@@ -157,10 +166,50 @@ watches together.
 
 ---
 
-## 3. Recommended sequencing
+## 3. Both answer paths, one renderer
 
-**Phase 1 — formatting (this week, small).** Move `/ask` and mentions into a Components V2
-container: team accent color, header, `-#` source line, team logo as a `Section` thumbnail. Widen
+`/ask` and `@`-mentions are the same answer wearing different delivery mechanics, and today they
+duplicate the formatting logic — `ask.ts:46-58` and `mention.ts:88-97` each call `splitMessage()`
+and then send it their own way. Any rich-response work has to land in both, so Phase 1 should
+start by extracting the rendering, not by editing two files in parallel.
+
+**Proposed shape:** a new `bot/src/render/answer.ts` exporting something like
+
+```ts
+buildAnswerPayloads(text: string, opts: { team?: TeamStyle; charts?: string[] })
+  => Array<{ components: TopLevelComponent[]; flags: MessageFlags.IsComponentsV2; files?: AttachmentBuilder[] }>
+```
+
+Each path then owns only its transport:
+
+| | `/ask` | `@`-mention |
+|---|---|---|
+| Transport | `deferReply()` → `editReply(payload[0])` → `followUp(...)` | `message.reply(payload[n])` per payload |
+| CV2 flag | **not** on `deferReply`; on `editReply` with `content`/`embeds`/`poll`/`stickers` set to `null` | just on the send |
+| Progress signal | Discord's built-in "thinking…" | existing 8s typing loop (`mention.ts:30`) — unchanged |
+| Reply semantics | reply to the interaction | replies to the triggering message, pings author |
+
+Two things to get right:
+
+1. **Return an array, not one payload.** CV2's 4000-char text budget means most answers fit in a
+   single container, but long ones still split — and each extra payload is a separate CV2 message
+   on both paths. Keep `splitMessage()`'s job (deciding *where* to break) and change only what
+   wraps each chunk. Raising its `CHUNK_MAX` from 1900 toward the CV2 budget is a one-line change
+   that alone kills most of the 3-chunk truncation.
+2. **Leave the plain-text paths alone.** `mention.ts` has four bare-string replies —
+   `EMPTY_MENTION_HELP`, `refusalMessage()`, the empty-answer message, and `GENERIC_ERROR_REPLY` —
+   and `ask.ts` uses `errorEmbed()` for its failures. CV2 is per-message, so these can stay exactly
+   as they are. Don't mix a container and a `content` string in one send; that's the one
+   combination the API rejects.
+
+Because the mention path has no deferral caveat, **prototype there first** — it isolates "does the
+container render the way we want on mobile" from "did we get the deferred-edit call shape right."
+
+## 4. Recommended sequencing
+
+**Phase 1 — formatting (this week, small).** Extract the shared renderer described in §3, then
+move **both** `/ask` and `@`-mentions onto it: a Components V2 container with the team accent
+color, a header, a `-#` source line, and the team logo as a `Section` thumbnail. Widen
 the system prompt's formatting vocabulary (headers, subtext, masked links to cfb-app team pages,
 `<t:>` timestamps), raise the 1500-char ceiling toward the 4000-char CV2 budget, and replace "no
 giant tables" with "≤5-row monospace block, mobile-safe." No new infrastructure; immediately fixes
@@ -175,10 +224,19 @@ the exact question that triggered this.
 
 **Skip** Activities.
 
-## 4. Risks and things to watch
+## 5. Risks and things to watch
 
+- 🚩 **The bot cannot attach files today.** The invite URL in `bot/README.md` uses permission
+  integer `2147568640`, which decomposes exactly to View Channels + Send Messages + Embed Links +
+  Read Message History + Use Application Commands. **`ATTACH_FILES` (`1 << 15`, 32768) is not in
+  it.** That is fine for Tier 2 option B's default path — external image URLs go through Discord's
+  media proxy and need only Embed Links — but any approach that uploads PNG bytes, including the
+  `attachment://` references that `MediaGallery`/`File`/`Thumbnail` components use for local files,
+  will fail until the bot is re-invited with `2147601408` (`2147568640 + 32768`). Re-inviting is a
+  human step in the Developer Portal, so surface it early. Applies to both answer paths equally.
 - **Mobile first.** The audience is on phones. No ANSI color; keep monospace blocks narrow; test
-  every container on mobile before shipping.
+  every container on mobile before shipping — and test it on *both* paths, since a mention reply
+  and a slash-command reply render in different message contexts.
 - **CV2 is one-way per message and excludes embeds.** Don't half-migrate `format.ts`.
 - **Latency.** `/ask` already takes 10–30s. Return a chart *URL* and let Discord fetch it — never
   block the reply on in-process rasterization.
@@ -187,13 +245,20 @@ the exact question that triggered this.
 - **Cache correctness.** Discord caches proxied images by URL. Live/in-progress-game charts need a
   cache-busting param or they'll go stale mid-game.
 
-## 5. Sources
+## 6. Sources
 
 - [Discord component reference](https://docs.discord.com/developers/components/reference) — CV2
   types, the 40-component and 4000-char limits, flag restrictions
 - [discord.js display components guide](https://discordjs.guide/legacy/popular-topics/display-components)
   — builders, `attachment://`, deferred-interaction caveat
 - [discord.js `ContainerBuilder`](https://discord.js.org/docs/packages/discord.js/14.19.3/ContainerBuilder:Class)
+- [`MessageCreateOptions`](https://discord.js.org/docs/packages/discord.js/14.24.2/MessageCreateOptions:Interface)
+  — confirms `flags` accepts `IsComponentsV2` on regular (non-interaction) sends, which is what the
+  mention path uses
+- [Using message components](https://docs.discord.com/developers/components/using-message-components)
+  — the flag applies identically to Message Create, Execute Webhook, and interaction responses
+- [Discord permissions reference](https://docs.discord.com/developers/topics/permissions) —
+  `ATTACH_FILES` bit
 - [Cannot use Components V2 if you defer an interaction (discord-api-docs #7515)](https://github.com/discord/discord-api-docs/issues/7515)
 - [A guide to ANSI on Discord](https://gist.github.com/kkrypt0nn/a02506f3712ff2d1c8ca7c9e0aed7c06)
   and [why it breaks on mobile](https://ultratextgen.com/guide/discord-colored-text-guide/)
