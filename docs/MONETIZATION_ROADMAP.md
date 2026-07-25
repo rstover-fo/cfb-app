@@ -304,7 +304,13 @@ winners"* closes the account. Same standard as FTC Act §5 substantiation.
 - [ ] **Enable Stripe Tax from day one.** Digital subscriptions are taxable in
       ~25 states; economic nexus is typically $100k or 200 transactions per
       state per year. A checkbox now, a mess later.
-- [ ] **Public methodology page** and a timestamped, auditable pick log --
+- [ ] **Public methodology page** and a timestamped, auditable pick log.
+      **Spec'd:** `docs/plans/2026-07-25-pick-log-spec.md`. Headline finding --
+      `api.game_predictions` is a *latest-snapshot* view (`DISTINCT ON game_id,
+      model_version ORDER BY prediction_date DESC`), so it cannot back an
+      auditable log; the record has to be an append-only
+      `app.published_picks` ledger written by a weekly freeze job. Depends on
+      Phase 1's `app` schema. Original note:
       record each pick *before kickoff* with the line and book graded against,
       disclose the vig assumption, publish losing weeks. It is both the FTC §5
       defense and the best conversion asset. Sites that quietly regrade are the
