@@ -15,11 +15,13 @@ import {
   type InteractionReplyOptions,
   type Message,
 } from 'discord.js'
-import { loadConfig } from './config.js'
+import { isAllowedGuild, loadConfig } from './config.js'
 import { loadEnvFileIfPresent } from './env.js'
 import { commandsByName } from './commands/index.js'
 import { errorEmbed } from './format.js'
 import { handleMention } from './mention.js'
+
+const HOME_SERVER_ONLY_MESSAGE = 'This bot is only available in its home server.'
 
 export function createClient(): Client {
   return new Client({
@@ -29,6 +31,16 @@ export function createClient(): Client {
 
 export async function handleInteraction(interaction: Interaction): Promise<void> {
   if (interaction.isChatInputCommand()) {
+    // Slash commands are registered per-guild (register-commands.ts), so
+    // they shouldn't be invocable elsewhere -- this is defense in depth
+    // against the Discord application's Public Bot setting. Reply
+    // ephemerally rather than silently: the user is staring at a spinner
+    // and the 3s interaction deadline applies.
+    if (!isAllowedGuild(interaction.guildId)) {
+      await interaction.reply({ content: HOME_SERVER_ONLY_MESSAGE, flags: MessageFlags.Ephemeral }).catch(() => {})
+      return
+    }
+
     const command = commandsByName.get(interaction.commandName)
     if (!command) return
 
@@ -50,6 +62,11 @@ export async function handleInteraction(interaction: Interaction): Promise<void>
   }
 
   if (interaction.isAutocomplete()) {
+    if (!isAllowedGuild(interaction.guildId)) {
+      await interaction.respond([]).catch(() => {})
+      return
+    }
+
     const command = commandsByName.get(interaction.commandName)
     if (!command?.autocomplete) return
 

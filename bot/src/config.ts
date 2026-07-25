@@ -36,7 +36,17 @@ function optionalNumber() {
 const EnvSchema = z.object({
   DISCORD_TOKEN: z.string().min(1, 'DISCORD_TOKEN is required'),
   DISCORD_APP_ID: z.string().min(1, 'DISCORD_APP_ID is required'),
-  DISCORD_GUILD_ID: z.string().min(1, 'DISCORD_GUILD_ID is required'),
+  // Comma-separated. min(1) only rejects the literally-empty string, so the
+  // refine catches a value like " , , " that parses to zero usable IDs --
+  // without it the bot would boot fine, register no commands, and silently
+  // refuse every guild, which is far harder to diagnose than a startup error.
+  DISCORD_GUILD_ID: z
+    .string()
+    .min(1, 'DISCORD_GUILD_ID is required')
+    .refine(
+      value => value.split(',').some(id => id.trim().length > 0),
+      'DISCORD_GUILD_ID must contain at least one guild ID'
+    ),
   MCP_URL: z.string().url('MCP_URL must be a valid URL'),
   MCP_AUTH_TOKEN: z.string().min(1, 'MCP_AUTH_TOKEN is required'),
   // Optional so the Phase-A deterministic commands keep working without an
@@ -67,7 +77,24 @@ const EnvSchema = z.object({
 export interface BotConfig {
   discordToken: string
   discordAppId: string
+  /**
+   * The first entry of allowedGuildIds, kept for backwards compatibility
+   * with call sites that only ever cared about a single guild (e.g. the
+   * command-registration script's log line). Runtime guild gating must use
+   * allowedGuildIds, not this field.
+   */
   discordGuildId: string
+  /**
+   * DISCORD_GUILD_ID, comma-separated, trimmed, empty entries dropped, order
+   * preserved. Slash commands are registered to every guild in this list
+   * (register-commands.ts) and it doubles as the runtime allowlist: any
+   * @-mention or interaction from a guild not in this list is refused before
+   * it can reach the Anthropic budget (see mention.ts / index.ts). The
+   * Discord app has Public Bot enabled, so without this gate anyone with the
+   * Application ID could add the bot to their own server and drain the
+   * shared daily budget.
+   */
+  allowedGuildIds: string[]
   mcpUrl: string
   mcpAuthToken: string
   /** Anthropic API key -- absent means the conversational Claude path is unavailable. */
@@ -121,10 +148,18 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): BotConfig {
   }
 
   const data = parsed.data
+  const allowedGuildIds = data.DISCORD_GUILD_ID.split(',')
+    .map(id => id.trim())
+    .filter(id => id.length > 0)
+
   cached = {
     discordToken: data.DISCORD_TOKEN,
     discordAppId: data.DISCORD_APP_ID,
-    discordGuildId: data.DISCORD_GUILD_ID,
+    // Falls back to the raw (trimmed) value in the pathological case where
+    // DISCORD_GUILD_ID is non-empty but whitespace/commas only -- zod's
+    // min(1) only guarantees the raw string isn't literally "".
+    discordGuildId: allowedGuildIds[0] ?? data.DISCORD_GUILD_ID.trim(),
+    allowedGuildIds,
     mcpUrl: data.MCP_URL,
     mcpAuthToken: data.MCP_AUTH_TOKEN,
     anthropicApiKey: data.ANTHROPIC_API_KEY,
@@ -145,6 +180,17 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): BotConfig {
 /** The season commands should default to when the caller doesn't specify one. */
 export function getDefaultSeason(): number {
   return loadConfig().defaultSeason
+}
+
+/**
+ * Runtime guild gate: true only for a non-null guild ID present in
+ * allowedGuildIds. DMs (guildId === null) and any guild the bot was added to
+ * outside the allowlist are refused -- see mention.ts and index.ts, the two
+ * call sites that reach the Anthropic budget.
+ */
+export function isAllowedGuild(guildId: string | null | undefined): boolean {
+  if (!guildId) return false
+  return loadConfig().allowedGuildIds.includes(guildId)
 }
 
 /** Test-only: clears the memoized config so the next loadConfig() re-parses env. */

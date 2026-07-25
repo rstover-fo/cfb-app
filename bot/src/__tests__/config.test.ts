@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { loadConfig, deriveDefaultSeason, resetConfigForTests } from '../config.js'
+import { loadConfig, deriveDefaultSeason, isAllowedGuild, resetConfigForTests } from '../config.js'
 
 const VALID_ENV = {
   DISCORD_TOKEN: 'token',
@@ -126,6 +126,58 @@ describe('loadConfig', () => {
     const config = loadConfig({ ...VALID_ENV, COOLDOWN_SECONDS: '', DAILY_BUDGET_USD: '  ' })
     expect(config.cooldownSeconds).toBe(20)
     expect(config.dailyBudgetUsd).toBe(10)
+  })
+})
+
+describe('loadConfig allowedGuildIds', () => {
+  it('parses a single guild ID into a one-element allowlist', () => {
+    const config = loadConfig({ ...VALID_ENV, DISCORD_GUILD_ID: 'guild-a' })
+    expect(config.allowedGuildIds).toEqual(['guild-a'])
+  })
+
+  it('parses a comma-separated list into N entries, order preserved', () => {
+    const config = loadConfig({ ...VALID_ENV, DISCORD_GUILD_ID: 'guild-a,guild-b,guild-c' })
+    expect(config.allowedGuildIds).toEqual(['guild-a', 'guild-b', 'guild-c'])
+  })
+
+  it('trims whitespace around each entry and drops empty ones', () => {
+    const config = loadConfig({ ...VALID_ENV, DISCORD_GUILD_ID: ' guild-a , guild-b ,, guild-c ' })
+    expect(config.allowedGuildIds).toEqual(['guild-a', 'guild-b', 'guild-c'])
+  })
+
+  it('sets discordGuildId to the first entry for backwards compatibility', () => {
+    const config = loadConfig({ ...VALID_ENV, DISCORD_GUILD_ID: 'guild-a,guild-b' })
+    expect(config.discordGuildId).toBe('guild-a')
+  })
+
+  // Without this, the bot boots cleanly, registers zero commands, and refuses
+  // every guild -- a silent no-op that looks like a Discord problem rather
+  // than a config one. Fail at startup instead.
+  it('rejects a value that parses to zero usable guild IDs', () => {
+    expect(() => loadConfig({ ...VALID_ENV, DISCORD_GUILD_ID: ' , , ' })).toThrow(
+      /at least one guild ID/
+    )
+  })
+})
+
+describe('isAllowedGuild', () => {
+  beforeEach(() => {
+    resetConfigForTests()
+    loadConfig({ ...VALID_ENV, DISCORD_GUILD_ID: 'guild-a,guild-b' })
+  })
+
+  it('is true for a guild in the allowlist', () => {
+    expect(isAllowedGuild('guild-a')).toBe(true)
+    expect(isAllowedGuild('guild-b')).toBe(true)
+  })
+
+  it('is false for a guild not in the allowlist', () => {
+    expect(isAllowedGuild('stranger-guild')).toBe(false)
+  })
+
+  it('is false for null/undefined (DMs)', () => {
+    expect(isAllowedGuild(null)).toBe(false)
+    expect(isAllowedGuild(undefined)).toBe(false)
   })
 })
 

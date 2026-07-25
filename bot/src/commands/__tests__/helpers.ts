@@ -1,9 +1,14 @@
 import { vi } from 'vitest'
 
+/** The guild ID these fakes default to -- tests that exercise the runtime guild
+ * gate (index.test.ts) should set DISCORD_GUILD_ID to include this value. */
+export const TEST_GUILD_ID = 'test-guild'
+
 interface FakeOptions {
   strings?: Record<string, string>
   integers?: Record<string, number>
   focused?: string
+  guildId?: string | null
 }
 
 /** Minimal ChatInputCommandInteraction stand-in covering what command execute()s touch. */
@@ -16,6 +21,7 @@ export function fakeChatInputInteraction(options: FakeOptions = {}) {
     },
     user: { id: 'test-user' },
     channelId: 'test-channel',
+    guildId: options.guildId === undefined ? TEST_GUILD_ID : options.guildId,
     reply: vi.fn().mockResolvedValue(undefined),
     deferReply: vi.fn().mockResolvedValue(undefined),
     editReply: vi.fn().mockResolvedValue(undefined),
@@ -28,9 +34,10 @@ export function fakeChatInputInteraction(options: FakeOptions = {}) {
 }
 
 /** Minimal AutocompleteInteraction stand-in. */
-export function fakeAutocompleteInteraction(focused: string) {
+export function fakeAutocompleteInteraction(focused: string, guildId: string | null = TEST_GUILD_ID) {
   return {
     options: { getFocused: vi.fn(() => focused) },
+    guildId,
     respond: vi.fn().mockResolvedValue(undefined),
     // Intentionally `any`: hand-rolled stand-in for AutocompleteInteraction.
   } as any

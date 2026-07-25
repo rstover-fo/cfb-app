@@ -8,6 +8,7 @@
  */
 import type { Message } from 'discord.js'
 import { askClaude, ClaudeUnavailableError, type HistoryTurn } from './claude.js'
+import { isAllowedGuild } from './config.js'
 import { splitMessage } from './format.js'
 import { getHistory, appendTurns } from './memory.js'
 import { getFavoriteTeam } from './profiles.js'
@@ -45,6 +46,24 @@ export async function handleMention(message: Message): Promise<void> {
 
   const botUser = message.client.user
   if (!botUser || !message.mentions.users.has(botUser.id)) return
+
+  // Public Bot is enabled on the Discord application, so anyone with the
+  // (public) Application ID can add this bot to their own server. Gate on the
+  // runtime allowlist before checkAllowance, the typing loop, and anything
+  // that reaches the Anthropic budget -- DMs (guildId === null) are refused
+  // too. Silent: replying would make the bot a spam amplifier for whoever
+  // added it to an unapproved server.
+  //
+  // Deliberately placed AFTER the bot/mention filters above, which are free
+  // and non-I/O: handleMention runs on EVERY message the bot can see, so
+  // gating first would emit a warn line per message in a busy unapproved
+  // guild. Here it only fires when someone actually mentioned the bot.
+  if (!isAllowedGuild(message.guildId)) {
+    if (message.guildId) {
+      console.warn(`[mention] ignoring mention from disallowed guild ${message.guildId}`)
+    }
+    return
+  }
 
   const question = stripBotMention(message.content, botUser.id)
   if (question.length === 0) {
