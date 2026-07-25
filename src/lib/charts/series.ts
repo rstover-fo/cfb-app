@@ -5,8 +5,14 @@
  * `drawChart` only -- these resolve to concrete color strings that roughjs
  * bakes in at draw time, so consumers must redraw via `useChartTheme`.
  */
-import type { Options } from 'roughjs/bin/core'
 import { resolveColor } from './theme'
+
+/**
+ * `pairedBarOptions` moved to `./presets` (DOM-free, no `'use client'`) so the
+ * server-side renderer can import the same implementation without crossing the
+ * client boundary. Re-exported here so existing client imports are unchanged.
+ */
+export { pairedBarOptions } from './presets'
 
 export type SeriesRole = 'run' | 'pass' | 'positive' | 'negative' | 'neutral'
 
@@ -43,23 +49,3 @@ export function teamInk(hex: string | null, fallback: 'primary' | 'muted'): stri
   return resolveColor(fallback === 'primary' ? 'var(--text-primary)' : 'var(--text-muted)')
 }
 
-/**
- * Rough options for one side of a paired/mirrored bar series
- * (PercentileBars / PlaycallingProfile layout). Mirrored series ALWAYS use
- * the paired ±41° hachure rule -- left leans -41°, right +41° -- so color
- * is never the only channel separating sides. Bar defaults per spec §9.
- */
-export function pairedBarOptions(color: string, side: 'left' | 'right', seed: number): Options {
-  return {
-    fill: color,
-    stroke: color,
-    fillStyle: 'hachure',
-    hachureAngle: side === 'left' ? -41 : 41,
-    hachureGap: 5,
-    fillWeight: 1,
-    strokeWidth: 1.5,
-    roughness: 1.1,
-    bowing: 0.5,
-    seed,
-  }
-}

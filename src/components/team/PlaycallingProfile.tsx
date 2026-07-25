@@ -10,6 +10,7 @@ import { ChartTooltip } from '@/lib/charts/ChartTooltip'
 import type { ChartTooltipRow } from '@/lib/charts/ChartTooltip'
 import { ChartLegend } from '@/lib/charts/ChartLegend'
 import type { ChartLegendItem } from '@/lib/charts/ChartLegend'
+import { buildPlaycallingRows } from '@/lib/charts/playcallingRows'
 import { formatOrdinal } from '@/lib/utils'
 import type { PlaycallingProfile as PlaycallingProfileData } from '@/lib/queries/playcalling'
 
@@ -37,77 +38,6 @@ function sharePct(rate: number): string {
   return `${Math.round(rate * 100)}%`
 }
 
-function pct1(rate: number): string {
-  return `${(rate * 100).toFixed(1)}%`
-}
-
-function signed3(v: number): string {
-  return (v >= 0 ? '+' : '') + v.toFixed(3)
-}
-
-interface SituationRow {
-  key: string
-  label: string
-  /** Run share of plays in this situation, 0..1. */
-  runRate: number
-  /** FBS percentile of the tendency, 0..1, with the direction it ranks. */
-  pctl: { value: number; lean: 'run-heavy' | 'pass-heavy' } | null
-  /** Extra stat lines surfaced in the hover tooltip. */
-  extras: { label: string; value: string }[]
-}
-
-function buildRows(profile: PlaycallingProfileData): SituationRow[] {
-  const candidates: (Omit<SituationRow, 'runRate'> & { runRate: number | null })[] = [
-    {
-      key: 'overall',
-      label: 'Overall',
-      runRate: profile.overall_run_rate,
-      pctl: profile.overall_run_rate_pctl !== null
-        ? { value: profile.overall_run_rate_pctl, lean: 'run-heavy' }
-        : null,
-      extras: [
-        ...(profile.overall_success_rate !== null
-          ? [{ label: 'Success rate', value: pct1(profile.overall_success_rate) }] : []),
-        ...(profile.overall_avg_epa !== null
-          ? [{ label: 'EPA/play', value: signed3(profile.overall_avg_epa) }] : []),
-      ],
-    },
-    {
-      key: 'early',
-      label: 'Early downs',
-      runRate: profile.early_down_run_rate,
-      pctl: profile.early_down_run_rate_pctl !== null
-        ? { value: profile.early_down_run_rate_pctl, lean: 'run-heavy' }
-        : null,
-      extras: [],
-    },
-    {
-      key: 'third',
-      label: 'Third down',
-      // The view publishes third down as a pass rate; the bar reads run-left,
-      // pass-right, so invert to the run share.
-      runRate: profile.third_down_pass_rate !== null ? 1 - profile.third_down_pass_rate : null,
-      pctl: profile.third_down_pass_rate_pctl !== null
-        ? { value: profile.third_down_pass_rate_pctl, lean: 'pass-heavy' }
-        : null,
-      extras: profile.third_down_success_rate !== null
-        ? [{ label: 'Success rate', value: pct1(profile.third_down_success_rate) }] : [],
-    },
-    {
-      key: 'redzone',
-      label: 'Red zone',
-      runRate: profile.red_zone_run_rate,
-      pctl: null,
-      extras: profile.red_zone_success_rate !== null
-        ? [{ label: 'Success rate', value: pct1(profile.red_zone_success_rate) }] : [],
-    },
-    { key: 'leading', label: 'Leading', runRate: profile.leading_run_rate, pctl: null, extras: [] },
-    { key: 'trailing', label: 'Trailing', runRate: profile.trailing_run_rate, pctl: null, extras: [] },
-  ]
-
-  return candidates.filter((r): r is SituationRow => r.runRate !== null)
-}
-
 /**
  * The team's situational playcalling identity: diverging hand-drawn bars per
  * situation — run share extending left, pass share extending right — around a
@@ -120,7 +50,7 @@ export function PlaycallingProfile({ profile }: PlaycallingProfileProps) {
   const svgRef = useRef<SVGSVGElement>(null)
   const roughGroupRef = useRef<SVGGElement>(null)
 
-  const rows = useMemo(() => (profile ? buildRows(profile) : []), [profile])
+  const rows = useMemo(() => (profile ? buildPlaycallingRows(profile) : []), [profile])
 
   const height = MARGIN.top + rows.length * ROW_HEIGHT + MARGIN.bottom
 
