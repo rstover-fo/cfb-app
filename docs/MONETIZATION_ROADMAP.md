@@ -404,6 +404,37 @@ distinguishable from an anonymous visitor in a server component.
 >
 > `app.entitlements` and `app.usage_counters` are **not** affected: anon has no
 > grants on either, by design.
+>
+> #### Remediation log
+>
+> | Date | Action | Result |
+> |---|---|---|
+> | 2026-07-25 | Confirmed cfb-database does not use the anon role -- it connects via `psycopg2` + `SUPABASE_DB_URL` (`tests/conftest.py`). Only doc/vendored false positives in the grep. | Safe to revoke |
+> | 2026-07-25 | `revoke select on all tables in schema core from anon` + matching `alter default privileges` | **Done.** Verified 0 remaining anon grants on `core` (44 objects closed) |
+>
+> **Remaining schemas**, same treatment, one at a time with a pipeline cycle
+> between: `ref`, `stats`, `ratings`, `recruiting`, `analytics`, `betting`,
+> `draft`, `predictions`, `rp`, `features`, `live`, `marts`, `metrics`.
+>
+> - **Hold `scouting`** until cfb-scout is checked the same way -- it owns that
+>   schema.
+> - **Never touch** `storage`, `realtime`, `graphql_public` -- Supabase-managed.
+> - **Keep** `api`, `public`, `app` -- the contract surface cfb-app reads.
+>
+> Two follow-ups that stop this recurring:
+> 1. Disable **"Automatically expose new tables"** on the Data API page
+>    (Supabase's own recommendation). With it on, every new table in an exposed
+>    schema becomes publicly queryable the moment a pipeline creates it.
+> 2. cfb-database already has privilege regression tests asserting
+>    `psycopg2.errors.InsufficientPrivilege` (`tests/test_returning_schema.py`,
+>    `tests/test_api_views.py`). Add an anon-grant assertion there so this
+>    cannot silently regress.
+>
+> **Note on `alter default privileges`:** without `FOR ROLE` it only covers
+> objects created by the role that ran it. If the dlt pipeline creates tables as
+> a different role, new tables will re-acquire the grant -- re-run as
+> `alter default privileges for role <pipeline_role> in schema <s> ...` if that
+> shows up.
 
 - Gate at the **server-action layer** -- necessary but NOT sufficient (see the
   blocker above). The existing pattern is right for
