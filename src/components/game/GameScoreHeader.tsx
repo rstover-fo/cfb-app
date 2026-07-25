@@ -1,7 +1,7 @@
-import Image from 'next/image'
 import Link from 'next/link'
 import type { GameWithTeams } from '@/lib/queries/games'
 import { teamNameToSlug } from '@/lib/utils'
+import { TeamMark } from '@/components/TeamMark'
 
 interface GameScoreHeaderProps {
   game: GameWithTeams
@@ -19,21 +19,14 @@ export function GameScoreHeader({ game }: GameScoreHeaderProps) {
           href={`/teams/${teamNameToSlug(game.away_team)}`}
           className="flex flex-col items-center gap-1 sm:gap-2 flex-1 min-w-0 hover:opacity-80 transition-opacity"
         >
-          {game.awayLogo ? (
-            <Image
-              src={game.awayLogo}
-              alt={game.away_team}
-              width={64}
-              height={64}
-              className="w-10 h-10 sm:w-16 sm:h-16 object-contain"
-              unoptimized
-            />
-          ) : (
-            <div
-              className="w-10 h-10 sm:w-16 sm:h-16 rounded-full"
-              style={{ backgroundColor: game.awayColor || 'var(--bg-surface-alt)' }}
-            />
-          )}
+          <TeamMark
+            school={game.away_team}
+            logo={game.awayLogo}
+            color={game.awayColor}
+            width={64}
+            height={64}
+            className="w-10 h-10 sm:w-16 sm:h-16 object-contain"
+          />
           <span className={`text-xs sm:text-lg font-semibold text-center truncate max-w-full ${awayWon ? 'text-[var(--text-primary)]' : 'text-[var(--text-secondary)]'}`}>
             {game.away_team}
           </span>
@@ -68,21 +61,14 @@ export function GameScoreHeader({ game }: GameScoreHeaderProps) {
           href={`/teams/${teamNameToSlug(game.home_team)}`}
           className="flex flex-col items-center gap-1 sm:gap-2 flex-1 min-w-0 hover:opacity-80 transition-opacity"
         >
-          {game.homeLogo ? (
-            <Image
-              src={game.homeLogo}
-              alt={game.home_team}
-              width={64}
-              height={64}
-              className="w-10 h-10 sm:w-16 sm:h-16 object-contain"
-              unoptimized
-            />
-          ) : (
-            <div
-              className="w-10 h-10 sm:w-16 sm:h-16 rounded-full"
-              style={{ backgroundColor: game.homeColor || 'var(--bg-surface-alt)' }}
-            />
-          )}
+          <TeamMark
+            school={game.home_team}
+            logo={game.homeLogo}
+            color={game.homeColor}
+            width={64}
+            height={64}
+            className="w-10 h-10 sm:w-16 sm:h-16 object-contain"
+          />
           <span className={`text-xs sm:text-lg font-semibold text-center truncate max-w-full ${homeWon ? 'text-[var(--text-primary)]' : 'text-[var(--text-secondary)]'}`}>
             {game.home_team}
           </span>

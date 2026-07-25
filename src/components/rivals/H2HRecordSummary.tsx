@@ -1,5 +1,5 @@
-import Image from 'next/image'
 import type { MatchupSummary } from '@/lib/queries/matchups'
+import { TeamMark } from '@/components/TeamMark'
 
 interface TeamMeta {
   name: string
@@ -14,24 +14,14 @@ interface H2HRecordSummaryProps {
 }
 
 function TeamCrest({ meta, size = 48 }: { meta: TeamMeta; size?: number }) {
-  if (meta.logo) {
-    return (
-      <Image
-        src={meta.logo}
-        alt={meta.name}
-        width={size}
-        height={size}
-        className="object-contain flex-shrink-0"
-        style={{ width: size, height: size }}
-        unoptimized
-      />
-    )
-  }
   return (
-    <div
-      className="rounded-full flex-shrink-0"
-      style={{ width: size, height: size, backgroundColor: meta.color || 'var(--bg-surface-alt)' }}
-      aria-hidden="true"
+    <TeamMark
+      school={meta.name}
+      logo={meta.logo}
+      color={meta.color}
+      width={size}
+      height={size}
+      className="object-contain flex-shrink-0"
     />
   )
 }

@@ -1,9 +1,9 @@
 'use client'
 
-import Image from 'next/image'
 import Link from 'next/link'
 import { Sword } from '@phosphor-icons/react'
 import { Team, TeamSeasonEpa, TeamStyleProfile, TeamSeasonTrajectory, DrivePattern, DownDistanceSplit, TrajectoryAverages, RedZoneSplit, FieldPositionSplit, HomeAwaySplit, ConferenceSplit, RosterPlayer, PlayerSeasonStat, ScheduleGame, RecruitingClassHistory, RecruitingROI, Signee, PortalActivity } from '@/lib/types/database'
+import { TeamMark } from '@/components/TeamMark'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { MetricsCards } from '@/components/team/MetricsCards'
 import { PlaycallingProfile } from '@/components/team/PlaycallingProfile'
@@ -128,22 +128,15 @@ export function TeamPageClient({
         // doesn't touch the shared --color-run token used elsewhere.
         style={isThemeActive ? ({ '--color-run': 'var(--accent)' } as React.CSSProperties) : undefined}
       >
-        {team.logo ? (
-          <Image
-            src={team.logo}
-            alt={`${team.school} logo`}
-            width={80}
-            height={80}
-            className="w-20 h-20 object-contain"
-            unoptimized
-          />
-        ) : (
-          <div className="w-20 h-20 rounded-full bg-[var(--bg-surface-alt)] flex items-center justify-center">
-            <span className="font-headline text-2xl text-[var(--text-muted)]">
-              {(team.school ?? '').split(' ').map(w => w[0]).join('').slice(0, 2)}
-            </span>
-          </div>
-        )}
+        <TeamMark
+          school={team.school ?? ''}
+          logo={team.logo}
+          color={team.color}
+          width={80}
+          height={80}
+          className="w-20 h-20 object-contain"
+          alt={`${team.school} logo`}
+        />
         <div className="flex-1 min-w-[200px]">
           <h1 className="font-headline text-4xl text-[var(--text-primary)] underline-sketch inline-block">
             {team.school}

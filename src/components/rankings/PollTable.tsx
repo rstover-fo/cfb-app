@@ -1,11 +1,11 @@
 'use client'
 
-import Image from 'next/image'
 import { useRouter } from 'next/navigation'
 import { Trophy } from '@phosphor-icons/react'
 import { teamNameToSlug } from '@/lib/utils'
 import { EmptyState } from '@/components/EmptyState'
 import type { EnrichedPollRanking } from '@/lib/types/database'
+import { TeamMark } from '@/components/TeamMark'
 
 interface PollTableProps {
   rankings: EnrichedPollRanking[]
@@ -76,21 +76,14 @@ export function PollTable({ rankings, poll }: PollTableProps) {
               </td>
               <td className="py-2.5">
                 <div className="flex items-center gap-2">
-                  {ranking.logo ? (
-                    <Image
-                      src={ranking.logo}
-                      alt={ranking.school}
-                      width={24}
-                      height={24}
-                      className="w-6 h-6 object-contain"
-                      unoptimized
-                    />
-                  ) : (
-                    <div
-                      className="w-6 h-6 rounded-full"
-                      style={{ backgroundColor: ranking.color || 'var(--bg-surface-alt)' }}
-                    />
-                  )}
+                  <TeamMark
+                    school={ranking.school}
+                    logo={ranking.logo}
+                    color={ranking.color}
+                    width={24}
+                    height={24}
+                    className="w-6 h-6 object-contain"
+                  />
                   <span className="text-[var(--text-primary)]">{ranking.school}</span>
                 </div>
               </td>

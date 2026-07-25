@@ -2,7 +2,6 @@
 
 import { useState, useTransition, useRef } from 'react'
 import Link from 'next/link'
-import Image from 'next/image'
 import { useRouter } from 'next/navigation'
 import { CalendarBlank } from '@phosphor-icons/react'
 import { fetchGames, fetchAvailableWeeks, fetchDefaultWeek } from '@/app/games/actions'
@@ -10,6 +9,7 @@ import type { GamesFilter, GameWithTeams, SeasonPhase } from '@/app/games/action
 import { REGULAR_SEASON_MAX_WEEK, POSTSEASON_MIN_WEEK } from '@/lib/queries/constants'
 import { teamNameToSlug } from '@/lib/utils'
 import { EmptyState } from '@/components/EmptyState'
+import { TeamMark } from '@/components/TeamMark'
 import {
   Select,
   SelectContent,
@@ -359,21 +359,14 @@ export function GamesList({
                   href={`/teams/${teamNameToSlug(game.away_team)}`}
                   className="flex items-center gap-2 min-w-0 hover:opacity-80 transition-opacity"
                 >
-                  {game.awayLogo ? (
-                    <Image
-                      src={game.awayLogo}
-                      alt={game.away_team}
-                      width={24}
-                      height={24}
-                      className="w-6 h-6 object-contain flex-shrink-0"
-                      unoptimized
-                    />
-                  ) : (
-                    <div
-                      className="w-6 h-6 rounded-full flex-shrink-0"
-                      style={{ backgroundColor: game.awayColor || 'var(--bg-surface-alt)' }}
-                    />
-                  )}
+                  <TeamMark
+                    school={game.away_team}
+                    logo={game.awayLogo}
+                    color={game.awayColor}
+                    width={24}
+                    height={24}
+                    className="w-6 h-6 object-contain flex-shrink-0"
+                  />
                   <span
                     className={`text-sm truncate ${
                       winner === 'away'
@@ -422,21 +415,14 @@ export function GamesList({
                   >
                     {game.home_team}
                   </span>
-                  {game.homeLogo ? (
-                    <Image
-                      src={game.homeLogo}
-                      alt={game.home_team}
-                      width={24}
-                      height={24}
-                      className="w-6 h-6 object-contain flex-shrink-0"
-                      unoptimized
-                    />
-                  ) : (
-                    <div
-                      className="w-6 h-6 rounded-full flex-shrink-0"
-                      style={{ backgroundColor: game.homeColor || 'var(--bg-surface-alt)' }}
-                    />
-                  )}
+                  <TeamMark
+                    school={game.home_team}
+                    logo={game.homeLogo}
+                    color={game.homeColor}
+                    width={24}
+                    height={24}
+                    className="w-6 h-6 object-contain flex-shrink-0"
+                  />
                 </Link>
 
                 {/* Date and badges */}

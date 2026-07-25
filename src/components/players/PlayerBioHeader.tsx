@@ -1,10 +1,10 @@
 'use client'
 
-import Image from 'next/image'
 import Link from 'next/link'
 import { ArrowsLeftRight } from '@phosphor-icons/react'
 import type { PlayerProfile } from '@/app/players/[id]/actions'
 import { teamNameToSlug } from '@/lib/utils'
+import { TeamMark } from '@/components/TeamMark'
 
 const YEAR_LABELS: Record<number, string> = {
   1: 'Fr.',
@@ -41,13 +41,13 @@ export function PlayerBioHeader({ player }: PlayerBioHeaderProps) {
       <div className="flex items-start gap-4">
         {/* Team logo */}
         {player.logo && (
-          <Image
-            src={player.logo}
-            alt={`${player.team} logo`}
+          <TeamMark
+            school={player.team}
+            logo={player.logo}
             width={32}
             height={32}
-            unoptimized
             className="flex-shrink-0 mt-1"
+            alt={`${player.team} logo`}
           />
         )}
 

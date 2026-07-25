@@ -1,7 +1,7 @@
 'use client'
 
-import Image from 'next/image'
 import { ScheduleGame } from '@/lib/types/database'
+import { TeamMark } from '@/components/TeamMark'
 
 interface ScheduleViewProps {
   schedule: ScheduleGame[] | null
@@ -34,23 +34,14 @@ function GameRow({ game, teamColor }: { game: ScheduleGame; teamColor: string | 
 
       {/* Opponent */}
       <div className="flex-1 flex items-center gap-3">
-        {game.opponent_logo ? (
-          <Image
-            src={game.opponent_logo}
-            alt={game.opponent ?? ''}
-            width={32}
-            height={32}
-            className="w-8 h-8 object-contain"
-            unoptimized
-          />
-        ) : (
-          <div
-            className="w-8 h-8 rounded-full flex items-center justify-center text-xs text-white font-medium"
-            style={{ backgroundColor: teamColor || 'var(--text-muted)' }}
-          >
-            {(game.opponent ?? '').slice(0, 2)}
-          </div>
-        )}
+        <TeamMark
+          school={game.opponent ?? ''}
+          logo={game.opponent_logo}
+          color={teamColor}
+          width={32}
+          height={32}
+          className="w-8 h-8 object-contain"
+        />
         <div>
           <span className="text-sm text-[var(--text-muted)] mr-1">
             {game.is_home ? 'vs' : '@'}

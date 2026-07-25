@@ -1,7 +1,7 @@
-import Image from 'next/image'
 import Link from 'next/link'
 import { ListBullets } from '@phosphor-icons/react/dist/ssr'
 import type { MatchupGame } from '@/lib/queries/matchups'
+import { TeamMark } from '@/components/TeamMark'
 
 interface TeamMeta {
   name: string
@@ -90,13 +90,14 @@ export function MatchupGamesTable({ games, teamAMeta, teamBMeta }: MatchupGamesT
                 <td className="py-3 pr-4">
                   <div className="flex items-center gap-2 min-w-0">
                     {teamAMeta.logo && (
-                      <Image
-                        src={teamAMeta.logo}
-                        alt=""
+                      <TeamMark
+                        school={teamAMeta.name}
+                        logo={teamAMeta.logo}
+                        color={teamAMeta.color}
                         width={18}
                         height={18}
                         className="object-contain flex-shrink-0"
-                        unoptimized
+                        alt=""
                       />
                     )}
                     <span
@@ -111,13 +112,14 @@ export function MatchupGamesTable({ games, teamAMeta, teamBMeta }: MatchupGamesT
                       {game.teamBScore}
                     </span>
                     {teamBMeta.logo && (
-                      <Image
-                        src={teamBMeta.logo}
-                        alt=""
+                      <TeamMark
+                        school={teamBMeta.name}
+                        logo={teamBMeta.logo}
+                        color={teamBMeta.color}
                         width={18}
                         height={18}
                         className="object-contain flex-shrink-0"
-                        unoptimized
+                        alt=""
                       />
                     )}
                   </div>

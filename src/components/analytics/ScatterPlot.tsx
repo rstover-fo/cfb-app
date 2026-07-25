@@ -15,7 +15,6 @@
  */
 import { useMemo, useState, useRef, useCallback, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import Image from 'next/image'
 import rough from 'roughjs'
 import { ChartScatter } from '@phosphor-icons/react'
 import { CHART_INK, resolveColor, useChartTheme } from '@/lib/charts/theme'
@@ -26,6 +25,7 @@ import type { ChartTooltipRow } from '@/lib/charts/ChartTooltip'
 import { gridLinesY, axisLabelsY } from '@/lib/charts/axes'
 import type { ChartLayout } from '@/lib/charts/axes'
 import { teamNameToSlug } from '@/lib/utils'
+import { TeamMark } from '@/components/TeamMark'
 
 interface DataPoint {
   id: number
@@ -427,13 +427,14 @@ export function ScatterPlot({
               header={hoveredPoint?.name}
               headerAdornment={
                 hoveredPoint?.logo ? (
-                  <Image
-                    src={hoveredPoint.logo}
-                    alt=""
+                  <TeamMark
+                    school={hoveredPoint.name}
+                    logo={hoveredPoint.logo}
+                    color={hoveredPoint.color}
                     width={20}
                     height={20}
                     className="w-5 h-5 object-contain"
-                    unoptimized
+                    alt=""
                   />
                 ) : undefined
               }

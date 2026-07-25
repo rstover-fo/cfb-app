@@ -1,9 +1,9 @@
 import Link from 'next/link'
-import Image from 'next/image'
 import { ArrowRight } from '@phosphor-icons/react/dist/ssr'
 import { getStandings, type Standing } from '@/lib/queries/dashboard'
 import { teamNameToSlug } from '@/lib/utils'
 import { CURRENT_SEASON } from '@/lib/queries/constants'
+import { TeamMark } from '@/components/TeamMark'
 
 function StandingRow({ standing, index }: { standing: Standing; index: number }) {
   return (
@@ -18,21 +18,14 @@ function StandingRow({ standing, index }: { standing: Standing; index: number })
       </span>
 
       {/* Team logo */}
-      {standing.logo ? (
-        <Image
-          src={standing.logo}
-          alt={standing.team}
-          width={24}
-          height={24}
-          className="w-6 h-6 object-contain"
-          unoptimized
-        />
-      ) : (
-        <div
-          className="w-6 h-6 rounded-full"
-          style={{ backgroundColor: standing.color || 'var(--bg-surface-alt)' }}
-        />
-      )}
+      <TeamMark
+        school={standing.team}
+        logo={standing.logo}
+        color={standing.color}
+        width={24}
+        height={24}
+        className="w-6 h-6 object-contain"
+      />
 
       {/* Team name */}
       <span className="flex-1 text-sm text-[var(--text-primary)] truncate">

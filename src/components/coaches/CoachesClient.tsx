@@ -2,12 +2,12 @@
 
 import { useState, type KeyboardEvent } from 'react'
 import Link from 'next/link'
-import Image from 'next/image'
 import { ChartBar } from '@phosphor-icons/react'
 import type { CoachRecord, CoachSortKey } from '@/lib/queries/coaches'
 import { teamNameToSlug, formatPercent } from '@/lib/utils'
 import { EmptyState } from '@/components/EmptyState'
 import { CoachHistoryDialog, type SelectedCoach } from '@/components/coaches/CoachHistoryDialog'
+import { TeamMark } from '@/components/TeamMark'
 
 const SORT_TABS: { key: CoachSortKey; label: string }[] = [
   { key: 'win_pct', label: 'SU Win%' },
@@ -151,13 +151,14 @@ export function CoachesClient({ byWinPct, byAtsWinPct, activeByWinPct, activeByA
                           className="flex items-center gap-2 text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:underline"
                         >
                           {coach.logo && (
-                            <Image
-                              src={coach.logo}
-                              alt=""
+                            <TeamMark
+                              school={coach.team}
+                              logo={coach.logo}
+                              color={coach.color}
                               width={16}
                               height={16}
                               className="object-contain flex-shrink-0"
-                              unoptimized
+                              alt=""
                             />
                           )}
                           {coach.team}

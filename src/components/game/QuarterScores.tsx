@@ -1,8 +1,8 @@
 'use client'
 
-import Image from 'next/image'
 import type { LineScores } from '@/lib/types/database'
 import type { GameWithTeams } from '@/lib/queries/games'
+import { TeamMark } from '@/components/TeamMark'
 
 interface QuarterScoresProps {
   lineScores: LineScores
@@ -53,21 +53,14 @@ export function QuarterScores({ lineScores, game }: QuarterScoresProps) {
             >
               <th scope="row" className="py-2.5 px-4 font-normal text-left">
                 <div className="flex items-center gap-2">
-                  {game.awayLogo ? (
-                    <Image
-                      src={game.awayLogo}
-                      alt={game.away_team}
-                      width={24}
-                      height={24}
-                      className="w-6 h-6 object-contain"
-                      unoptimized
-                    />
-                  ) : (
-                    <div
-                      className="w-6 h-6 rounded-full"
-                      style={{ backgroundColor: game.awayColor || 'var(--bg-surface-alt)' }}
-                    />
-                  )}
+                  <TeamMark
+                    school={game.away_team}
+                    logo={game.awayLogo}
+                    color={game.awayColor}
+                    width={24}
+                    height={24}
+                    className="w-6 h-6 object-contain"
+                  />
                   <span className={`text-sm ${awayWon ? 'font-semibold text-[var(--text-primary)]' : 'text-[var(--text-secondary)]'}`}>
                     {game.away_team}
                   </span>
@@ -93,21 +86,14 @@ export function QuarterScores({ lineScores, game }: QuarterScoresProps) {
             >
               <th scope="row" className="py-2.5 px-4 font-normal text-left">
                 <div className="flex items-center gap-2">
-                  {game.homeLogo ? (
-                    <Image
-                      src={game.homeLogo}
-                      alt={game.home_team}
-                      width={24}
-                      height={24}
-                      className="w-6 h-6 object-contain"
-                      unoptimized
-                    />
-                  ) : (
-                    <div
-                      className="w-6 h-6 rounded-full"
-                      style={{ backgroundColor: game.homeColor || 'var(--bg-surface-alt)' }}
-                    />
-                  )}
+                  <TeamMark
+                    school={game.home_team}
+                    logo={game.homeLogo}
+                    color={game.homeColor}
+                    width={24}
+                    height={24}
+                    className="w-6 h-6 object-contain"
+                  />
                   <span className={`text-sm ${homeWon ? 'font-semibold text-[var(--text-primary)]' : 'text-[var(--text-secondary)]'}`}>
                     {game.home_team}
                   </span>

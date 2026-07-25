@@ -1,28 +1,11 @@
 import Link from 'next/link'
-import Image from 'next/image'
 import { Team } from '@/lib/types/database'
 import { TeamMetrics } from './TeamList'
+import { TeamMark } from '@/components/TeamMark'
 
 interface TeamCardProps {
   team: Team
   metrics?: TeamMetrics
-}
-
-function TeamInitials({ school }: { school: string }) {
-  const initials = school
-    .split(' ')
-    .map((word) => word[0])
-    .join('')
-    .slice(0, 2)
-    .toUpperCase()
-
-  return (
-    <div className="w-[120px] h-[120px] rounded-full bg-[var(--bg-surface-alt)] flex items-center justify-center">
-      <span className="font-headline text-3xl text-[var(--text-muted)]">
-        {initials}
-      </span>
-    </div>
-  )
 }
 
 export function TeamCard({ team, metrics }: TeamCardProps) {
@@ -41,18 +24,15 @@ export function TeamCard({ team, metrics }: TeamCardProps) {
     >
       {/* Logo Area */}
       <div className="flex justify-center mb-4">
-        {team.logo ? (
-          <Image
-            src={team.logo}
-            alt={`${team.school} logo`}
-            width={120}
-            height={120}
-            className="w-[120px] h-[120px] object-contain"
-            unoptimized
-          />
-        ) : (
-          <TeamInitials school={team.school ?? ''} />
-        )}
+        <TeamMark
+          school={team.school ?? ''}
+          logo={team.logo}
+          color={team.color}
+          width={120}
+          height={120}
+          className="w-[120px] h-[120px] object-contain"
+          alt={`${team.school} logo`}
+        />
       </div>
 
       {/* Team Name */}

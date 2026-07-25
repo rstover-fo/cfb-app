@@ -1,8 +1,8 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import Image from 'next/image'
 import { CaretUp, CaretDown } from '@phosphor-icons/react'
+import { TeamMark } from '@/components/TeamMark'
 
 interface RankedTeam {
   rank: number
@@ -146,7 +146,7 @@ export function RankedTable({ data, title = 'Composite Rankings', onTeamClick }:
               <td className="py-2 px-3">
                 <div className="flex items-center gap-2">
                   {team.logo && (
-                    <Image src={team.logo} alt="" width={24} height={24} className="w-6 h-6 object-contain" unoptimized />
+                    <TeamMark school={team.team} logo={team.logo} color={team.color} width={24} height={24} className="w-6 h-6 object-contain" alt="" />
                   )}
                   <span className="font-medium text-[var(--text-primary)]">{team.team}</span>
                   <span className="text-[var(--text-muted)] text-xs">{team.conference}</span>

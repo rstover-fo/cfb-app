@@ -2,10 +2,10 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
-import Image from 'next/image'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import type { StatLeadersData, StatLeader } from '@/lib/queries/dashboard'
 import { teamNameToSlug } from '@/lib/utils'
+import { TeamMark } from '@/components/TeamMark'
 
 type TabKey = 'epa' | 'defEpa' | 'havoc' | 'successRate' | 'explosiveness'
 
@@ -39,21 +39,14 @@ function LeaderRow({
       </span>
 
       {/* Team logo */}
-      {leader.logo ? (
-        <Image
-          src={leader.logo}
-          alt={leader.team}
-          width={24}
-          height={24}
-          className="w-6 h-6 object-contain"
-          unoptimized
-        />
-      ) : (
-        <div
-          className="w-6 h-6 rounded-full"
-          style={{ backgroundColor: leader.color || 'var(--bg-surface-alt)' }}
-        />
-      )}
+      <TeamMark
+        school={leader.team}
+        logo={leader.logo}
+        color={leader.color}
+        width={24}
+        height={24}
+        className="w-6 h-6 object-contain"
+      />
 
       {/* Team name */}
       <span className="flex-1 text-sm text-[var(--text-primary)] truncate">

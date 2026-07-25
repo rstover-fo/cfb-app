@@ -1,12 +1,12 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import Image from 'next/image'
 import { ArrowsLeftRight } from '@phosphor-icons/react'
 import { Team, TeamSeasonEpa, TeamStyleProfile } from '@/lib/types/database'
 import { createClient } from '@/lib/supabase/client'
 import { TeamPicker } from '@/components/comparison/TeamPicker'
 import { EmptyState } from '@/components/EmptyState'
+import { TeamMark } from '@/components/TeamMark'
 
 interface CompareViewProps {
   /** Team 1 -- fixed by the parent route on the team-page Compare tab; nullable + selectable on /compare. */
@@ -245,7 +245,7 @@ export function CompareView({
           />
         ) : (
           <div className="flex items-center gap-3">
-            {team?.logo && <Image src={team.logo} alt={team.school ?? ''} width={40} height={40} className="w-10 h-10 object-contain" unoptimized />}
+            {team?.logo && <TeamMark school={team.school ?? ''} logo={team.logo} color={team.color} width={40} height={40} className="w-10 h-10 object-contain" />}
             <span className="font-headline text-xl text-[var(--text-primary)]">{team?.school ?? ''}</span>
           </div>
         )}

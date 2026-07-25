@@ -1,9 +1,9 @@
 import Link from 'next/link'
-import Image from 'next/image'
 import { TrendUp, TrendDown, ArrowRight } from '@phosphor-icons/react/dist/ssr'
 import { getTopMovers, type Mover } from '@/lib/queries/dashboard'
 import { teamNameToSlug } from '@/lib/utils'
 import { CURRENT_SEASON } from '@/lib/queries/constants'
+import { TeamMark } from '@/components/TeamMark'
 
 function MoverRow({ mover, index }: { mover: Mover; index: number }) {
   const isRiser = mover.direction === 'up'
@@ -18,21 +18,14 @@ function MoverRow({ mover, index }: { mover: Mover; index: number }) {
       style={{ animationDelay: `${index * 50}ms` }}
     >
       {/* Team logo */}
-      {mover.logo ? (
-        <Image
-          src={mover.logo}
-          alt={mover.team}
-          width={24}
-          height={24}
-          className="w-6 h-6 object-contain"
-          unoptimized
-        />
-      ) : (
-        <div
-          className="w-6 h-6 rounded-full"
-          style={{ backgroundColor: mover.color || 'var(--bg-surface-alt)' }}
-        />
-      )}
+      <TeamMark
+        school={mover.team}
+        logo={mover.logo}
+        color={mover.color}
+        width={24}
+        height={24}
+        className="w-6 h-6 object-contain"
+      />
 
       {/* Team name */}
       <span className="flex-1 text-sm text-[var(--text-primary)] truncate">

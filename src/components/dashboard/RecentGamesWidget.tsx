@@ -1,9 +1,9 @@
 import Link from 'next/link'
-import Image from 'next/image'
 import { ArrowRight } from '@phosphor-icons/react/dist/ssr'
 import { getRecentGames, type RecentGame } from '@/lib/queries/dashboard'
 import { teamNameToSlug } from '@/lib/utils'
 import { CURRENT_SEASON } from '@/lib/queries/constants'
+import { TeamMark } from '@/components/TeamMark'
 
 function GameRow({ game, index }: { game: RecentGame; index: number }) {
   const formatDate = (dateStr: string) => {
@@ -21,21 +21,14 @@ function GameRow({ game, index }: { game: RecentGame; index: number }) {
         href={`/teams/${teamNameToSlug(game.awayTeam)}`}
         className="flex items-center gap-2 flex-1 min-w-0 hover:opacity-80 transition-opacity"
       >
-        {game.awayLogo ? (
-          <Image
-            src={game.awayLogo}
-            alt={game.awayTeam}
-            width={20}
-            height={20}
-            className="w-5 h-5 object-contain flex-shrink-0"
-            unoptimized
-          />
-        ) : (
-          <div
-            className="w-5 h-5 rounded-full flex-shrink-0"
-            style={{ backgroundColor: game.awayColor || 'var(--bg-surface-alt)' }}
-          />
-        )}
+        <TeamMark
+          school={game.awayTeam}
+          logo={game.awayLogo}
+          color={game.awayColor}
+          width={20}
+          height={20}
+          className="w-5 h-5 object-contain flex-shrink-0"
+        />
         <span
           className={`text-sm truncate ${
             game.winner === 'away'
@@ -84,21 +77,14 @@ function GameRow({ game, index }: { game: RecentGame; index: number }) {
         >
           {game.homeTeam}
         </span>
-        {game.homeLogo ? (
-          <Image
-            src={game.homeLogo}
-            alt={game.homeTeam}
-            width={20}
-            height={20}
-            className="w-5 h-5 object-contain flex-shrink-0"
-            unoptimized
-          />
-        ) : (
-          <div
-            className="w-5 h-5 rounded-full flex-shrink-0"
-            style={{ backgroundColor: game.homeColor || 'var(--bg-surface-alt)' }}
-          />
-        )}
+        <TeamMark
+          school={game.homeTeam}
+          logo={game.homeLogo}
+          color={game.homeColor}
+          width={20}
+          height={20}
+          className="w-5 h-5 object-contain flex-shrink-0"
+        />
       </Link>
 
       {/* Date and conference badge */}
