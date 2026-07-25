@@ -8,6 +8,58 @@ revenue supports it.
 Written 2026-07-24. The 2026 season starts with Week 0 on Aug 29, so the
 revenue-critical phases (1-2) target a mid-August launch.
 
+---
+
+## Current state (2026-07-25)
+
+| Phase | Status | Reality check |
+|---|---|---|
+| **0 — Prerequisites** | Substantially done | 6 items closed. 3 of the "open" items are standing policies that never close (no bulk export, no logos in marketing, no Wikipedia logos). |
+| **1 — Auth + entitlements** | **Code complete, not yet runnable** | Migrations applied to the live project; `app` schema exists and is exposed. Middleware, session layer, entitlement queries, magic-link callback, `/signin`, `/account`, Sidebar all built. 831 tests green. **Never executed end-to-end.** |
+| **2 — Stripe paywall** | Not started, **blocked** | Blocked on a design decision, not effort — see "Open blocker" below. |
+| **3 — In-app chat** | Not started | The hard part shipped early: `app.consume_chat_question` + `usage_counters` landed with Phase 1. |
+| **4 — MCP paid tier** | Not started | Auth infrastructure (`src/lib/mcp/auth.ts`) already does the hashing; needs a per-user key table. |
+| **5 — Weekly AI previews** | Not started | Optional. |
+| **6 — Premium data** | Gated on traction | Milestone table below; nothing to do before ~50 passes sold. |
+
+### The three next actions
+
+1. **Make Phase 1 runnable (~30 min, no code).** Set `NEXT_PUBLIC_SITE_URL`;
+   add `/auth/callback` (local + prod) to Authentication → URL Configuration →
+   Redirect URLs; configure custom SMTP (the built-in mailer is rate-limited to
+   a couple of emails/hour and cannot carry a magic-link launch). Then sign in,
+   hand-insert an entitlement row, and confirm `/account` reflects it.
+2. **Send the CFBD permission email** (`docs/plans/cfbd-permission-email.md`).
+   Reply time is outside our control, and it is the last genuine unknown in
+   Phase 0.
+3. **Decide the gated-data boundary** — this unblocks Phase 2.
+
+### Open blocker: gating at the server-action layer is currently cosmetic
+
+`anon` holds SELECT on the `api` views that are the paid product, so a server-
+action check stops nobody — the anon key ships in the browser bundle. Needs a
+real boundary (RLS keyed to `app.entitlements`, or service-role-only reads)
+before Stripe work starts. Full detail in Phase 2 below.
+
+### Open, but not ours: the anon-exposure problem
+
+`anon` can read far more than the contract implies (`core`, `stats`, `betting`,
+…). **A revoke was attempted on 2026-07-25 and broke production** — all 13
+`public` views are `security_invoker`, so they depend on exactly those grants.
+Rolled back; the app is fine. The fix requires converting those views to
+owner-privileged **in cfb-database first**. Full post-mortem in Phase 2's
+remediation log. Treat as separate cfb-database work, not part of this branch.
+
+### Which deadline is real
+
+The paywall can slip — launch Week 3 and you sell a shorter pass. **The pick log
+cannot.** It can't be backfilled honestly (see
+`docs/plans/2026-07-25-pick-log-spec.md`), so if the freeze job isn't running
+before the first slate, the track record that sells the product has a permanent
+hole. It's spec'd, and it depends on Phase 1's `app` schema, which now exists.
+
+---
+
 ## Strategy summary
 
 - **What's free:** the editorial dashboard -- teams, games, rankings, analytics
