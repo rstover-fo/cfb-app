@@ -108,6 +108,50 @@ describe('askClaude request shape', () => {
     expect(betaCreateMock.mock.calls[1]?.[0].system[0].text).not.toContain('grimlock')
   })
 
+  it('holds the character ceiling at 1500 and forbids ANSI while allowing the wider markdown vocabulary', async () => {
+    betaCreateMock.mockResolvedValueOnce(apiResponse('answer'))
+    await askClaude('anything')
+
+    const text = betaCreateMock.mock.calls[0]?.[0].system[0].text as string
+    expect(text).toContain('under 1500 characters')
+    expect(text).not.toMatch(/\b2000 characters\b/)
+    expect(text).not.toMatch(/\b4000 characters\b/)
+    expect(text).toContain('```ansi')
+    expect(text).toMatch(/never use.*```ansi/i)
+    expect(text).toContain('##')
+    expect(text).toContain('-# subtext')
+    expect(text).toContain('`>` blockquote')
+    expect(text).toContain('[label](url)')
+    expect(text).toContain('<t:UNIX:R>')
+    expect(text).toMatch(/max ~5 rows/)
+  })
+
+  it('keeps the two lore variants byte-identical except for the lore block, and stable across calls', async () => {
+    betaCreateMock.mockResolvedValueOnce(apiResponse('answer'))
+    getLoreEnabledMock.mockResolvedValueOnce(true)
+    await askClaude('anything')
+    const withLore = betaCreateMock.mock.calls[0]?.[0].system[0].text as string
+
+    resetClaudeForTests()
+    betaCreateMock.mockResolvedValueOnce(apiResponse('answer'))
+    getLoreEnabledMock.mockResolvedValueOnce(false)
+    await askClaude('anything')
+    const withoutLore = betaCreateMock.mock.calls[1]?.[0].system[0].text as string
+
+    // The only allowed difference is the lore block itself (plus its blank-line
+    // separator) -- strip it out and the two variants must match exactly.
+    const loreBlockPattern = /- Server lore[\s\S]*?point them at `\/lore off` -- it genuinely turns this off\.\n/
+    expect(withLore.replace(loreBlockPattern, '')).toBe(withoutLore)
+
+    // Cache-stability: repeated calls with the same lore setting must return
+    // the exact same string instance's content (memoized, not rebuilt).
+    betaCreateMock.mockResolvedValueOnce(apiResponse('answer'))
+    getLoreEnabledMock.mockResolvedValueOnce(true)
+    await askClaude('anything else')
+    const withLoreAgain = betaCreateMock.mock.calls[2]?.[0].system[0].text as string
+    expect(withLoreAgain).toBe(withLore)
+  })
+
   it('sends one MCP-connector beta call on the default model for a simple question', async () => {
     betaCreateMock.mockResolvedValueOnce(apiResponse('Ohio State is ranked #1.'))
 
