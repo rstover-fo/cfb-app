@@ -7,11 +7,12 @@
  * check), so importing it here never logs in to Discord.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { MessageFlags } from 'discord.js'
+import { ContainerBuilder, MessageFlags, TextDisplayBuilder } from 'discord.js'
 
-const { executeMock, errorExecuteMock, autocompleteMock, handleMentionMock } = vi.hoisted(() => ({
+const { executeMock, errorExecuteMock, cv2ErrorExecuteMock, autocompleteMock, handleMentionMock } = vi.hoisted(() => ({
   executeMock: vi.fn(),
   errorExecuteMock: vi.fn(),
+  cv2ErrorExecuteMock: vi.fn(),
   autocompleteMock: vi.fn(),
   handleMentionMock: vi.fn(),
 }))
@@ -20,6 +21,7 @@ vi.mock('../commands/index.js', () => ({
   commandsByName: new Map([
     ['ping', { definition: { name: 'ping' }, execute: executeMock, autocomplete: autocompleteMock }],
     ['boom', { definition: { name: 'boom' }, execute: errorExecuteMock }],
+    ['cv2boom', { definition: { name: 'cv2boom' }, execute: cv2ErrorExecuteMock }],
   ]),
 }))
 
@@ -127,6 +129,43 @@ describe('handleInteraction command dispatch', () => {
     const payload = interaction.reply.mock.calls[0]?.[0]
     expect(payload.flags).toBe(MessageFlags.Ephemeral)
     expect(payload.embeds[0].toJSON().description).toContain('boom')
+  })
+
+  it('backstop uses followUp with a plain embed (no CV2 flag) after a deferred CV2 editReply throws', async () => {
+    // Regression coverage for 1.2's CV2 rewire: CV2 is per-message, so a
+    // command that deferred, sent a CV2-flagged editReply, and then threw
+    // must NOT poison the backstop's followUp -- that's a brand-new message.
+    const interaction = chatInputInteraction('cv2boom')
+    // Mirror real discord.js semantics: deferReply()/editReply() flip
+    // deferred/replied so handleInteraction's catch block picks followUp.
+    interaction.deferReply = vi.fn(async () => {
+      interaction.deferred = true
+    })
+    cv2ErrorExecuteMock.mockImplementation(async () => {
+      await interaction.deferReply()
+      const container = new ContainerBuilder().addTextDisplayComponents(
+        new TextDisplayBuilder().setContent('partial answer')
+      )
+      await interaction.editReply({
+        components: [container],
+        flags: MessageFlags.IsComponentsV2,
+        content: null,
+        embeds: [],
+      })
+      throw new Error('boom after cv2 edit')
+    })
+
+    await expect(handleInteraction(interaction)).resolves.toBeUndefined()
+
+    expect(interaction.editReply).toHaveBeenCalledTimes(1)
+    expect(interaction.editReply.mock.calls[0]?.[0].flags).toBe(MessageFlags.IsComponentsV2)
+
+    expect(interaction.reply).not.toHaveBeenCalled()
+    expect(interaction.followUp).toHaveBeenCalledTimes(1)
+    const followUpPayload = interaction.followUp.mock.calls[0]?.[0]
+    expect(followUpPayload.flags).toBe(MessageFlags.Ephemeral)
+    expect(followUpPayload.components).toBeUndefined()
+    expect(followUpPayload.embeds[0].toJSON().description).toContain('boom after cv2 edit')
   })
 })
 
