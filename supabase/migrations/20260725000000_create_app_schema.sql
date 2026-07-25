@@ -13,8 +13,10 @@
 -- PREREQUISITE, and it blocks every Phase 1 query:
 --   PostgREST only serves schemas in its db-schemas config. Until `app` is
 --   added, .schema('app') from supabase-js returns a PostgREST 404.
---     Dashboard -> Project Settings -> API -> Exposed schemas:
+--     Dashboard -> Project Settings -> Data API -> Exposed schemas:
 --       public, api  ->  public, api, app
+--   ("Data API" is under INTEGRATIONS in the settings sidebar. Older dashboards
+--   put this same setting under Project Settings -> API.)
 --   This is project-level config shared with cfb-database. It is a superset
 --   change (nothing cfb-database reads or writes is affected), but it must be
 --   replicated in every environment: local, preview, prod.

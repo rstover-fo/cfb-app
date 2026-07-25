@@ -23,8 +23,12 @@ PostgREST only serves schemas listed in its `db-schemas` config. Until `app` is
 added, every `.schema('app')` call from `supabase-js` fails with a PostgREST
 404, and no Phase 1 code works.
 
-    Dashboard -> Project Settings -> API -> Exposed schemas
+    Dashboard -> Project Settings -> Data API -> Exposed schemas
       public, api  ->  public, api, app
+
+(Older Supabase dashboards put this under Project Settings -> API. In the
+current layout it is "Data API", listed under INTEGRATIONS in the settings
+sidebar -- not under API Keys, which is a different page.)
 
 Equivalent SQL, if applied as a migration instead:
 
