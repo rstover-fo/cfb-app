@@ -25,7 +25,7 @@ import type { ChartTooltipRow } from '@/lib/charts/ChartTooltip'
 import { gridLinesY, axisLabelsY } from '@/lib/charts/axes'
 import type { ChartLayout } from '@/lib/charts/axes'
 import { teamNameToSlug } from '@/lib/utils'
-import { TeamMark } from '@/components/TeamMark'
+import { TeamMark, teamLogosEnabled } from '@/components/TeamMark'
 
 interface DataPoint {
   id: number
@@ -82,9 +82,15 @@ export function ScatterPlot({
   xInvert = false,
   yInvert = false,
   quadrantLabels,
-  showLogos = true,
+  showLogos: showLogosProp = true,
   highlightedTeamId = null,
 }: ScatterPlotProps) {
+  // Logo points are native SVG <image> elements (raster exemption, §7), so they
+  // can't route through <TeamMark>. Consult the same kill switch directly --
+  // otherwise NEXT_PUBLIC_TEAM_LOGOS=off would turn logos off everywhere except
+  // this chart. When logos are disabled the plot falls back to its existing
+  // team-color dot mode, which is already a first-class rendering path.
+  const showLogos = showLogosProp && teamLogosEnabled()
   const router = useRouter()
   const svgRef = useRef<SVGSVGElement>(null)
   const roughGroupRef = useRef<SVGGElement>(null)

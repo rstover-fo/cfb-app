@@ -1,6 +1,15 @@
 import { describe, it, expect } from 'vitest'
 import { render, screen } from '@testing-library/react'
-import { TeamMark, teamInitials } from '../TeamMark'
+import { TeamMark, teamInitials, teamLogosEnabled } from '../TeamMark'
+
+describe('teamLogosEnabled', () => {
+  it('defaults to enabled when NEXT_PUBLIC_TEAM_LOGOS is unset', () => {
+    // Guards the kill switch's default. ScatterPlot draws logos as native SVG
+    // <image> and consults this directly rather than rendering <TeamMark>, so a
+    // regression here would leave logos on that chart when they're off sitewide.
+    expect(teamLogosEnabled()).toBe(true)
+  })
+})
 
 describe('teamInitials', () => {
   it('takes the first letter of the first two words', () => {

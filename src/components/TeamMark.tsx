@@ -22,6 +22,20 @@ import Image from 'next/image'
 
 const LOGO_SOURCE = process.env.NEXT_PUBLIC_TEAM_LOGOS ?? 'espn'
 
+/**
+ * Whether third-party team logos may render at all.
+ *
+ * Exported for the one place that legitimately cannot use <TeamMark>:
+ * ScatterPlot draws logo points as native SVG <image> elements (a deliberate
+ * chart-spec exemption so logo rasters are never roughified). It must consult
+ * this directly, otherwise flipping NEXT_PUBLIC_TEAM_LOGOS=off would silently
+ * leave ESPN logos on the scatter plot -- exactly the scenario the flag exists
+ * for. Any future non-JSX logo render must do the same.
+ */
+export function teamLogosEnabled(): boolean {
+  return LOGO_SOURCE !== 'off'
+}
+
 /** Below this pixel size the initials are illegible, so render a bare chip. */
 const MIN_WIDTH_FOR_INITIALS = 32
 
@@ -62,7 +76,7 @@ export function TeamMark({
 }: TeamMarkProps) {
   const label = alt ?? school
 
-  if (LOGO_SOURCE !== 'off' && logo) {
+  if (teamLogosEnabled() && logo) {
     return (
       <Image
         src={logo}
