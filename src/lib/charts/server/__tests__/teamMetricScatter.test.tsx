@@ -127,7 +127,7 @@ describe('team-metric-scatter — the renderer stays pure', () => {
   })
 
   it('pins the full-byte output for the reference chart', async () => {
-    expect(cheapHash(await renderChartSvg(MIXED))).toMatchInlineSnapshot(`"49a71d23"`)
+    expect(cheapHash(await renderChartSvg(MIXED))).toMatchInlineSnapshot(`"b4034d79"`)
   })
 
   it('matches the reviewable structural snapshot', async () => {
@@ -186,12 +186,17 @@ describe('team-metric-scatter — top-right is always best', () => {
     expect(northTexas.x).toBeGreaterThan(oklahoma.x)
   })
 
-  it('names the good corner three times, because a PNG has no hover', async () => {
+  it('states the reversal twice and only twice, because a PNG has no hover', async () => {
     const svg = await renderChartSvg(MIXED)
+    // The note names the corner...
     expect(svg).toContain('Top-right is best')
-    expect(svg).toContain('best in both')
-    // ...and on the axis that had to be reversed to make it true.
+    // ...and the axis caption names which axis paid for it, and why.
     expect(svg).toContain('SP+ defense rating (reversed — lower is better)')
+    // A third statement was a corner caption in the band above the plot. It
+    // restated the note's leading clause from somewhere that is not the
+    // corner, and did not parse without the note. Design review, Gate E second
+    // pass: dropped. Guard it, so it does not drift back in.
+    expect(svg).not.toContain('best in both')
   })
 
   it('says which axis reversed, and says nothing when neither did', async () => {
@@ -249,6 +254,19 @@ describe('team-metric-scatter — the crowd', () => {
     expect(svg).not.toContain('<image')
     expect(countPaths(svg)).toBeGreaterThan(countPaths(await renderChartSvg(MIXED)))
     expectResvgSafe(svg)
+  })
+
+  it('never mutes the fallback mark, which is our ink and has a contrast floor', async () => {
+    // FIELD_OPACITY exists to tone down somebody else's artwork. Applied to
+    // `--text-muted` it lands at 2.6:1 on the dark card and 2.8:1 on the light
+    // one -- under WCAG 1.4.11's 3:1 for a non-text mark, in BOTH modes. The
+    // field's "this is context" signal is size, the absent ring and the absent
+    // label; none of those is an opacity. Same class of finding as the ruled
+    // `--color-pass` 2.46:1, so guard it the same way.
+    for (const theme of ['light', 'dark'] as const) {
+      const svg = await renderChartSvg(NO_LOGOS, { theme })
+      expect(svg).not.toMatch(/opacity="0\.65"/)
+    }
   })
 
   it('still rings and labels a highlighted team whose logo failed', async () => {

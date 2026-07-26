@@ -29,10 +29,13 @@
  * the bars shape there is no quantity being misstated (see ../metrics.ts).
  *
  * The cost is real and is paid explicitly: ticks run backwards on a reversed
- * axis, exactly as they do on the trend card. So the axis caption names the
- * reversal and its reason (`scatterAxisLabel`), the note below the plot names
- * the good corner (`scatterDirectionNote`), and the corner itself is captioned.
- * Three statements of the same fact, because a PNG has no hover to interrogate.
+ * axis, exactly as they do on the trend card. So it is said twice, because a
+ * PNG has no hover to interrogate -- and twice rather than three times because
+ * each survivor carries something the other cannot. The axis caption names
+ * WHICH axis reversed and why (`scatterAxisLabel`); on a mixed pair that is
+ * the thing a reader cannot guess. The note below the plot names the good
+ * corner (`scatterDirectionNote`), in the same slot the trend and bars cards
+ * put their direction sentence.
  *
  * ---------------------------------------------------------------------------
  * Logos, and why they arrive as `data:` URIs
@@ -111,7 +114,7 @@ const WIDTH = CHART_WIDTH
  * 350 is a default, the 700 width and the gutter conventions are what bind).
  */
 const PLOT_H = 300
-/** Reserved above the plot for the y-axis caption and the good-corner caption. */
+/** Reserved above the plot for the y-axis caption. */
 const Y_CAPTION_BAND = 20
 /** Gap from the masthead rule to the first legend row (or to the caption band). */
 const ABOVE_LEGEND = 22
@@ -130,7 +133,7 @@ const FIELD_LOGO = 20
 /** Highlighted logo box -- half again as large, so the subject reads first. */
 const HIGHLIGHT_LOGO = 30
 /**
- * Field logos are drawn down to this opacity. The one channel available for
+ * Field LOGOS are drawn down to this opacity. The one channel available for
  * "this is context": a logo carries its school's own colours, so there is no
  * ink to mute, and desaturating raster imagery is not something SVG 1.1 static
  * offers (nor something spec §7 would allow doing to a logo).
@@ -139,6 +142,8 @@ const HIGHLIGHT_LOGO = 30
  * "context" three times over, and a dark-crested school on the dark card's
  * #252019 has very little contrast to give away before it stops being a logo
  * at all.
+ *
+ * Logos only, never the rough fallback -- see `ScatterMarkShape`.
  */
 const FIELD_OPACITY = 0.65
 /** Rough fallback marks, for a team with no logo. */
@@ -236,7 +241,11 @@ interface MarkProps {
   color: string
   logoBox: number
   markSize: number
-  opacity?: number
+  /**
+   * Muting for the raster only. Named for what it applies to, because the
+   * fallback deliberately does NOT take it -- see `ScatterMarkShape`.
+   */
+  logoOpacity?: number
 }
 
 /**
@@ -246,8 +255,17 @@ interface MarkProps {
  * and the same visual weight, so a team whose logo failed is still IN the
  * chart. The alternative (skipping it) would quietly change what the picture
  * claims the field is.
+ *
+ * `FIELD_OPACITY` reaches the logo and stops there. A logo is somebody else's
+ * artwork at an unknown contrast, and muting it is the only lever this shape
+ * has; the fallback is OUR ink, and `--text-muted` at 0.65 lands at 2.6:1 on
+ * the dark card and 2.8:1 on the light one -- under WCAG 1.4.11's 3:1 floor
+ * for a non-text mark, in both modes. Drawn at full strength it is 4.4:1 and
+ * 5.9:1. Nothing is lost by that: the field's "this is context" signal is
+ * carried by the smaller box, the absent ring and the absent label, all three
+ * of which still apply.
  */
-function ScatterMarkShape({ generator, mark, cx, cy, color, logoBox, markSize, opacity }: MarkProps): ReactNode {
+function ScatterMarkShape({ generator, mark, cx, cy, color, logoBox, markSize, logoOpacity }: MarkProps): ReactNode {
   if (mark.logo) {
     return (
       <image
@@ -257,14 +275,13 @@ function ScatterMarkShape({ generator, mark, cx, cy, color, logoBox, markSize, o
         width={logoBox}
         height={logoBox}
         preserveAspectRatio="xMidYMid meet"
-        opacity={opacity}
+        opacity={logoOpacity}
       />
     )
   }
   return (
     <RoughShape
       generator={generator}
-      opacity={opacity}
       drawable={generator.circle(cx, cy, markSize, markOptions(color, markSize >= HIGHLIGHT_MARK))}
     />
   )
@@ -435,17 +452,17 @@ export function TeamMetricScatterChart({ scatter, ink }: TeamMetricScatterProps)
         {scatterAxisLabel(scatter.y)}
       </text>
 
-      {/* The good corner, named where it is rather than only in the note. */}
-      <text
-        x={PLOT_RIGHT}
-        y={plotTop - 8}
-        textAnchor="end"
-        fill={ink.textMuted}
-        fontFamily={ink.fontBody}
-        fontSize={CHART_FONT_SIZE.footnote}
-      >
-        best in both
-      </text>
+      {/* No third statement of the good corner here. The reversal is stated
+          twice, and the two survivors each say something the other cannot: the
+          axis caption above names WHICH axis reversed and why (the only place
+          that can be said, and the thing a mixed pair makes unguessable), and
+          the note under the plot names the corner, in the slot the trend and
+          bars cards already use for their direction sentence. A corner caption
+          was a third: it restated the note's leading clause from a position
+          that is not actually the plot's corner (it sat in the caption band
+          above the frame), and "best in both" is not self-standing copy -- it
+          parses only once the note has been read, which makes it an echo
+          rather than an independent statement. Gate E second pass. */}
 
       {/* Scaffold: gridlines and tick labels, plain SVG, never rough (spec §1). */}
       {gridLinesY(yTicks, layout, ink)}
@@ -471,7 +488,7 @@ export function TeamMetricScatterChart({ scatter, ink }: TeamMetricScatterProps)
           color={ink.textMuted}
           logoBox={FIELD_LOGO}
           markSize={FIELD_MARK}
-          opacity={FIELD_OPACITY}
+          logoOpacity={FIELD_OPACITY}
         />
       ))}
 

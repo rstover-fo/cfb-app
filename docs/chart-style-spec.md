@@ -334,11 +334,19 @@ as stated; the design review adjudicates the aesthetic, not the rulings below.
   which of four corners is good. Nothing in a scatter's encoding resists it:
   position is not length, so unlike bars no quantity is misstated.
   `axisIsReversed()` in `src/lib/charts/metrics.ts` is the one predicate.
-- **The reversal is stated three times**, because a PNG has no hover: on the
-  axis itself (`scatterAxisLabel`, which names the reason in the metric's own
-  terms), in the note below the plot (`scatterDirectionNote`, which names the
-  corner), and as a caption on the corner. This is the same reasoning that puts
-  the trend and bars notes one step above footnote size.
+- **The reversal is stated twice**, because a PNG has no hover: on the axis
+  itself (`scatterAxisLabel`, which names *which* axis reversed and why, in the
+  metric's own terms — the thing a mixed pair makes unguessable), and in the
+  note below the plot (`scatterDirectionNote`, which names the good corner, in
+  the slot the trend and bars cards already use). This is the same reasoning
+  that puts those notes one step above footnote size.
+  > **Design review, Gate E second pass:** a third statement — a `best in both`
+  > caption on the corner — is **removed**. It restated the note's leading
+  > clause from a position that was not the plot's corner (the caption band
+  > above the frame), and two words of it do not parse until the note has been
+  > read, which makes it an echo rather than an independent statement. Two is
+  > the ceiling: each survivor must carry something the others cannot.
+  > Guarded by a `not.toContain` in `teamMetricScatter.test.tsx`.
 - **~25 teams, not the full FBS field.** Four named teams is a picture with no
   context; ~130 rough marks is a texture. `rankBy` (default `sp_rating`) picks
   the field, and any team the caller named is **unioned in**, never substituted
@@ -358,7 +366,53 @@ as stated; the design review adjudicates the aesthetic, not the rulings below.
   interactive surface. On a static card carrying up to four rings at once the
   ring is identity, so it takes the team's ramp ink — `seriesInk()` remains the
   only assigner, and the team keeps the colour it had on a trend or bars card of
-  the same request.
+  the same request. *Ratified at design review.*
+- **A surface may sit UNDER a data mark, drawn plain.** §6 sanctions static
+  token-var fills for scaffold (row highlights, gutters) and bans them for data
+  marks; a knockout disc beneath a mark is neither, and §6 did not cover it. It
+  is legal on the same terms as the PlaycallingProfile row highlight: a single
+  `--bg-surface` fill, no rough drawing, no new colour, and only where the mark
+  above it would otherwise be read against another mark rather than against the
+  card. `teamMetricScatter.tsx` uses it so a highlighted crest clears whatever
+  cluster of field logos it lands on. *Ratified at design review; it was
+  commented in the renderer but unrecorded here until this pass.*
+- **Muting is for somebody else's artwork, never for our own ink.** A logo
+  arrives at an unknown contrast and opacity is the only lever §7 leaves; the
+  rough fallback mark is `--text-muted`, and `--text-muted` at 0.65 measures
+  2.6:1 on the dark card and 2.8:1 on the light one — under WCAG 1.4.11's 3:1
+  for a non-text mark, in **both** modes. Field opacity therefore reaches the
+  `<image>` and stops there (4.4:1 / 5.9:1 at full strength). The "this is
+  context" signal a muted mark gives up is already carried three other ways:
+  the smaller box, the absent ring, the absent label. Same class of finding as
+  the ruled `--color-pass` 2.46:1, and guarded the same way.
+
+  > **Design review, Gate E second pass — BLOCKING, outstanding: dark-mode
+  > crests need a paper backing.** ESPN crests are overwhelmingly drawn to sit
+  > on white, and against `--bg-surface` dark (#252019) a large minority of any
+  > top-25 field has no contrast to give: Penn State navy 1.02:1, Texas A&M
+  > maroon 1.03:1, Ole Miss navy 1.01:1, Iowa black 1.30:1, Alabama crimson
+  > 2.04:1, Ohio State scarlet 2.40:1, Utah red 2.75:1 — *measured at opacity
+  > 1.0*, so raising `FIELD_OPACITY` cannot fix it. At Discord's ~400px column
+  > the affected marks vanish outright and the card shows visibly fewer than
+  > the 25 teams its own subtitle claims.
+  >
+  > The remedy is a **paper disc under every mark, in dark mode only**, at the
+  > light theme's `--bg-surface`; a disc is 16:1 against the dark card and
+  > restores each crest to exactly its light-mode legibility. It applies to
+  > highlighted marks too — `ink.bgSurface` there is dark and knocks out
+  > neighbours without giving the crest anything to sit on.
+  >
+  > Per-mode divergence is the correct shape of the fix, not an inconsistency:
+  > the *inputs* are asymmetric, `--series-1..4` already carry different values
+  > per mode for the same reason, and a disc at the light theme's own
+  > `--bg-surface` is a token read, not a new colour. A backing in both modes
+  > is wrong — it buys nothing on a white card and turns the light render into
+  > a bubble chart. A halo or stroke is wrong — these crests are solid dark
+  > silhouettes, so outlining them outlines a blob.
+  >
+  > Note for the implementer: `teamMetricScatter.test.tsx`'s dark-ink test
+  > asserts `not.toContain('#FFFFFF')` as a "no light ink leaked" guard. That
+  > guard becomes a scoped exception for the backing disc — do not delete it.
 - **The renderer stays pure.** Logos are remote images, so the route resolves
   them and passes already-inlined `data:` URIs into `renderChartSvg` as ordinary
   input (`src/lib/queries/teamLogos.ts`: concurrent, per-request timeout,
