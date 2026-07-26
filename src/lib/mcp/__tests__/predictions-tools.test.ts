@@ -61,6 +61,19 @@ describe('getGamePredictionTool', () => {
     const text = await getGamePredictionTool({ game_id: 999999 })
 
     expect(text).toMatch(/^No prediction found for game_id=999999 with model_version='fitted_v1'/)
+    // fitted_v1 only reaches back to 2018, so a miss on the default must point
+    // at the Elo versions rather than reading as "no prediction exists".
+    expect(text).toMatch(/covers seasons from 2018 onward/)
+    expect(text).toMatch(/elo_epa_blend_v1/)
+  })
+
+  it('omits the older-season hint when an explicit model_version misses', async () => {
+    vi.mocked(getGamePrediction).mockResolvedValue(null)
+
+    const text = await getGamePredictionTool({ game_id: 999999, model_version: 'elo_v1' })
+
+    expect(text).toMatch(/^No prediction found for game_id=999999 with model_version='elo_v1'/)
+    expect(text).not.toMatch(/covers seasons from 2018 onward/)
   })
 
   it('never throws: a null result resolves to a string, not a rejection', async () => {

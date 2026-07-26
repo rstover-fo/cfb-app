@@ -390,10 +390,18 @@ export async function getGamePredictionTool(args: GetGamePredictionArgs): Promis
   // "no row" and "query error" -- there is no separate error string to pass
   // through here, so a null result always renders as this friendly string.
   if (!prediction) {
+    // The house model only goes back to 2018; the two Elo versions reach 2015.
+    // Without this pointer a pre-2018 game reads as "no prediction exists",
+    // when in fact one does under a different model_version.
+    const olderSeasonHint =
+      modelVersion === DEFAULT_PREDICTION_MODEL
+        ? ` '${DEFAULT_PREDICTION_MODEL}' covers seasons from 2018 onward -- for an older game, retry ` +
+          "with model_version='elo_epa_blend_v1' or 'elo_v1', which cover 2015 onward."
+        : ''
     return (
       `No prediction found for game_id=${args.game_id} with model_version='${modelVersion}'. This is normal ` +
       "if the model hasn't run for this game yet, the game_id doesn't exist, or that model_version wasn't " +
-      'written for this game.'
+      `written for this game.${olderSeasonHint}`
     )
   }
 
@@ -1721,7 +1729,10 @@ export function registerMcpTools(server: McpServer): void {
         'The two Elo versions share one Elo-derived home_win_prob and differ only in expected_home_margin; ' +
         "'fitted_v1' carries its OWN Platt-scaled win probability, so BOTH expected_home_margin and " +
         'home_win_prob change when you switch to or from it -- never quote a win probability without saying ' +
-        'which version produced it. `edge` = expected_home_margin + market_spread: a ' +
+        "which version produced it. 'fitted_v1' also leaves elo_margin and epa_margin NULL (the fitted " +
+        'ridge does not decompose its margin into those components) and covers 2018+ only, while the two ' +
+        'Elo versions cover 2015+ -- those nulls are the normal shape of a fitted_v1 row, not missing data. ' +
+        '`edge` = expected_home_margin + market_spread: a ' +
         'positive edge means the model favors the home team more than the market does (vs. the number); a ' +
         'negative edge means the model favors the away team relative to the market. market_provider, ' +
         'market_spread, market_home_margin, market_captured_at, edge, and edge_pick are all null when no ' +
