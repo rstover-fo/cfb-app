@@ -1,5 +1,5 @@
 /**
- * Query tests for `getTeamMetricTrend` (src/lib/queries/trend.ts).
+ * Query tests for `getTeamMetricHistory` (src/lib/queries/teamMetric.ts).
  *
  * Same chainable-builder mock as compare.test.ts -- nothing here touches
  * Supabase. The assertions that matter are the ones a chart depends on: that
@@ -30,8 +30,14 @@ vi.mock('@/lib/supabase/server', () => ({
   }),
 }))
 
-import { TREND_METRICS, TREND_METRIC_IDS } from '@/lib/charts/trendMetrics'
-import { getTeamMetricTrend, MAX_TREND_TEAMS, MIN_TREND_SEASON, MAX_TREND_SPAN } from '../trend'
+import { METRICS, METRIC_IDS } from '@/lib/charts/metrics'
+import {
+  getTeamMetricHistory,
+  getTeamMetricSeason,
+  MAX_METRIC_TEAMS,
+  MIN_METRIC_SEASON,
+  MAX_TREND_SPAN,
+} from '../teamMetric'
 
 const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
 
@@ -41,12 +47,12 @@ beforeEach(() => {
   consoleError.mockClear()
 })
 
-describe('getTeamMetricTrend', () => {
+describe('getTeamMetricHistory', () => {
   it('reads the contracted api.team_history view', async () => {
     const builder = chainable({ data: [], error: null })
     fromMock.mockReturnValue(builder)
 
-    await getTeamMetricTrend(['Oklahoma'], 'sp_defense', 2015, 2025)
+    await getTeamMetricHistory(['Oklahoma'], 'sp_defense', 2015, 2025)
 
     expect(schemaMock).toHaveBeenCalledWith('api')
     expect(fromMock).toHaveBeenCalledWith('team_history')
@@ -56,7 +62,7 @@ describe('getTeamMetricTrend', () => {
     const builder = chainable({ data: [], error: null })
     fromMock.mockReturnValue(builder)
 
-    await getTeamMetricTrend(['Oklahoma'], 'sp_defense', 2015, 2025)
+    await getTeamMetricHistory(['Oklahoma'], 'sp_defense', 2015, 2025)
 
     expect(builder.select).toHaveBeenCalledWith('team, season, sp_defense')
     expect(builder.select).not.toHaveBeenCalledWith('*')
@@ -66,7 +72,7 @@ describe('getTeamMetricTrend', () => {
     const builder = chainable({ data: [], error: null })
     fromMock.mockReturnValue(builder)
 
-    await getTeamMetricTrend(['Oklahoma', 'Clemson'], 'sp_rating', 2015, 2025)
+    await getTeamMetricHistory(['Oklahoma', 'Clemson'], 'sp_rating', 2015, 2025)
 
     expect(builder.in).toHaveBeenCalledWith('team', ['Oklahoma', 'Clemson'])
     expect(builder.gte).toHaveBeenCalledWith('season', 2015)
@@ -88,7 +94,7 @@ describe('getTeamMetricTrend', () => {
       }),
     )
 
-    const result = await getTeamMetricTrend(['Oklahoma', 'Clemson'], 'sp_defense', 2015, 2016)
+    const result = await getTeamMetricHistory(['Oklahoma', 'Clemson'], 'sp_defense', 2015, 2016)
 
     expect(result.map(series => series.team)).toEqual(['Oklahoma', 'Clemson'])
     expect(result[0].points).toEqual([
@@ -113,7 +119,7 @@ describe('getTeamMetricTrend', () => {
       }),
     )
 
-    const [series] = await getTeamMetricTrend(['Oklahoma'], 'sp_defense', 2015, 2017)
+    const [series] = await getTeamMetricHistory(['Oklahoma'], 'sp_defense', 2015, 2017)
 
     expect(series.points.map(point => point.season)).toEqual([2015, 2017])
     expect(series.points.some(point => point.value === 0)).toBe(false)
@@ -124,7 +130,7 @@ describe('getTeamMetricTrend', () => {
       chainable({ data: [{ team: 'Oklahoma', season: 2015, sp_defense: 19.3 }], error: null }),
     )
 
-    const result = await getTeamMetricTrend(['Oklahoma', 'Nobody State'], 'sp_defense', 2015, 2015)
+    const result = await getTeamMetricHistory(['Oklahoma', 'Nobody State'], 'sp_defense', 2015, 2015)
 
     expect(result).toHaveLength(2)
     expect(result[1]).toEqual({ team: 'Nobody State', points: [] })
@@ -141,7 +147,7 @@ describe('getTeamMetricTrend', () => {
       }),
     )
 
-    const result = await getTeamMetricTrend(['Oklahoma'], 'sp_defense', 2015, 2015)
+    const result = await getTeamMetricHistory(['Oklahoma'], 'sp_defense', 2015, 2015)
 
     expect(result).toHaveLength(1)
     expect(result[0].points).toHaveLength(1)
@@ -150,7 +156,7 @@ describe('getTeamMetricTrend', () => {
   it('returns every series empty on a query error -- a partial chart would be a lie', async () => {
     fromMock.mockReturnValue(chainable({ data: null, error: { message: 'boom' } }))
 
-    const result = await getTeamMetricTrend(['Oklahoma', 'Clemson'], 'sp_defense', 2015, 2025)
+    const result = await getTeamMetricHistory(['Oklahoma', 'Clemson'], 'sp_defense', 2015, 2025)
 
     expect(result).toEqual([
       { team: 'Oklahoma', points: [] },
@@ -160,46 +166,114 @@ describe('getTeamMetricTrend', () => {
   })
 
   it('short-circuits without a query for an empty team list or a backwards range', async () => {
-    expect(await getTeamMetricTrend([], 'sp_defense', 2015, 2025)).toEqual([])
-    expect(await getTeamMetricTrend(['Oklahoma'], 'sp_defense', 2025, 2015)).toEqual([
+    expect(await getTeamMetricHistory([], 'sp_defense', 2015, 2025)).toEqual([])
+    expect(await getTeamMetricHistory(['Oklahoma'], 'sp_defense', 2025, 2015)).toEqual([
       { team: 'Oklahoma', points: [] },
     ])
     expect(fromMock).not.toHaveBeenCalled()
   })
 })
 
+describe('getTeamMetricSeason', () => {
+  it('reads the same view through the same range query, pinned to one season', async () => {
+    const builder = chainable({ data: [], error: null })
+    fromMock.mockReturnValue(builder)
+
+    await getTeamMetricSeason(['Oklahoma', 'Texas'], 'sp_defense', 2025)
+
+    expect(fromMock).toHaveBeenCalledWith('team_history')
+    expect(builder.select).toHaveBeenCalledWith('team, season, sp_defense')
+    expect(builder.gte).toHaveBeenCalledWith('season', 2025)
+    expect(builder.lte).toHaveBeenCalledWith('season', 2025)
+    // One row per team, not teams x span -- the projection is the only thing
+    // that differs between the two shapes' reads.
+    expect(builder.limit).toHaveBeenCalledWith(2)
+  })
+
+  it('flattens each team to a single value, in the order requested', async () => {
+    fromMock.mockReturnValue(
+      chainable({
+        data: [
+          { team: 'Texas', season: 2025, sp_defense: 16.4 },
+          { team: 'Oklahoma', season: 2025, sp_defense: 12.9 },
+        ],
+        error: null,
+      }),
+    )
+
+    expect(await getTeamMetricSeason(['Oklahoma', 'Texas'], 'sp_defense', 2025)).toEqual([
+      { team: 'Oklahoma', value: 12.9 },
+      { team: 'Texas', value: 16.4 },
+    ])
+  })
+
+  it('keeps a team with no row as a null value rather than dropping it', async () => {
+    // Inherited from the range query: the team survives as far as the chart's
+    // "no data for..." note instead of vanishing from a card that was asked
+    // about it.
+    fromMock.mockReturnValue(
+      chainable({ data: [{ team: 'Oklahoma', season: 2025, sp_defense: 12.9 }], error: null }),
+    )
+
+    expect(await getTeamMetricSeason(['Oklahoma', 'Nobody State'], 'sp_defense', 2025)).toEqual([
+      { team: 'Oklahoma', value: 12.9 },
+      { team: 'Nobody State', value: null },
+    ])
+  })
+
+  it('keeps a null metric value null rather than charting a zero-length bar as real', async () => {
+    fromMock.mockReturnValue(
+      chainable({ data: [{ team: 'Oklahoma', season: 2025, sp_defense: null }], error: null }),
+    )
+
+    expect(await getTeamMetricSeason(['Oklahoma'], 'sp_defense', 2025)).toEqual([
+      { team: 'Oklahoma', value: null },
+    ])
+  })
+
+  it('returns every value null on a query error -- a partial field would be a lie', async () => {
+    fromMock.mockReturnValue(chainable({ data: null, error: { message: 'boom' } }))
+
+    expect(await getTeamMetricSeason(['Oklahoma', 'Texas'], 'sp_defense', 2025)).toEqual([
+      { team: 'Oklahoma', value: null },
+      { team: 'Texas', value: null },
+    ])
+    expect(consoleError).toHaveBeenCalled()
+  })
+})
+
 describe('metric registry', () => {
   it('every metric names a distinct column', () => {
-    const columns = TREND_METRIC_IDS.map(id => TREND_METRICS[id].column)
+    const columns = METRIC_IDS.map(id => METRICS[id].column)
     expect(new Set(columns).size).toBe(columns.length)
   })
 
   it('every id equals its column, so the URL is self-describing', () => {
-    for (const id of TREND_METRIC_IDS) expect(TREND_METRICS[id].column).toBe(id)
+    for (const id of METRIC_IDS) expect(METRICS[id].column).toBe(id)
   })
 
   it('columns are safe to interpolate into a PostgREST select list', () => {
     // The registry is the only source of column names -- caller input never
     // reaches the select string -- but this keeps that invariant checkable.
-    for (const id of TREND_METRIC_IDS) expect(TREND_METRICS[id].column).toMatch(/^[a-z][a-z0-9_]*$/)
+    for (const id of METRIC_IDS) expect(METRICS[id].column).toMatch(/^[a-z][a-z0-9_]*$/)
   })
 
-  it('flags every rank as lower-is-better, so the axis inverts', () => {
-    for (const id of TREND_METRIC_IDS) {
-      const metric = TREND_METRICS[id]
+  it('flags every rank as lower-is-better, so each shape can apply its direction treatment', () => {
+    for (const id of METRIC_IDS) {
+      const metric = METRICS[id]
       if (metric.kind === 'rank') expect(metric.lowerIsBetter).toBe(true)
     }
   })
 
   it('formats a value for each metric without throwing', () => {
-    for (const id of TREND_METRIC_IDS) expect(typeof TREND_METRICS[id].format(12.345)).toBe('string')
+    for (const id of METRIC_IDS) expect(typeof METRICS[id].format(12.345)).toBe('string')
   })
 })
 
-describe('trend limits', () => {
+describe('metric limits', () => {
   it('publishes the bounds the route and the MCP tool both enforce', () => {
-    expect(MAX_TREND_TEAMS).toBe(4)
-    expect(MIN_TREND_SEASON).toBeLessThan(2000)
+    expect(MAX_METRIC_TEAMS).toBe(4)
+    expect(MIN_METRIC_SEASON).toBeLessThan(2000)
     expect(MAX_TREND_SPAN).toBeGreaterThanOrEqual(10)
   })
 })

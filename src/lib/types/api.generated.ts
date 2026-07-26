@@ -100,7 +100,7 @@ export type ApiSchema = {
     // information_schema.columns for api.team_history, and they carry values
     // back to 2015 for every FBS team. They were the columns the
     // `team-metric-trend` chart's metric enum needed
-    // (src/lib/charts/trendMetrics.ts), so the omission would have read as
+    // (src/lib/charts/metrics.ts), so the omission would have read as
     // "SP+ splits are only per-season current data", which is false.
     team_history: {
       Row: {

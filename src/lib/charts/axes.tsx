@@ -69,6 +69,30 @@ export function gridLinesY(
   ))
 }
 
+/**
+ * Vertical gridlines down the plot area -- the transpose of `gridLinesY`, for
+ * charts whose value axis runs horizontally (ranked bars). Same `--border`,
+ * 1px, 0.4 opacity, so a transposed chart reads as the same scaffold.
+ */
+export function gridLinesX(
+  ticks: ReadonlyArray<Pick<XTick, 'x'>>,
+  layout: ChartLayout,
+  ink?: ChartInk,
+): ReactNode {
+  return ticks.map(({ x }) => (
+    <line
+      key={x}
+      x1={x}
+      y1={layout.padding.top}
+      x2={x}
+      y2={layout.height - layout.padding.bottom}
+      stroke={ink ? ink.border : 'var(--border)'}
+      strokeWidth={1}
+      opacity={0.4}
+    />
+  ))
+}
+
 /** Y-axis tick labels, right-aligned into the left padding gutter. */
 export function axisLabelsY(
   ticks: ReadonlyArray<YTick>,

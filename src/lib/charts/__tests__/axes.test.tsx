@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import { render } from '@testing-library/react'
-import { gridLinesY, axisLabelsY, axisLabelsX } from '../axes'
+import { gridLinesX, gridLinesY, axisLabelsY, axisLabelsX } from '../axes'
 import type { ChartLayout } from '../axes'
+import { literalInk } from '../tokens'
 
 const LAYOUT: ChartLayout = {
   width: 700,
@@ -25,6 +26,30 @@ describe('gridLinesY', () => {
     expect(mid.getAttribute('y1')).toBe(String(30 + 0.5 * PLOT_HEIGHT))
     expect(mid.getAttribute('stroke')).toBe('var(--border)')
     expect(mid.getAttribute('opacity')).toBe('0.4')
+  })
+})
+
+describe('gridLinesX', () => {
+  it('renders one full-height border-token line per tick -- the transpose of gridLinesY', () => {
+    const { container } = render(<svg>{gridLinesX([{ x: 60 }, { x: 365 }, { x: 670 }], LAYOUT)}</svg>)
+
+    const lines = container.querySelectorAll('line')
+    expect(lines.length).toBe(3)
+
+    const mid = lines[1]
+    expect(mid.getAttribute('x1')).toBe('365')
+    expect(mid.getAttribute('x2')).toBe('365')
+    expect(mid.getAttribute('y1')).toBe('30') // padding.top
+    expect(mid.getAttribute('y2')).toBe(String(30 + PLOT_HEIGHT))
+    expect(mid.getAttribute('stroke')).toBe('var(--border)')
+    expect(mid.getAttribute('opacity')).toBe('0.4')
+  })
+
+  it('takes literal ink for the server renderer, same as gridLinesY', () => {
+    const { container } = render(
+      <svg>{gridLinesX([{ x: 100 }], LAYOUT, literalInk('light'))}</svg>,
+    )
+    expect(container.querySelector('line')?.getAttribute('stroke')).toBe('#D9D2C7')
   })
 })
 

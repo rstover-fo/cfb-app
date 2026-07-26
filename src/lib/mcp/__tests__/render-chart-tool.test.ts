@@ -13,6 +13,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { verifyChartSignature } from '@/lib/charts/server/signing'
+import type { ChartId } from '@/lib/charts/server/svg'
 import { renderChartTool } from '../tools'
 
 const ORIGINAL_SECRET = process.env.CHART_SIGNING_SECRET
@@ -251,5 +252,118 @@ describe('renderChartTool -- team-metric-trend', () => {
     expect(parsed.alt).toContain('2015-2025')
     expect(parsed.chart).toBe('team-metric-trend')
     expect(typeof parsed.width).toBe('number')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// team-metric-bars -- the second shape of the generative family
+// ---------------------------------------------------------------------------
+
+describe('renderChartTool -- team-metric-bars', () => {
+  const base = { chart: 'team-metric-bars', metric: 'sp_defense', teams: ['Oklahoma', 'Texas'] } as const
+
+  it('mints the URL shape the route expects', async () => {
+    const url = await mintTrend({ ...base, season: 2025 })
+
+    expect(url.pathname).toBe('/api/chart/team-metric-bars.png')
+    expect(url.searchParams.get('metric')).toBe('sp_defense')
+    expect(url.searchParams.get('teams')).toBe('Oklahoma,Texas')
+    expect(url.searchParams.get('season')).toBe('2025')
+    expect(url.searchParams.get('mode')).toBe('light')
+    expect(url.searchParams.get('sig')).toMatch(/^v1\./)
+  })
+
+  it('never sends the trend-only params, which the route would 400 on', async () => {
+    const url = await mintTrend({ ...base, season: 2025 })
+    for (const param of ['from', 'to', 'annotations']) {
+      expect(url.searchParams.has(param)).toBe(false)
+    }
+  })
+
+  it('produces a URL the real verifyChartSignature accepts (producer/consumer round trip)', async () => {
+    const url = await mintTrend({ ...base, season: 2025 })
+    expect(verifyChartSignature('team-metric-bars', url.searchParams)).toEqual({ ok: true, status: 200 })
+  })
+
+  it('will not verify against the sibling shape -- the chart id is part of the signature', async () => {
+    const url = await mintTrend({ ...base, season: 2025 })
+    expect(verifyChartSignature('team-metric-trend', url.searchParams).ok).toBe(false)
+  })
+
+  it('is stable: the same request always mints the same URL, so the CDN can keep it', async () => {
+    const first = await mintTrend({ ...base, season: 2025 })
+    const second = await mintTrend({ ...base, season: 2025 })
+    expect(second.toString()).toBe(first.toString())
+  })
+
+  it('defaults season to the current one', async () => {
+    const url = await mintTrend(base)
+    expect(url.searchParams.get('season')).toBe('2025')
+  })
+
+  it('shares the team normalization with the trend chart', async () => {
+    const url = await mintTrend({ ...base, teams: ['Texas', 'Texas', 'Oklahoma'], season: 2025 })
+    expect(url.searchParams.get('teams')).toBe('Texas,Oklahoma')
+  })
+
+  it('accepts a single team named with `team` instead of `teams`', async () => {
+    const url = await mintTrend({ chart: 'team-metric-bars', metric: 'wins', team: 'Oklahoma' })
+    expect(url.searchParams.get('teams')).toBe('Oklahoma')
+  })
+
+  it('says what is missing instead of minting a URL that would 400', async () => {
+    expect(await renderChartTool({ chart: 'team-metric-bars', teams: ['Oklahoma'] })).toMatch(/needs a `metric`/)
+    expect(await renderChartTool({ chart: 'team-metric-bars', metric: 'sp_defense' })).toMatch(/needs `teams`/)
+    expect(
+      await renderChartTool({
+        chart: 'team-metric-bars',
+        metric: 'sp_defense',
+        teams: ['a', 'b', 'c', 'd', 'e'],
+      })
+    ).toMatch(/at most 4 teams/)
+    expect(await renderChartTool({ ...base, season: 1900 })).toMatch(/must be a whole year/)
+  })
+
+  it('never throws, whatever it is handed', async () => {
+    await expect(renderChartTool({ chart: 'team-metric-bars' })).resolves.toEqual(expect.any(String))
+    delete process.env.CHART_SIGNING_SECRET
+    await expect(renderChartTool({ ...base, season: 2025 })).resolves.toEqual(expect.any(String))
+  })
+
+  it('describes the chart in its alt text, naming the teams, the season and the ranking', async () => {
+    const parsed = JSON.parse(await renderChartTool({ ...base, season: 2025 }))
+    expect(parsed.chart).toBe('team-metric-bars')
+    expect(parsed.alt).toContain('Oklahoma')
+    expect(parsed.alt).toContain('Texas')
+    expect(parsed.alt).toContain('2025')
+    expect(parsed.alt).toContain('ranked best first')
+    expect(typeof parsed.width).toBe('number')
+    expect(typeof parsed.height).toBe('number')
+  })
+})
+
+describe('renderChartTool -- chart registry', () => {
+  it('answers for every shipped chart id rather than falling through to one builder', async () => {
+    // CHART_METADATA is typed against the ChartId union, so a new chart cannot
+    // reach the registry without an entry -- but nothing typed stops the
+    // *request builder* dispatch from silently defaulting. This is that guard.
+    const args: Record<ChartId, Parameters<typeof renderChartTool>[0]> = {
+      'team-playcalling': { chart: 'team-playcalling', team: 'Oklahoma', season: 2025 },
+      'team-metric-trend': { chart: 'team-metric-trend', metric: 'wins', teams: ['Oklahoma'], from: 2015, to: 2025 },
+      'team-metric-bars': { chart: 'team-metric-bars', metric: 'wins', teams: ['Oklahoma'], season: 2025 },
+    }
+
+    for (const id of Object.keys(args) as ChartId[]) {
+      const parsed = JSON.parse(await renderChartTool(args[id]))
+      expect(parsed.chart).toBe(id)
+      expect(new URL(parsed.url).pathname).toBe(`/api/chart/${id}.png`)
+    }
+  })
+
+  it('returns a sentence rather than throwing for a chart id it does not know', async () => {
+    // Typed as a ChartId, but a model can send anything down an MCP transport
+    // and this tool's contract is that it never throws.
+    const text = await renderChartTool({ chart: 'team-tempo' as ChartId, team: 'Oklahoma' })
+    expect(text).toMatch(/Unknown chart/)
   })
 })

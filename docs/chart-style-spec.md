@@ -289,6 +289,38 @@ width) and DownDistanceHeatmap (§2 hand-rolled 1px-border wrapper →
 a heat-level key is not a series legend and `ChartLegend` has no square-chip
 swatch.
 
+### Gate E note (2026-07-26) — the `team-metric-*` family
+
+Server-rendered charts (`src/lib/charts/server/`) now come in a *family*: one
+metric registry, one query, one card, and one shape per chart id. Rulings that
+apply to it, none of which change the sections above:
+
+- **Shape is an id, not a parameter.** `team-metric-trend` and
+  `team-metric-bars` are separate ids over shared plumbing. A signed chart URL
+  is permanent by design (Discord re-fetches on cache eviction, with no auth
+  header), so a chart id is a forever-API — cheap to add, expensive to
+  withdraw. The unification lives in `src/lib/charts/server/metricCard.tsx`,
+  `src/lib/charts/metricScale.ts`, `src/lib/charts/metrics.ts` and
+  `src/lib/queries/teamMetric.ts`; the renderers hold geometry only.
+- **§9 stroke tiers for peer series** are enforced in one place,
+  `seriesStrokeWeights()`: ≤2 peer series take PRIMARY, 3–4 drop to SECONDARY
+  as the Gate C density hatch. Bars use the §9 bar weights (`ROUGH_BAR` via
+  `pairedBarOptions`) and never the line tiers.
+- **The `--series-1..4` categorical ramp** (§6) is assigned by *request order*,
+  never by rank or placing: colour encodes identity, so a team keeps its ink
+  across shapes of the same request. `seriesInk()` is the only assigner.
+- **Direction is owed by every shape, discharged per shape.** A line inverts
+  its y-axis for a `lowerIsBetter` metric and says so. A bar cannot — its
+  encoding is length from a baseline, and both available inversions (rescaling
+  to `max - value`, or truncating the axis) would misstate the data — so bars
+  are **zero-anchored**, **ranked best-first**, and carry a note naming which
+  bar length is the good one. Both notes sit one step above footnote size, in
+  `--text-secondary`, because a PNG has no hover affordance to interrogate.
+- **In-SVG legends** stay legal on server-rendered cards (§4 retires them only
+  where an HTML legend is available). A shape whose marks are individually
+  captioned — the bars' row labels — omits the legend rather than repeating
+  those names.
+
 ---
 
 ## Proposed DESIGN.md Charts section

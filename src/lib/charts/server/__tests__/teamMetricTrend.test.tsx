@@ -2,7 +2,7 @@
  * SVG-level tests for `team-metric-trend`, the generative chart primitive.
  *
  * Same strategy as renderChartSvg.test.tsx: nothing touches Supabase (the
- * renderer imports `TeamTrendSeries` as a *type*, which erases), snapshots are
+ * renderer imports `TeamMetricSeries` as a *type*, which erases), snapshots are
  * of SVG strings rather than PNG bytes, and `expectResvgSafe` runs over every
  * output including the empty state -- a chart that renders perfectly in a
  * browser and blank under resvg is the failure mode that matters here.
@@ -22,17 +22,13 @@ import {
   OKLAHOMA_WINS,
   SINGLE_POINT_SERIES,
   TEXAS_SP_RANK,
-} from '@/lib/queries/__tests__/fixtures/trend'
-import type { TeamTrendSeries } from '@/lib/queries/trend'
+} from '@/lib/queries/__tests__/fixtures/teamMetric'
+import type { TeamMetricSeries } from '@/lib/queries/teamMetric'
 import { literalInk } from '../../tokens'
 import { renderChartSvg, type ChartSpec } from '../svg'
-import {
-  teamMetricTrendHeight,
-  TREND_EMPTY_HEIGHT,
-  __internals,
-  type TeamMetricTrend,
-} from '../teamMetricTrend'
-import { TREND_METRIC_IDS } from '../../trendMetrics'
+import { teamMetricTrendHeight, type TeamMetricTrend } from '../teamMetricTrend'
+import { METRIC_EMPTY_HEIGHT } from '../metricCard'
+import { METRIC_IDS } from '../../metrics'
 import { expectResvgSafe, elidePathData, cheapHash } from './resvgSafe'
 
 function spec(trend: Partial<TeamMetricTrend> & Pick<TeamMetricTrend, 'series'>): ChartSpec {
@@ -83,7 +79,7 @@ describe('team-metric-trend — resvg safety', () => {
   it('emits resvg-safe markup for every metric in the enum', async () => {
     // A metric whose formatter emitted something odd (a `var()`, an unescaped
     // entity) would only show up here.
-    for (const metric of TREND_METRIC_IDS) {
+    for (const metric of METRIC_IDS) {
       expectResvgSafe(await renderChartSvg(spec({ metric, series: [OKLAHOMA_WINS] })))
     }
   })
@@ -125,8 +121,8 @@ describe('team-metric-trend — canvas', () => {
   })
 
   it('shrinks to a compact card when there is nothing to draw', async () => {
-    expect(await renderChartSvg(NO_DATA)).toContain(`viewBox="0 0 700 ${TREND_EMPTY_HEIGHT}"`)
-    expect(TREND_EMPTY_HEIGHT).toBeLessThan(teamMetricTrendHeight(1, false))
+    expect(await renderChartSvg(NO_DATA)).toContain(`viewBox="0 0 700 ${METRIC_EMPTY_HEIGHT}"`)
+    expect(METRIC_EMPTY_HEIGHT).toBeLessThan(teamMetricTrendHeight(1, false))
   })
 })
 
@@ -285,7 +281,7 @@ describe('team-metric-trend — content', () => {
   })
 
   it('survives a flat series, where min equals max', async () => {
-    const flat: TeamTrendSeries = {
+    const flat: TeamMetricSeries = {
       team: 'Flat',
       points: [
         { season: 2015, value: 8 },
@@ -313,62 +309,6 @@ describe('team-metric-trend — content', () => {
       series: [OKLAHOMA_SP_RANK, CLEMSON_SP_RANK, TEXAS_SP_RANK, OHIO_STATE_SP_RANK, { ...OKLAHOMA_SP_RANK, team: 'Fifth Wheel' }],
     })
     expect(await renderChartSvg(five)).not.toContain('Fifth Wheel')
-  })
-})
-
-describe('team-metric-trend — y domain', () => {
-  const { niceScale } = __internals
-
-  it('keeps an extreme off the frame rule when it is already a nice number', () => {
-    // 4 and 12 wins are both nice numbers, so floor/ceil are identities and the
-    // markers would sit exactly on plotBottom/plotTop, bisected by the 1.5px
-    // frame. One step of air on each side is the fix.
-    const scale = niceScale(4, 12, false)
-    expect(scale.lo).toBeLessThan(4)
-    expect(scale.hi).toBeGreaterThan(12)
-  })
-
-  it('leaves an already-interior extreme alone', () => {
-    // 12.9 and 31.4 are not on the grid, so nice-rounding already gave them
-    // room and no further padding is spent.
-    const scale = niceScale(12.9, 31.4, false)
-    expect(scale.lo).toBeLessThan(12.9)
-    expect(scale.hi).toBeGreaterThan(31.4)
-    expect(scale.lo).toBe(10)
-    expect(scale.hi).toBe(35)
-  })
-
-  it('still floors a rank axis at 1 rather than padding into ranks that do not exist', () => {
-    expect(niceScale(1, 60, true).lo).toBe(1)
-    expect(niceScale(10, 60, true).lo).toBe(1)
-  })
-
-  it('pads below zero for air but never labels a negative count', () => {
-    // A winless season (wins min 0) or an undefeated one (losses min 0) hits
-    // this. The domain still drops below zero so the 0-value marker keeps
-    // clear of the frame rule -- but "-5 wins" is not a thing, so the labels
-    // floor at zero. Domain and labels are deliberately allowed to disagree.
-    const wins = niceScale(0, 12, false)
-    expect(wins.lo).toBeLessThan(0)
-    expect(Math.min(...wins.ticks)).toBe(0)
-    expect(wins.ticks.every(tick => tick >= 0)).toBe(true)
-
-    const losses = niceScale(0, 8, false)
-    expect(losses.lo).toBeLessThan(0)
-    expect(Math.min(...losses.ticks)).toBe(0)
-
-    // A range that never approaches zero is untouched by this.
-    expect(niceScale(6, 12, false).ticks.every(tick => tick > 0)).toBe(true)
-  })
-
-  it('keeps its ticks inside the padded domain', () => {
-    for (const [min, max] of [[4, 12], [0, 1], [12.9, 31.4], [1, 60]] as const) {
-      const scale = niceScale(min, max, false)
-      for (const tick of scale.ticks) {
-        expect(tick).toBeGreaterThanOrEqual(scale.lo)
-        expect(tick).toBeLessThanOrEqual(scale.hi)
-      }
-    }
   })
 })
 

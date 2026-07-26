@@ -32,16 +32,36 @@ import type { PlaycallingProfile } from '@/lib/queries/playcalling'
 import { literalInk, type ChartThemeName } from '../tokens'
 import { EmptyCard } from './emptyCard'
 import { TeamPlaycallingChart } from './teamPlaycalling'
+import { TeamMetricBarsChart, type TeamMetricBars } from './teamMetricBars'
 import { TeamMetricTrendChart, type TeamMetricTrend } from './teamMetricTrend'
 
 /**
  * Charts this renderer can produce.
  *
- * Not one id per question -- `team-metric-trend` is a *primitive*: one metric
- * from a closed enum, up to four teams, any season range. Prefer widening a
- * primitive's parameters over adding an id.
+ * Not one id per question. The `team-metric-*` family are *primitives*: one
+ * metric from a closed enum, up to four teams, and seasons as a parameter.
+ * Prefer widening a primitive's data axes over adding an id.
+ *
+ * ---------------------------------------------------------------------------
+ * Why shape is an id and not a parameter
+ * ---------------------------------------------------------------------------
+ * Everything upstream of the picture IS unified -- one metric registry, one
+ * query, one ink assignment, one domain calculator, one card
+ * (`./metricCard.tsx`). The obvious next step, collapsing the family to a
+ * single `team-metric` id with `?shape=trend|bars`, is deliberately NOT taken:
+ *
+ * - **A signed chart URL is permanent by design.** Discord re-fetches it from
+ *   its media proxy on cache eviction, months after the message was posted, and
+ *   cannot send an auth header. A chart id is therefore a forever-API: it can
+ *   gain parameters, but it can never change meaning or disappear. Ids are the
+ *   cheap thing to add and the expensive thing to take away, so each shape
+ *   claims its own rather than sharing one whose parameter space we might later
+ *   want to reorganize.
+ * - **The route path stays self-describing.** `/api/chart/team-metric-bars.png`
+ *   says what the reader is about to see; `team-metric.png?shape=bars` moves
+ *   that into a query param that has to be read past a signature to find.
  */
-export const CHART_IDS = ['team-playcalling', 'team-metric-trend'] as const
+export const CHART_IDS = ['team-playcalling', 'team-metric-trend', 'team-metric-bars'] as const
 export type ChartId = (typeof CHART_IDS)[number]
 
 export function isChartId(value: string): value is ChartId {
@@ -56,6 +76,7 @@ export function isChartId(value: string): value is ChartId {
 export type ChartSpec =
   | { chart: 'team-playcalling'; profile: PlaycallingProfile }
   | { chart: 'team-metric-trend'; trend: TeamMetricTrend }
+  | { chart: 'team-metric-bars'; bars: TeamMetricBars }
   | { chart: 'empty'; title: string; message?: string }
 
 export interface ChartRenderOptions {
@@ -79,6 +100,8 @@ export function renderChartSvg(spec: ChartSpec, options: ChartRenderOptions = {}
       return renderElement(<TeamPlaycallingChart profile={spec.profile} ink={ink} />)
     case 'team-metric-trend':
       return renderElement(<TeamMetricTrendChart trend={spec.trend} ink={ink} />)
+    case 'team-metric-bars':
+      return renderElement(<TeamMetricBarsChart bars={spec.bars} ink={ink} />)
     case 'empty':
       return renderElement(<EmptyCard title={spec.title} message={spec.message} ink={ink} />)
   }

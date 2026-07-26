@@ -1,42 +1,49 @@
 /**
- * The metric enum behind the `team-metric-trend` chart.
+ * The metric enum behind every `team-metric-*` chart.
  *
  * ---------------------------------------------------------------------------
  * Why a registry instead of a free-text column name
  * ---------------------------------------------------------------------------
- * `team-metric-trend` is a *generative* primitive: one renderer over
- * (metric x teams x season range). The thing that keeps a generative chart
- * honest is a closed enum that maps to columns which genuinely exist. Without
- * it a model asks for `vibes_per_drive`, PostgREST returns an error, and the
- * route serves a plausible-looking empty chart -- a wrong answer that looks
- * like a right one.
+ * The `team-metric-*` family is *generative*: the data axes (which metric,
+ * which teams, which seasons) are parameters, and only the SHAPE is fixed per
+ * chart id. The thing that keeps a generative chart honest is a closed enum
+ * that maps to columns which genuinely exist. Without it a model asks for
+ * `vibes_per_drive`, PostgREST returns an error, and the route serves a
+ * plausible-looking empty chart -- a wrong answer that looks like a right one.
  *
  * Every id below is a real column on the contracted `api.team_history` view
- * (one row per team-season). `src/lib/queries/__tests__/trend.test.ts` asserts
- * the select list this registry produces, and the ids double as the `metric`
- * URL parameter, so the URL is self-describing.
+ * (one row per team-season). `src/lib/queries/__tests__/teamMetric.test.ts`
+ * asserts the select list this registry produces, and the ids double as the
+ * `metric` URL parameter, so the URL is self-describing.
  *
  * ---------------------------------------------------------------------------
- * Direction
+ * Direction, and why each shape says it differently
  * ---------------------------------------------------------------------------
  * Half of these metrics are better when they are *smaller* -- SP+ defensive
  * rating is points-per-drive-ish (lower = a better defense), and every `rank`
- * is best at 1. Plotting those on a conventional axis draws "improving" as a
- * line going down, which reads as decline at a glance. So `lowerIsBetter`
- * metrics get an inverted y-axis (better is always up) *and* an explicit
- * footnote saying so -- the spec allows either; a chart posted to Discord with
- * no hover affordance and no axis to interrogate deserves both.
+ * is best at 1. A chart that draws "improving" as a line going down reads as
+ * decline at a glance, so every shape owes the reader a direction treatment
+ * plus a sentence naming it. What the treatment IS depends on the shape, and
+ * the two notes below are deliberately separate strings rather than one
+ * parameterized sentence:
  *
- * DOM-free and query-free on purpose: the server renderer
- * (`src/lib/charts/server/teamMetricTrend.tsx`), the route schema, the MCP
- * tool and the query layer all import it, and the renderer must never reach
- * Supabase.
+ * - **Lines** (`team-metric-trend`) invert the y-axis, so "up" is always
+ *   "better" and the metric's own units still label the axis.
+ * - **Bars** (`team-metric-bars`) cannot invert anything without lying about
+ *   length: a bar's whole encoding is "longer = more", and rescaling it to
+ *   "longer = better" would draw a quantity that does not exist. So bars keep
+ *   the honest length and move the direction into *sort order* -- best team on
+ *   top, always -- and say which end of the axis is good.
+ *
+ * DOM-free and query-free on purpose: the server renderers, the route schema,
+ * the MCP tool and the query layer all import this, and a renderer must never
+ * reach Supabase.
  */
 
 /** How a metric's values are read, which drives formatting and the footnote. */
-export type TrendMetricKind = 'value' | 'rank'
+export type MetricKind = 'value' | 'rank'
 
-export interface TrendMetric {
+export interface ChartMetric {
   /** Column on `api.team_history`. Equal to the id today; kept explicit so a
    *  future derived metric can diverge without changing the public enum. */
   column: string
@@ -46,7 +53,7 @@ export interface TrendMetric {
   blurb: string
   /** Smaller is better -- inverts the y-axis and changes the footnote. */
   lowerIsBetter: boolean
-  kind: TrendMetricKind
+  kind: MetricKind
   /** Renders one value for an axis tick. */
   format: (value: number) => string
 }
@@ -68,7 +75,7 @@ function percent(value: number): string {
  * reader asks for it, because this order is what the MCP tool's enum
  * documentation lists.
  */
-export const TREND_METRICS = {
+export const METRICS = {
   sp_rating: {
     column: 'sp_rating',
     label: 'SP+ overall rating',
@@ -189,28 +196,28 @@ export const TREND_METRICS = {
     kind: 'rank',
     format: whole,
   },
-} as const satisfies Record<string, TrendMetric>
+} as const satisfies Record<string, ChartMetric>
 
-export type TrendMetricId = keyof typeof TREND_METRICS
+export type MetricId = keyof typeof METRICS
 
 /**
  * Non-empty tuple for `z.enum()`, derived from the registry rather than
  * retyped, so the URL schema and the MCP tool can never list a metric the
  * renderer does not know how to draw.
  */
-export const TREND_METRIC_IDS = Object.keys(TREND_METRICS) as [TrendMetricId, ...TrendMetricId[]]
+export const METRIC_IDS = Object.keys(METRICS) as [MetricId, ...MetricId[]]
 
-export function isTrendMetricId(value: string): value is TrendMetricId {
-  return Object.prototype.hasOwnProperty.call(TREND_METRICS, value)
+export function isMetricId(value: string): value is MetricId {
+  return Object.prototype.hasOwnProperty.call(METRICS, value)
 }
 
-/** The metric's `TrendMetric` record. Narrow with `isTrendMetricId` first. */
-export function trendMetric(id: TrendMetricId): TrendMetric {
-  return TREND_METRICS[id]
+/** The metric's `ChartMetric` record. Narrow with `isMetricId` first. */
+export function chartMetric(id: MetricId): ChartMetric {
+  return METRICS[id]
 }
 
 /**
- * The one-line direction note printed under every trend chart, immediately
+ * The one-line direction note printed under every LINE chart, immediately
  * below the axis it describes. Says out loud what the inverted axis is doing,
  * so the picture cannot be misread by someone who only glances at the shape.
  *
@@ -219,8 +226,8 @@ export function trendMetric(id: TrendMetricId): TrendMetric {
  * either a casing bug ("lower sp+ defense rating") or a grammar one ("higher
  * wins is better").
  */
-export function trendDirectionNote(id: TrendMetricId): string {
-  const metric = TREND_METRICS[id]
+export function trendDirectionNote(id: MetricId): string {
+  const metric = METRICS[id]
   if (metric.kind === 'rank') {
     return 'Rank 1 is best — the axis is inverted, so a better ranking sits higher.'
   }
@@ -228,4 +235,25 @@ export function trendDirectionNote(id: TrendMetricId): string {
     return 'Lower is better — the axis is inverted, so stronger seasons sit higher.'
   }
   return 'Higher is better.'
+}
+
+/**
+ * The same duty for a BAR chart, discharged differently -- see the module
+ * header. A bar encodes value as length from a zero baseline; there is no
+ * inversion available that does not either invent a quantity (`max - value`)
+ * or truncate the axis. So the sentence has two jobs the line version does not
+ * need: state that the rows are ranked best-first (the direction treatment),
+ * and disarm the "longer must be better" reflex for a lower-is-better metric.
+ *
+ * Same no-metric-label rule as above, for the same grammar reasons.
+ */
+export function barsDirectionNote(id: MetricId): string {
+  const metric = METRICS[id]
+  if (metric.kind === 'rank') {
+    return 'Rank 1 is best — ranked best first, so the shortest bar is the strongest team.'
+  }
+  if (metric.lowerIsBetter) {
+    return 'Lower is better — ranked best first, so the shortest bar is the strongest team.'
+  }
+  return 'Higher is better — ranked best first, so the longest bar is the strongest team.'
 }

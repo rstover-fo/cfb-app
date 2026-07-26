@@ -15,7 +15,11 @@
 import { describe, it, expect } from 'vitest'
 import { Resvg } from '@resvg/resvg-js'
 import { PLAYCALLING_PROFILE } from '@/lib/fixtures/gallery/team'
-import { CLEMSON_SP_DEFENSE, OKLAHOMA_SP_DEFENSE } from '@/lib/queries/__tests__/fixtures/trend'
+import {
+  CLEMSON_SP_DEFENSE,
+  OKLAHOMA_SP_DEFENSE,
+  SP_DEFENSE_2025,
+} from '@/lib/queries/__tests__/fixtures/teamMetric'
 import { renderChartSvg, type ChartSpec } from '../svg'
 import { renderChartPng, DEFAULT_PNG_SCALE } from '../png'
 import { chartFontFiles, chartFontOptions, assertChartFontsPresent } from '../fonts'
@@ -89,6 +93,29 @@ describe('renderChartPng', () => {
     expect(height).toBe(box.height * DEFAULT_PNG_SCALE)
     // Taller than the default canvas: a legend row plus the annotation band.
     expect(box.height).toBeGreaterThan(350)
+
+    expect(png.byteLength).toBeGreaterThan(5_000)
+    expect(png.byteLength).toBeLessThan(500_000)
+  })
+
+  it('rasterizes the bars chart at its own dynamic height', async () => {
+    // One rasterization check per SHAPE, same rationale as the trend one above:
+    // everything else about this chart is asserted on the SVG, where a diff is
+    // reviewable -- see ./teamMetricBars.test.tsx.
+    const barsSpec: ChartSpec = {
+      chart: 'team-metric-bars',
+      bars: { metric: 'sp_defense', season: 2025, series: SP_DEFENSE_2025 },
+    }
+
+    const png = await renderChartPng(barsSpec)
+    const box = viewBoxSize(await renderChartSvg(barsSpec))
+
+    const { width, height } = readIhdr(png)
+    expect(width).toBe(700 * DEFAULT_PNG_SCALE)
+    expect(height).toBe(box.height * DEFAULT_PNG_SCALE)
+    // Four rows, so shorter than the default canvas rather than taller: height
+    // follows the row count (spec §9 Gate B).
+    expect(box.height).toBeLessThan(400)
 
     expect(png.byteLength).toBeGreaterThan(5_000)
     expect(png.byteLength).toBeLessThan(500_000)

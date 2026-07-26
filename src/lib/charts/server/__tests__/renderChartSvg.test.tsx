@@ -146,10 +146,20 @@ describe('renderChartSvg — content', () => {
 
 describe('chart id helpers', () => {
   it('recognises the shipped charts and rejects anything else', () => {
-    expect(CHART_IDS).toEqual(['team-playcalling', 'team-metric-trend'])
+    expect(CHART_IDS).toEqual(['team-playcalling', 'team-metric-trend', 'team-metric-bars'])
     expect(isChartId('team-playcalling')).toBe(true)
     expect(isChartId('team-metric-trend')).toBe(true)
+    expect(isChartId('team-metric-bars')).toBe(true)
     expect(isChartId('team-trajectory')).toBe(false)
+  })
+
+  it('keeps one id per shape rather than a shape parameter', () => {
+    // A signed chart URL is permanent by design -- Discord re-fetches it on
+    // cache eviction, months later, with no auth header -- so a chart id is a
+    // forever-API. Collapsing the family to `team-metric?shape=bars` would put
+    // the shape inside a parameter space we might later want to reorganize,
+    // and would take the shape out of the path a reader can see.
+    expect(isChartId('team-metric')).toBe(false)
   })
 })
 
