@@ -46,6 +46,21 @@ export function expectResvgSafe(svg: string): void {
     expect(value, `stroke="${value}" is not a literal color or none`).toMatch(PAINT)
   }
 
+  // --- Raster is embedded, never referenced -------------------------------
+  // resvg fetches nothing at all: no http(s), no file paths, no relative URLs.
+  // An `<image>` pointing at one does not fail, it renders as a hole -- so the
+  // bytes have to be in the document. (`renderChartSvg` is pure and could not
+  // fetch them even if it wanted to; resolution happens in the route.)
+  for (const [tag] of svg.matchAll(/<image\b[^>]*>/g)) {
+    const href = tag.match(/\shref="([^"]*)"/)?.[1] ?? ''
+    expect(href.slice(0, 5), `<image> href is not a data: URI -- resvg fetches nothing: ${href.slice(0, 60)}`).toBe(
+      'data:',
+    )
+    // resvg gives an `<image>` no intrinsic size to fall back on.
+    expect(tag, `<image> without an explicit size: ${elideDataUris(tag)}`).toMatch(/\swidth="[^"]+"/)
+    expect(tag, `<image> without an explicit size: ${elideDataUris(tag)}`).toMatch(/\sheight="[^"]+"/)
+  }
+
   // --- Text is fully self-describing --------------------------------------
   const texts = [...svg.matchAll(/<text\b[^>]*>/g)].map(m => m[0])
   expect(texts.length, 'no <text> elements found -- did the chart render at all?').toBeGreaterThan(0)
@@ -63,6 +78,30 @@ export function expectResvgSafe(svg: string): void {
  */
 export function elidePathData(svg: string): string {
   return svg.replace(/ d="([^"]*)"/g, (_full, d: string) => ` d="[${d.length}ch:${cheapHash(d)}]"`)
+}
+
+/**
+ * The same treatment for inlined `data:` URIs.
+ *
+ * A scatter card carries ~25 base64 logos; left intact they are hundreds of
+ * kilobytes of noise in a snapshot nobody can then read, and any real change
+ * to the chart would be invisible in the diff. The media type and the payload's
+ * length and digest survive, so a swapped, corrupted or missing logo still
+ * fails the snapshot -- what is lost is only the ability to reconstruct the
+ * bytes, which no reviewer wanted.
+ */
+export function elideDataUris(svg: string): string {
+  return svg.replace(/"(data:[^"]*)"/g, (_full, uri: string) => {
+    const comma = uri.indexOf(',')
+    if (comma === -1) return `"${uri}"`
+    const payload = uri.slice(comma + 1)
+    return `"${uri.slice(0, comma + 1)}[${payload.length}ch:${cheapHash(payload)}]"`
+  })
+}
+
+/** Both elisions, in the order a snapshot wants them. */
+export function elideHeavyAttributes(svg: string): string {
+  return elideDataUris(elidePathData(svg))
 }
 
 /** Small deterministic string hash (FNV-1a). Not security-relevant. */

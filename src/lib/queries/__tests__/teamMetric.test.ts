@@ -32,9 +32,11 @@ vi.mock('@/lib/supabase/server', () => ({
 
 import { METRICS, METRIC_IDS } from '@/lib/charts/metrics'
 import {
+  getTeamMetricField,
   getTeamMetricHistory,
   getTeamMetricSeason,
   MAX_METRIC_TEAMS,
+  METRIC_FIELD_SIZE,
   MIN_METRIC_SEASON,
   MAX_TREND_SPAN,
 } from '../teamMetric'
@@ -239,6 +241,157 @@ describe('getTeamMetricSeason', () => {
       { team: 'Texas', value: null },
     ])
     expect(consoleError).toHaveBeenCalled()
+  })
+})
+
+describe('getTeamMetricField', () => {
+  /** `n` teams whose rating descends, so placings are predictable. */
+  function seasonRows(n: number, extra: Array<Record<string, unknown>> = []) {
+    return [
+      ...Array.from({ length: n }, (_, i) => ({
+        team: `Team ${String(i + 1).padStart(2, '0')}`,
+        sp_offense: 40 - i,
+        sp_defense: 10 + i,
+        sp_rating: 30 - i,
+      })),
+      ...extra,
+    ]
+  }
+
+  it('reads one season of the contracted view, with a de-duplicated select list', async () => {
+    const builder = chainable({ data: [], error: null })
+    fromMock.mockReturnValue(builder)
+
+    await getTeamMetricField('sp_offense', 'sp_defense', 2025, 'sp_rating')
+
+    expect(schemaMock).toHaveBeenCalledWith('api')
+    expect(fromMock).toHaveBeenCalledWith('team_history')
+    expect(builder.select).toHaveBeenCalledWith('team, sp_offense, sp_defense, sp_rating')
+    expect(builder.eq).toHaveBeenCalledWith('season', 2025)
+  })
+
+  it('does not name the ranking column twice when it is also a plotted one', async () => {
+    // The default request -- sp_rating against sp_offense -- would otherwise
+    // send `team, sp_rating, sp_defense, sp_rating`.
+    const builder = chainable({ data: [], error: null })
+    fromMock.mockReturnValue(builder)
+
+    await getTeamMetricField('sp_rating', 'sp_defense', 2025, 'sp_rating')
+
+    expect(builder.select).toHaveBeenCalledWith('team, sp_rating, sp_defense')
+  })
+
+  it('ranks the season best-first and cuts it to `size`', async () => {
+    fromMock.mockReturnValue(chainable({ data: seasonRows(40), error: null }))
+
+    const field = await getTeamMetricField('sp_offense', 'sp_defense', 2025, 'sp_rating', [], 25)
+
+    expect(field.points).toHaveLength(25)
+    expect(field.points[0]).toEqual({ team: 'Team 01', x: 40, y: 10, placing: 1 })
+    expect(field.points[24].placing).toBe(25)
+  })
+
+  it('ranks ascending for a metric where smaller is better', async () => {
+    // Same predicate the charts use for their axes, so the field and the
+    // picture can never disagree about which way a metric runs.
+    fromMock.mockReturnValue(
+      chainable({
+        data: [
+          { team: 'Best', sp_offense: 30, sp_defense: 12, sp_rank: 1 },
+          { team: 'Worst', sp_offense: 20, sp_defense: 30, sp_rank: 90 },
+        ],
+        error: null,
+      }),
+    )
+
+    const field = await getTeamMetricField('sp_offense', 'sp_defense', 2025, 'sp_rank', [], 2)
+
+    expect(field.points.map(point => point.team)).toEqual(['Best', 'Worst'])
+    expect(field.points[0].placing).toBe(1)
+  })
+
+  it('unions a named team that missed the cut, keeping its real placing', async () => {
+    // The whole reason `rankBy` picks a field rather than a team list: a team
+    // someone asked about is the subject, wherever it placed.
+    fromMock.mockReturnValue(chainable({ data: seasonRows(40), error: null }))
+
+    const field = await getTeamMetricField('sp_offense', 'sp_defense', 2025, 'sp_rating', ['Team 33'], 25)
+
+    expect(field.points).toHaveLength(26)
+    expect(field.points.find(point => point.team === 'Team 33')?.placing).toBe(33)
+    // ...and it does not displace the 25th team.
+    expect(field.points.some(point => point.team === 'Team 25')).toBe(true)
+  })
+
+  it('drops a row missing either plotted metric -- half a pair is not a position', async () => {
+    fromMock.mockReturnValue(
+      chainable({
+        data: [
+          { team: 'Complete', sp_offense: 30, sp_defense: 12, sp_rating: 20 },
+          { team: 'No offense', sp_offense: null, sp_defense: 12, sp_rating: 19 },
+          { team: 'No defense', sp_offense: 30, sp_defense: null, sp_rating: 18 },
+        ],
+        error: null,
+      }),
+    )
+
+    const field = await getTeamMetricField('sp_offense', 'sp_defense', 2025, 'sp_rating')
+
+    expect(field.points.map(point => point.team)).toEqual(['Complete'])
+  })
+
+  it('keeps a team with no ranking value, unplaced rather than placed zero', async () => {
+    fromMock.mockReturnValue(
+      chainable({
+        data: seasonRows(3, [{ team: 'Unranked', sp_offense: 25, sp_defense: 25, sp_rating: null }]),
+        error: null,
+      }),
+    )
+
+    const field = await getTeamMetricField('sp_offense', 'sp_defense', 2025, 'sp_rating', ['Unranked'], 25)
+
+    const unranked = field.points.find(point => point.team === 'Unranked')
+    expect(unranked?.placing).toBeNull()
+    // Sunk to the end rather than sorted as a zero rating.
+    expect(field.points[field.points.length - 1].team).toBe('Unranked')
+  })
+
+  it('names a team it has no usable row for', async () => {
+    fromMock.mockReturnValue(chainable({ data: seasonRows(3), error: null }))
+
+    const field = await getTeamMetricField('sp_offense', 'sp_defense', 2025, 'sp_rating', ['Nobody State'])
+
+    expect(field.missing).toEqual(['Nobody State'])
+    expect(field.points).toHaveLength(3)
+  })
+
+  it('breaks ties by team name, so the same season always mints the same chart', async () => {
+    // Byte-identical output is what makes the route's caching honest.
+    const tied = [
+      { team: 'Zebra Tech', sp_offense: 30, sp_defense: 12, sp_rating: 20 },
+      { team: 'Aardvark A&M', sp_offense: 31, sp_defense: 13, sp_rating: 20 },
+    ]
+    fromMock.mockReturnValue(chainable({ data: tied, error: null }))
+    const first = await getTeamMetricField('sp_offense', 'sp_defense', 2025, 'sp_rating')
+
+    fromMock.mockReturnValue(chainable({ data: [...tied].reverse(), error: null }))
+    const second = await getTeamMetricField('sp_offense', 'sp_defense', 2025, 'sp_rating')
+
+    expect(first.points.map(point => point.team)).toEqual(['Aardvark A&M', 'Zebra Tech'])
+    expect(second).toEqual(first)
+  })
+
+  it('returns an empty field on a query error -- a partial season would read as the whole one', async () => {
+    fromMock.mockReturnValue(chainable({ data: null, error: { message: 'boom' } }))
+
+    const field = await getTeamMetricField('sp_offense', 'sp_defense', 2025, 'sp_rating', ['Oklahoma'])
+
+    expect(field).toEqual({ points: [], missing: ['Oklahoma'] })
+    expect(consoleError).toHaveBeenCalled()
+  })
+
+  it('publishes the field size the route and the chart both assume', () => {
+    expect(METRIC_FIELD_SIZE).toBe(25)
   })
 })
 

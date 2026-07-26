@@ -321,6 +321,52 @@ apply to it, none of which change the sections above:
   captioned — the bars' row labels — omits the legend rather than repeating
   those names.
 
+### Gate E, second pass (2026-07-26) — `team-metric-scatter`
+
+The family's third shape. Decisions taken by the product owner and implemented
+as stated; the design review adjudicates the aesthetic, not the rulings below.
+
+- **Top-right is always the good corner.** Universal across every scatter this
+  family draws, whatever the two metrics are: an axis whose metric is
+  `lowerIsBetter` (or is a rank) is *reversed*, which is the trend chart's
+  single-axis treatment applied per axis. Consistency across charts was chosen
+  deliberately over per-axis naturalness — a reader must never have to work out
+  which of four corners is good. Nothing in a scatter's encoding resists it:
+  position is not length, so unlike bars no quantity is misstated.
+  `axisIsReversed()` in `src/lib/charts/metrics.ts` is the one predicate.
+- **The reversal is stated three times**, because a PNG has no hover: on the
+  axis itself (`scatterAxisLabel`, which names the reason in the metric's own
+  terms), in the note below the plot (`scatterDirectionNote`, which names the
+  corner), and as a caption on the corner. This is the same reasoning that puts
+  the trend and bars notes one step above footnote size.
+- **~25 teams, not the full FBS field.** Four named teams is a picture with no
+  context; ~130 rough marks is a texture. `rankBy` (default `sp_rating`) picks
+  the field, and any team the caller named is **unioned in**, never substituted
+  — a team asked about appears whether it placed 3rd or 90th, and prints its
+  placing when it fell outside.
+- **Team logos are the marks**, under the §7 raster exemption: never
+  roughified, never filtered. A team with no logo row — or whose logo did not
+  arrive — draws a rough mark at the same position and weight. Never a hole.
+- **The field is context, the named teams are the subject.** The field is
+  smaller, drawn at reduced opacity, and unlabelled; the named teams are larger,
+  full strength, ringed in their `--series-*` ink and the only marks that carry
+  a name. Muting is opacity and size, never a new colour (§6) — a logo carries
+  its school's own. Overlap is resolved by draw order (worst placing first,
+  highlights last), never by displacing a mark off its true position.
+- **The §7 accent ring takes `--series-*` ink here.** §7 specifies `--accent`
+  for the ring because it describes a hover/selection affordance on an
+  interactive surface. On a static card carrying up to four rings at once the
+  ring is identity, so it takes the team's ramp ink — `seriesInk()` remains the
+  only assigner, and the team keeps the colour it had on a trend or bars card of
+  the same request.
+- **The renderer stays pure.** Logos are remote images, so the route resolves
+  them and passes already-inlined `data:` URIs into `renderChartSvg` as ordinary
+  input (`src/lib/queries/teamLogos.ts`: concurrent, per-request timeout,
+  module-scope cache by URL). resvg fetches nothing, so a remote `href` renders
+  as a hole rather than failing — `expectResvgSafe` now rejects any `<image>`
+  href that is not a `data:` URI. Failure degrades to the rough fallback; it
+  never fails the card.
+
 ---
 
 ## Proposed DESIGN.md Charts section

@@ -19,6 +19,7 @@ import {
   CLEMSON_SP_DEFENSE,
   OKLAHOMA_SP_DEFENSE,
   SP_DEFENSE_2025,
+  SP_FIELD_2025,
 } from '@/lib/queries/__tests__/fixtures/teamMetric'
 import { renderChartSvg, type ChartSpec } from '../svg'
 import { renderChartPng, DEFAULT_PNG_SCALE } from '../png'
@@ -116,6 +117,47 @@ describe('renderChartPng', () => {
     // Four rows, so shorter than the default canvas rather than taller: height
     // follows the row count (spec §9 Gate B).
     expect(box.height).toBeLessThan(400)
+
+    expect(png.byteLength).toBeGreaterThan(5_000)
+    expect(png.byteLength).toBeLessThan(500_000)
+  })
+
+  it('rasterizes the scatter chart, logos and all', async () => {
+    // One rasterization check per SHAPE, same rationale as the two above -- but
+    // this one also proves resvg actually DECODES the inlined `data:` logos.
+    // That failure is silent: an `<image>` resvg cannot read (a remote href, an
+    // error page inlined as an image) leaves a hole rather than raising, and
+    // the SVG assertions in ./teamMetricScatter.test.tsx cannot see it.
+    const scatterSpec: ChartSpec = {
+      chart: 'team-metric-scatter',
+      scatter: {
+        x: 'sp_offense',
+        y: 'sp_defense',
+        season: 2025,
+        rankBy: 'sp_rating',
+        fieldSize: 25,
+        marks: SP_FIELD_2025,
+        highlight: ['Oklahoma', 'Texas'],
+      },
+    }
+
+    const png = await renderChartPng(scatterSpec)
+    const box = viewBoxSize(await renderChartSvg(scatterSpec))
+
+    const { width, height } = readIhdr(png)
+    expect(width).toBe(700 * DEFAULT_PNG_SCALE)
+    expect(height).toBe(box.height * DEFAULT_PNG_SCALE)
+    // A two-axis field wants more canvas than a single-series card.
+    expect(box.height).toBeGreaterThan(450)
+
+    // The fixture logos are 4x4 solid colour, so a decoded field of 24 of them
+    // is a measurable amount of extra image. Against the same chart with every
+    // logo dropped, the difference is the raster actually landing.
+    const withoutLogos = await renderChartPng({
+      ...scatterSpec,
+      scatter: { ...scatterSpec.scatter, marks: SP_FIELD_2025.map(mark => ({ ...mark, logo: null })) },
+    })
+    expect(png.equals(withoutLogos)).toBe(false)
 
     expect(png.byteLength).toBeGreaterThan(5_000)
     expect(png.byteLength).toBeLessThan(500_000)

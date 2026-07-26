@@ -33,6 +33,7 @@ import { literalInk, type ChartThemeName } from '../tokens'
 import { EmptyCard } from './emptyCard'
 import { TeamPlaycallingChart } from './teamPlaycalling'
 import { TeamMetricBarsChart, type TeamMetricBars } from './teamMetricBars'
+import { TeamMetricScatterChart, type TeamMetricScatter } from './teamMetricScatter'
 import { TeamMetricTrendChart, type TeamMetricTrend } from './teamMetricTrend'
 
 /**
@@ -61,7 +62,12 @@ import { TeamMetricTrendChart, type TeamMetricTrend } from './teamMetricTrend'
  *   says what the reader is about to see; `team-metric.png?shape=bars` moves
  *   that into a query param that has to be read past a signature to find.
  */
-export const CHART_IDS = ['team-playcalling', 'team-metric-trend', 'team-metric-bars'] as const
+export const CHART_IDS = [
+  'team-playcalling',
+  'team-metric-trend',
+  'team-metric-bars',
+  'team-metric-scatter',
+] as const
 export type ChartId = (typeof CHART_IDS)[number]
 
 export function isChartId(value: string): value is ChartId {
@@ -77,6 +83,7 @@ export type ChartSpec =
   | { chart: 'team-playcalling'; profile: PlaycallingProfile }
   | { chart: 'team-metric-trend'; trend: TeamMetricTrend }
   | { chart: 'team-metric-bars'; bars: TeamMetricBars }
+  | { chart: 'team-metric-scatter'; scatter: TeamMetricScatter }
   | { chart: 'empty'; title: string; message?: string }
 
 export interface ChartRenderOptions {
@@ -102,6 +109,11 @@ export function renderChartSvg(spec: ChartSpec, options: ChartRenderOptions = {}
       return renderElement(<TeamMetricTrendChart trend={spec.trend} ink={ink} />)
     case 'team-metric-bars':
       return renderElement(<TeamMetricBarsChart bars={spec.bars} ink={ink} />)
+    case 'team-metric-scatter':
+      // Logos reach this renderer as `data:` URIs, resolved upstream by the
+      // route -- see ./teamMetricScatter.tsx. Nothing below fetches anything,
+      // which is what keeps the purity promise in this module's header true.
+      return renderElement(<TeamMetricScatterChart scatter={spec.scatter} ink={ink} />)
     case 'empty':
       return renderElement(<EmptyCard title={spec.title} message={spec.message} ink={ink} />)
   }

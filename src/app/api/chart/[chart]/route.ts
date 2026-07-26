@@ -4,6 +4,7 @@
  *   /api/chart/team-playcalling.png?team=Oklahoma&season=2026&mode=light&sig=v1.<22ch>
  *   /api/chart/team-metric-trend.png?from=2015&metric=sp_defense&teams=Oklahoma,Clemson&to=2025&mode=light&sig=v1.<22ch>
  *   /api/chart/team-metric-bars.png?metric=sp_defense&season=2025&teams=Oklahoma,Texas&mode=light&sig=v1.<22ch>
+ *   /api/chart/team-metric-scatter.png?x=sp_offense&y=sp_defense&season=2025&teams=Oklahoma,Texas&mode=light&sig=v1.<22ch>
  *
  * The caller sends a *spec* -- which metric, which teams, which seasons -- and
  * this route runs the query. Data series never travel in the URL: the URL has
@@ -59,11 +60,14 @@ import type { ChartThemeName } from '@/lib/charts/tokens'
 import { METRICS, METRIC_IDS, type MetricId } from '@/lib/charts/metrics'
 import { CURRENT_SEASON } from '@/lib/queries/constants'
 import { getPlaycallingProfile } from '@/lib/queries/playcalling'
+import { getTeamLogoDataUris } from '@/lib/queries/teamLogos'
 import {
+  getTeamMetricField,
   getTeamMetricHistory,
   getTeamMetricSeason,
   MAX_METRIC_TEAMS,
   MAX_TREND_SPAN,
+  METRIC_FIELD_SIZE,
   MIN_METRIC_SEASON,
 } from '@/lib/queries/teamMetric'
 
@@ -310,6 +314,37 @@ const teamMetricBarsParams = z
   })
   .strict()
 
+// ---------------------------------------------------------------------------
+// team-metric-scatter
+// ---------------------------------------------------------------------------
+// Two metrics instead of one, and `teams` becomes OPTIONAL -- this is the only
+// shape in the family that draws something worth looking at with no team named
+// at all, because its subject can be the season's field itself. When teams ARE
+// named they are highlighted against that field rather than being the whole
+// chart, which is what lets a #84 team appear on a top-25 card.
+//
+// `rankBy` chooses the field and defaults to `sp_rating`. Declared as a plain
+// optional-with-default exactly like `mode`: absent from the URL, absent from
+// the signed string, and filled in identically on both sides.
+
+const teamMetricScatterParams = z
+  .object({
+    x: metricParam,
+    y: metricParam,
+    season: metricSeason,
+    rankBy: metricParam.optional().default('sp_rating'),
+    teams: metricTeamsParam.optional(),
+    mode: modeParam,
+    sig: sigParam,
+  })
+  .strict()
+  .refine(input => input.x !== input.y, {
+    // Not pedantry: a metric against itself is the line y = x, which tells the
+    // reader nothing and would put every logo on one diagonal.
+    message: 'x and y must be different metrics',
+    path: ['y'],
+  })
+
 // Record<ChartId, ...> so adding an id to CHART_IDS without a route here is a
 // compile error rather than a runtime 404.
 const CHART_ROUTES: Record<ChartId, ChartRoute> = {
@@ -385,6 +420,61 @@ const CHART_ROUTES: Record<ChartId, ChartRoute> = {
       spec: {
         chart: 'team-metric-bars',
         bars: { metric: input.metric, season: input.season, series },
+      },
+      season: input.season,
+      theme: input.mode,
+      hasData: true,
+    }
+  }),
+
+  'team-metric-scatter': defineChart(teamMetricScatterParams, async input => {
+    // Same reason as above: not wrapped in React `cache()`.
+    const highlight = input.teams ?? []
+    const field = await getTeamMetricField(
+      input.x,
+      input.y,
+      input.season,
+      input.rankBy,
+      highlight,
+      METRIC_FIELD_SIZE,
+    )
+
+    if (field.points.length === 0) {
+      return {
+        spec: {
+          chart: 'empty',
+          title: `No ${METRICS[input.y].label.toLowerCase()} vs ${METRICS[input.x].label.toLowerCase()} on record`,
+          message: `Nothing charted for ${input.season}.`,
+        },
+        season: input.season,
+        theme: input.mode,
+        hasData: false,
+      }
+    }
+
+    // THE fetch. It happens here, in the route, and never in the renderer:
+    // `renderChartSvg` is pure, and that purity is what makes the byte-hash
+    // tests, the SVG snapshots and the `immutable` Cache-Control below sound.
+    // The renderer receives already-inlined `data:` URIs as ordinary input.
+    //
+    // Unawaitable failure is not a failure: `getTeamLogoDataUris` never
+    // rejects and never throws, and a team absent from the map draws a rough
+    // fallback mark. A cold Lambda with a slow CDN renders a slightly plainer
+    // chart, not an error card.
+    const logos = await getTeamLogoDataUris(field.points.map(point => point.team))
+
+    return {
+      spec: {
+        chart: 'team-metric-scatter',
+        scatter: {
+          x: input.x,
+          y: input.y,
+          season: input.season,
+          rankBy: input.rankBy,
+          fieldSize: METRIC_FIELD_SIZE,
+          marks: field.points.map(point => ({ ...point, logo: logos.get(point.team) ?? null })),
+          highlight,
+        },
       },
       season: input.season,
       theme: input.mode,

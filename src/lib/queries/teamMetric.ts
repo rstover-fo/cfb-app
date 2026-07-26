@@ -23,7 +23,7 @@
  * it would buy nothing and risk an unscoped cache shared across requests.
  */
 import { createClient } from '@/lib/supabase/server'
-import { METRICS, type MetricId } from '@/lib/charts/metrics'
+import { METRICS, axisIsReversed, type MetricId } from '@/lib/charts/metrics'
 
 /** One team-season with a value for the requested metric. */
 export interface TeamMetricPoint {
@@ -71,6 +71,26 @@ export const MIN_METRIC_SEASON = 1950
 
 /** Longest span a single trend chart will draw, in seasons. */
 export const MAX_TREND_SPAN = 40
+
+/**
+ * How many teams a scatter draws as its background field.
+ *
+ * A scatter of the four teams a caller named is four dots and no context --
+ * whatever it shows, the reader cannot tell whether 12.9 is good. The whole
+ * FBS field is the opposite failure: ~130 hand-drawn marks on a 584-unit plot
+ * is a texture, not a chart. 25 is the size the audience already reads a
+ * college football field at, and it is roughly the density where individual
+ * marks still separate.
+ */
+export const METRIC_FIELD_SIZE = 25
+
+/**
+ * Row ceiling on the field read. One row per team-season, so a season is a
+ * couple of hundred rows at most; stated explicitly rather than relying on
+ * PostgREST's default page size, and generous enough that the ranking below is
+ * computed over the whole season rather than over an arbitrary prefix of it.
+ */
+const MAX_FIELD_ROWS = 400
 
 interface TeamHistoryMetricRow {
   team: string | null
@@ -163,4 +183,139 @@ export async function getTeamMetricSeason(
     team: entry.team,
     value: entry.points[0]?.value ?? null,
   }))
+}
+
+// ---------------------------------------------------------------------------
+// The field read -- `team-metric-scatter`
+// ---------------------------------------------------------------------------
+
+/** One team's position in a two-metric field, plus where it placed. */
+export interface TeamMetricFieldPoint {
+  team: string
+  x: number
+  y: number
+  /**
+   * 1-based placing on the ranking metric across the whole season, or `null`
+   * when the view published no ranking value for this team. Null is a real
+   * outcome, not an error: a team can have both plotted metrics and no SP+
+   * rating, and dropping it would silently delete a team the caller named.
+   */
+  placing: number | null
+}
+
+export interface TeamMetricField {
+  /** The top `size` teams by the ranking metric, plus any named team outside them. */
+  points: TeamMetricFieldPoint[]
+  /** Named teams the view had no usable row for -- they survive to the footnote. */
+  missing: string[]
+}
+
+interface FieldRow {
+  team: string | null
+  [column: string]: unknown
+}
+
+/** A finite number, or null -- the same "a gap is not a zero" rule as above. */
+function numberOrNull(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null
+}
+
+/**
+ * Fetch a season's field on two metrics, ranked by a third.
+ *
+ * ---------------------------------------------------------------------------
+ * One read for the whole season, ranked here
+ * ---------------------------------------------------------------------------
+ * The obvious implementation is two PostgREST calls -- `order(rankBy).limit(25)`
+ * for the field, `.in('team', highlight)` for the named teams -- and it is
+ * worse in every way that matters. A season is a couple of hundred rows, so the
+ * saving is nothing; the two calls can disagree (a team in both comes back
+ * twice, and de-duplicating it is code that only exists because of the split);
+ * and, decisively, the second call cannot tell you a named team's PLACING,
+ * which is the number that makes "#80, drawn against the top 25" legible rather
+ * than mysterious. So: one read of the season, ranked in memory.
+ *
+ * A row needs BOTH plotted metrics to be a point -- half a coordinate pair is
+ * not a position -- but only the field cares about the ranking metric; a named
+ * team without one still plots, with a null placing.
+ *
+ * On a query error the field comes back empty and every named team lands in
+ * `missing`, so the route draws its empty card. A scatter that quietly plotted
+ * six of the top 25 would read as a complete picture of the season.
+ */
+export async function getTeamMetricField(
+  x: MetricId,
+  y: MetricId,
+  season: number,
+  rankBy: MetricId,
+  highlight: readonly string[] = [],
+  size: number = METRIC_FIELD_SIZE,
+): Promise<TeamMetricField> {
+  const empty = (): TeamMetricField => ({ points: [], missing: [...highlight] })
+
+  const xColumn = METRICS[x].column
+  const yColumn = METRICS[y].column
+  const rankColumn = METRICS[rankBy].column
+
+  const supabase = await createClient()
+
+  const { data, error } = await supabase
+    .schema('api')
+    .from('team_history')
+    // Explicit columns, never select('*'), and de-duplicated because the
+    // ranking metric is very often one of the two plotted ones (the default
+    // `sp_rating` against `sp_offense`/`sp_defense` is the reference request).
+    // All three names come from the registry, never from caller input.
+    .select([...new Set(['team', xColumn, yColumn, rankColumn])].join(', '))
+    .eq('season', season)
+    .limit(MAX_FIELD_ROWS)
+
+  if (error || !data) {
+    console.error('[teamMetric] getTeamMetricField error:', error)
+    return empty()
+  }
+
+  const rows: Array<TeamMetricFieldPoint & { rankValue: number | null }> = []
+  for (const raw of data as unknown as FieldRow[]) {
+    if (!raw.team) continue
+    const xValue = numberOrNull(raw[xColumn])
+    const yValue = numberOrNull(raw[yColumn])
+    // Half a pair is not a position. A team missing one metric is dropped from
+    // the field entirely rather than plotted at an invented coordinate.
+    if (xValue === null || yValue === null) continue
+    rows.push({ team: raw.team, x: xValue, y: yValue, placing: null, rankValue: numberOrNull(raw[rankColumn]) })
+  }
+
+  // Best first on the ranking metric, whichever way it runs. Rows with no
+  // ranking value sink to the end rather than sorting as zero, and the team
+  // name is the tie-break so the same season always produces the same field --
+  // which is what makes the rendered PNG cacheable.
+  const reversed = axisIsReversed(rankBy)
+  rows.sort((a, b) => {
+    if (a.rankValue === null || b.rankValue === null) {
+      if (a.rankValue !== b.rankValue) return a.rankValue === null ? 1 : -1
+      return a.team.localeCompare(b.team)
+    }
+    const delta = reversed ? a.rankValue - b.rankValue : b.rankValue - a.rankValue
+    return delta !== 0 ? delta : a.team.localeCompare(b.team)
+  })
+
+  let placing = 0
+  for (const row of rows) {
+    if (row.rankValue === null) continue
+    row.placing = ++placing
+  }
+
+  const named = new Set(highlight)
+  // The field, plus every named team that missed the cut. Union rather than
+  // replacement: a team someone asked about is the SUBJECT of the chart, and it
+  // has to appear whether it placed 3rd or 80th -- but it does not displace a
+  // top-25 team, because the field is what gives its position meaning.
+  const points = rows.filter((row, index) => index < size || named.has(row.team))
+
+  const plotted = new Set(points.map(row => row.team))
+  return {
+    points: points.map(({ team, x: px, y: py, placing: place }) => ({ team, x: px, y: py, placing: place })),
+    missing: highlight.filter(team => !plotted.has(team)),
+  }
 }

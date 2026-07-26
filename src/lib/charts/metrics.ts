@@ -34,6 +34,12 @@
  *   "longer = better" would draw a quantity that does not exist. So bars keep
  *   the honest length and move the direction into *sort order* -- best team on
  *   top, always -- and say which end of the axis is good.
+ * - **Scatter** (`team-metric-scatter`) applies the LINE treatment twice, once
+ *   per axis, so the good corner is always the top right. Nothing about a
+ *   scatter's encoding resists it -- position is not length, so reversing an
+ *   axis costs nothing -- and a fixed good corner is worth more than each axis
+ *   running its natural way, because otherwise a reader has to work out which
+ *   of four corners is the good one on every single chart.
  *
  * DOM-free and query-free on purpose: the server renderers, the route schema,
  * the MCP tool and the query layer all import this, and a renderer must never
@@ -214,6 +220,78 @@ export function isMetricId(value: string): value is MetricId {
 /** The metric's `ChartMetric` record. Narrow with `isMetricId` first. */
 export function chartMetric(id: MetricId): ChartMetric {
   return METRICS[id]
+}
+
+/**
+ * Does an axis carrying this metric run backwards?
+ *
+ * The single predicate behind every shape's direction treatment, so "better is
+ * up" and "better is right" can never disagree about the same metric.
+ *
+ * `kind === 'rank'` is tested even though every rank in the registry is also
+ * flagged `lowerIsBetter` (and `teamMetric.test.ts` asserts that). A rank whose
+ * flag was mis-set would otherwise draw rank 1 at the bottom of the plot while
+ * the card's own note claimed rank 1 was best -- and of the two, the rank is
+ * the fact that cannot be wrong.
+ */
+export function axisIsReversed(id: MetricId): boolean {
+  // Read through `chartMetric` rather than indexing `METRICS` directly, for the
+  // same reason `barsDirectionNote` hoists its `isRank`: on the literal-typed
+  // registry, a falsy `lowerIsBetter` narrows the union to members whose `kind`
+  // is `'value'`, and the compiler then rejects the second test as one that can
+  // never be true. Widening to `ChartMetric` keeps the belt-and-braces check
+  // the doc comment above is about.
+  const metric: ChartMetric = chartMetric(id)
+  return metric.lowerIsBetter || metric.kind === 'rank'
+}
+
+/**
+ * The caption printed along one axis of a SCATTER card.
+ *
+ * This is the one place the family interpolates a metric label into prose, and
+ * it is safe here precisely because it is not prose: the label leads, and the
+ * reversal reason follows in its own parenthesis, so no casing or number
+ * agreement has to work out ("SP+ defense rating (reversed — lower is better)"
+ * rather than "lower sp+ defense rating is better").
+ *
+ * The reason travels WITH the axis rather than living only in the note below
+ * the plot: with two axes, a note that says "an axis is reversed" leaves the
+ * reader to work out which, and on a mixed pair -- offense unreversed, defense
+ * reversed -- that is exactly the thing they cannot guess.
+ */
+export function scatterAxisLabel(id: MetricId): string {
+  const metric = METRICS[id]
+  if (!axisIsReversed(id)) return metric.label
+  return `${metric.label} (reversed — ${metric.kind === 'rank' ? 'rank 1 is best' : 'lower is better'})`
+}
+
+/**
+ * The scatter's direction note, discharging the same duty as its line and bar
+ * siblings -- see the module header -- for a shape with two axes.
+ *
+ * It leads with the claim that is true of EVERY scatter this family draws,
+ * whatever the two metrics are: the good corner is the top right. That is the
+ * whole reason the axes get reversed, and it is a claim the rendered picture
+ * always holds by construction, so unlike `barsDirectionNote` there is no
+ * domain-shaped way for it to become false.
+ *
+ * The clause after the dash then says how many axes paid for it, because
+ * "reversed" is a surprising thing to do to an axis and a reader who spots
+ * ticks running backwards deserves to find that stated rather than assume a
+ * bug. Which axis is which is named on the axis itself (`scatterAxisLabel`).
+ */
+export function scatterDirectionNote(x: MetricId, y: MetricId): string {
+  const reversedX = axisIsReversed(x)
+  const reversedY = axisIsReversed(y)
+
+  if (reversedX && reversedY) {
+    return 'Top-right is best — both axes are reversed, because a lower number is the better one on each.'
+  }
+  if (reversedX || reversedY) {
+    const which = reversedX ? 'horizontal' : 'vertical'
+    return `Top-right is best — the ${which} axis is reversed, because a lower number is the better one on it.`
+  }
+  return 'Top-right is best — both axes run low to high.'
 }
 
 /**

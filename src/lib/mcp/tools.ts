@@ -909,6 +909,15 @@ const CHART_METADATA: Record<ChartId, { width: number; height: number; descripti
     height: 366,
     description: 'one metric for one season, as ranked hand-drawn bars',
   },
+  'team-metric-scatter': {
+    width: 700,
+    // Grows with the legend (0-4 highlighted teams); this is the four-team
+    // card, the tallest one a caller can ask for.
+    height: 550,
+    description:
+      'two metrics plotted against each other for one season, as team logos across a ~25-team field, ' +
+      'with named teams highlighted (top-right is always the good corner)',
+  },
 }
 
 // z.enum() needs a real, non-empty tuple of string literals -- Object.keys()
@@ -926,6 +935,12 @@ export interface RenderChartArgs {
   teams?: readonly string[]
   /** team-metric-*: which column to plot. */
   metric?: MetricId
+  /** team-metric-scatter: the horizontal metric. */
+  x?: MetricId
+  /** team-metric-scatter: the vertical metric. */
+  y?: MetricId
+  /** team-metric-scatter: which metric picks the ~25-team field. Defaults to sp_rating. */
+  rank_by?: MetricId
   /** team-metric-trend: first season, inclusive. */
   from?: number
   /** team-metric-trend: last season, inclusive. */
@@ -946,6 +961,8 @@ const TREND_MAX_SPAN = 40
 const METRIC_MIN_SEASON = 1950
 const TREND_MAX_ANNOTATIONS = 3
 const TREND_MAX_ANNOTATION_LABEL = 40
+/** Mirrors the route schema's `rankBy` default -- the two must agree exactly. */
+const SCATTER_DEFAULT_RANK_BY: MetricId = 'sp_rating'
 
 /**
  * Team-list normalization shared by every `team-metric-*` shape.
@@ -1070,11 +1087,80 @@ function barsRequest(args: RenderChartArgs): ChartRequest {
   }
 }
 
+/**
+ * The scatter request.
+ *
+ * Two differences from its siblings, both of which the route's schema enforces
+ * and this therefore has to enforce identically or it mints a URL that 400s:
+ *
+ * - two metrics, which must differ. `metric` is accepted as a shorthand for
+ *   `x` so a model that reaches for the family's usual param name gets a chart
+ *   rather than a lecture, but it still has to name the other axis;
+ * - `teams` is OPTIONAL. Named teams are highlighted against the field, not the
+ *   whole chart, so a scatter with none is a legitimate picture of the season.
+ *   `rank_by` chooses the field and is left off the URL when it is the default,
+ *   so the common request keeps the shortest, most cacheable URL.
+ */
+function scatterRequest(args: RenderChartArgs): ChartRequest {
+  const x = args.x ?? args.metric
+  const y = args.y
+  if (!x || !(x in METRICS) || !y || !(y in METRICS)) {
+    return {
+      guidance:
+        `chart='team-metric-scatter' needs two metrics, \`x\` and \`y\`, from: ${METRIC_IDS.join(', ')}. ` +
+        "For example x='sp_offense', y='sp_defense'.",
+    }
+  }
+  if (x === y) {
+    return {
+      guidance:
+        'A scatter needs two DIFFERENT metrics -- a metric against itself is just a diagonal line. ' +
+        "Try x='sp_offense', y='sp_defense'.",
+    }
+  }
+
+  const rankBy = args.rank_by ?? SCATTER_DEFAULT_RANK_BY
+  if (!(rankBy in METRICS)) {
+    return { guidance: `\`rank_by\` must be one of: ${METRIC_IDS.join(', ')}.` }
+  }
+
+  // Optional here, unlike every other shape -- so this deliberately does NOT
+  // go through `metricTeams`, whose contract is "no teams is a mistake".
+  const requested = (args.teams ?? (args.team ? [args.team] : [])).map(team => team.trim()).filter(Boolean)
+  const teams = [...new Set(requested)]
+  if (teams.length > METRIC_MAX_TEAMS) {
+    return {
+      guidance:
+        `render_chart highlights at most ${METRIC_MAX_TEAMS} teams on one scatter (asked for ${teams.length}). ` +
+        'The rest of the field is drawn anyway -- pick the ones the answer is actually about.',
+    }
+  }
+
+  const season = args.season ?? CURRENT_SEASON
+  if (!Number.isInteger(season) || season < METRIC_MIN_SEASON || season > CURRENT_SEASON + 5) {
+    return { guidance: `\`season\` must be a whole year between ${METRIC_MIN_SEASON} and ${CURRENT_SEASON}.` }
+  }
+
+  const subject = teams.length > 0 ? `${teams.join(' and ')} against the ${season} field` : `the ${season} field`
+  return {
+    params: {
+      x,
+      y,
+      season,
+      mode: args.mode ?? 'light',
+      ...(rankBy === SCATTER_DEFAULT_RANK_BY ? {} : { rankBy }),
+      ...(teams.length > 0 ? { teams: teams.join(',') } : {}),
+    },
+    alt: `${subject} -- ${METRICS[y].blurb} against ${METRICS[x].blurb}, top-right is best`,
+  }
+}
+
 /** Which builder answers for which id. Exhaustive over `ChartId` by construction. */
 const CHART_REQUEST_BUILDERS: Record<ChartId, (args: RenderChartArgs) => ChartRequest> = {
   'team-playcalling': playcallingRequest,
   'team-metric-trend': trendRequest,
   'team-metric-bars': barsRequest,
+  'team-metric-scatter': scatterRequest,
 }
 
 export async function renderChartTool(args: RenderChartArgs): Promise<string> {
@@ -1114,7 +1200,8 @@ export async function renderChartTool(args: RenderChartArgs): Promise<string> {
       'this response carries no numbers, so also call the matching data tool (e.g. ' +
       "get_playcalling_profile for chart='team-playcalling', query_team for " +
       "chart='team-metric-trend' and chart='team-metric-bars') and state the key figures in prose -- " +
-      'the chart supplements the numbers, it does not replace them. Include at most one chart per answer.',
+      'the chart supplements the numbers, it does not replace them. Include at most one chart per answer. ' +
+      "For chart='team-metric-scatter', get_leaderboard or query_team gives the figures behind the field.",
   })
 }
 
@@ -2004,7 +2091,16 @@ export function registerMcpTools(server: McpServer): void {
         'one season is a dot. Needs `metric` and `teams`; `season` defaults to the current one. Rows ' +
         'are always sorted best-first whichever way the metric runs, and the chart states which end ' +
         'is good.\n' +
-        'Both team-metric-* charts share one fixed metric enum ' +
+        "- 'team-metric-scatter' -- TWO metrics plotted against each other for ONE season, as team " +
+        'logos across roughly the top 25 of that season. Reach for it when the question relates two ' +
+        'different things ("offense vs defense", "does recruiting buy wins", "who is efficient AND ' +
+        'explosive") or asks where a team sits in the wider landscape rather than against a handful ' +
+        'of named rivals. Needs `x` and `y` (two DIFFERENT metrics); `season` defaults to the current ' +
+        'one, `rank_by` (which metric picks the 25) defaults to sp_rating. `teams` is OPTIONAL here ' +
+        'and highlights those teams against the field -- a named team outside the top 25 is drawn ' +
+        'anyway, with its placing. The top-right corner is ALWAYS the good one: an axis whose metric ' +
+        'is better when smaller is drawn reversed, and the chart says so.\n' +
+        'All three team-metric-* charts share one fixed metric enum ' +
         `(${METRIC_IDS.join(', ')}) mapped to real api.team_history columns -- pick the closest one ` +
         'rather than inventing a name.\n' +
         "- 'team-playcalling' -- one team's run/pass play-call split by situation (overall, early " +
@@ -2024,7 +2120,8 @@ export function registerMcpTools(server: McpServer): void {
           .describe(
             "Which chart to render. 'team-metric-trend' for a metric across multiple seasons; " +
               "'team-metric-bars' for the same metric compared across teams within ONE season; " +
-              "'team-playcalling' for one team's single-season run/pass situational split."
+              "'team-metric-scatter' for TWO metrics against each other across a whole season's " +
+              "field; 'team-playcalling' for one team's single-season run/pass situational split."
           ),
         team: z
           .string()
@@ -2039,9 +2136,9 @@ export function registerMcpTools(server: McpServer): void {
           .int()
           .optional()
           .describe(
-            "The single season to draw, for chart='team-playcalling' and chart='team-metric-bars', " +
-              `e.g. 2024. Defaults to the current season (${CURRENT_SEASON}) if omitted. Use from/to ` +
-              "for chart='team-metric-trend' instead."
+            "The single season to draw, for chart='team-playcalling', chart='team-metric-bars' and " +
+              `chart='team-metric-scatter', e.g. 2024. Defaults to the current season ` +
+              `(${CURRENT_SEASON}) if omitted. Use from/to for chart='team-metric-trend' instead.`
           ),
         teams: z
           .array(z.string())
@@ -2050,15 +2147,42 @@ export function registerMcpTools(server: McpServer): void {
             "For the team-metric-* charts: 1 to 4 exact school names, e.g. ['Oklahoma', 'Clemson']. " +
               "The order given decides each team's color (and, on the trend chart, its marker); the " +
               'bars chart additionally sorts its rows best-first. More than four is refused rather ' +
-              'than truncated -- a dropped team would be a wrong answer.'
+              'than truncated -- a dropped team would be a wrong answer. Required for the trend and ' +
+              "bars charts; OPTIONAL for chart='team-metric-scatter', where it highlights teams " +
+              'against the season field rather than being the whole chart.'
           ),
         metric: z
           .enum(METRIC_IDS)
           .optional()
           .describe(
-            'Required for the team-metric-* charts: which api.team_history column to plot. ' +
+            'Required for chart=\'team-metric-trend\' and chart=\'team-metric-bars\': which ' +
+              'api.team_history column to plot. ' +
               METRIC_IDS.map(id => `${id} (${METRICS[id].blurb})`).join('; ') +
-              '.'
+              ". For chart='team-metric-scatter' use x and y instead."
+          ),
+        x: z
+          .enum(METRIC_IDS)
+          .optional()
+          .describe(
+            "Required for chart='team-metric-scatter': the horizontal metric, from the same enum as " +
+              "`metric`. Must differ from `y`. The axis is drawn reversed when smaller is better, so " +
+              'the right-hand side is always the good side.'
+          ),
+        y: z
+          .enum(METRIC_IDS)
+          .optional()
+          .describe(
+            "Required for chart='team-metric-scatter': the vertical metric, from the same enum as " +
+              '`metric`. Must differ from `x`. The axis is drawn reversed when smaller is better, so ' +
+              'the top is always the good side.'
+          ),
+        rank_by: z
+          .enum(METRIC_IDS)
+          .optional()
+          .describe(
+            "For chart='team-metric-scatter': which metric chooses the ~25 teams drawn as the field. " +
+              "Defaults to sp_rating (the closest thing to an overall 'top 25'). Teams named in " +
+              '`teams` are always drawn, even when they fall outside it.'
           ),
         from: z
           .number()
