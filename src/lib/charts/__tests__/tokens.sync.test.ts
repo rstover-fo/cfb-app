@@ -18,7 +18,7 @@
 import { describe, it, expect } from 'vitest'
 import fs from 'node:fs'
 import path from 'node:path'
-import { CHART_TOKENS, CHART_TOKEN_NAMES, CHART_FONT_FAMILY, fontFamilyOf } from '../tokens'
+import { CHART_TOKENS, CHART_TOKEN_NAMES, CHART_FONT_FAMILY, VAR_INK, fontFamilyOf, literalInk } from '../tokens'
 
 const CSS_PATH = path.join(process.cwd(), 'src', 'app', 'globals.css')
 const css = fs.readFileSync(CSS_PATH, 'utf8')
@@ -204,6 +204,51 @@ describe('categorical series ramp contrast', () => {
     for (const token of SERIES) {
       expect(CHART_TOKENS.dark[token]).not.toBe(CHART_TOKENS.light[token])
     }
+  })
+})
+
+describe('crest paper', () => {
+  // The backing laid under a team crest in dark mode. A crest is an input we do
+  // not control -- ESPN draws them for a white page -- so the fix is to give it
+  // the page it was drawn for rather than to restyle artwork we may not touch
+  // (spec §7). Guarded here rather than only in the scatter's tests because the
+  // value is a cross-mode token read, and that is this file's subject.
+  const dark = literalInk('dark')
+
+  it('is the light card\'s own surface, not a colour invented for the purpose', () => {
+    expect(dark.crestPaper).toBe(CHART_TOKENS.light['--bg-surface'])
+    expect(dark.crestPaper).not.toBe(CHART_TOKENS.dark['--bg-surface'])
+  })
+
+  it('clears the dark card by the margin the treatment was ruled on', () => {
+    expect(contrastRatio(dark.crestPaper!, CHART_TOKENS.dark['--bg-surface'])).toBeCloseTo(16.16, 2)
+  })
+
+  it('exists because opacity could not reach the problem', () => {
+    // The measurements that made this blocking: at FULL opacity, on the dark
+    // card, these crests are not visible at all. Raising `FIELD_OPACITY` moves
+    // Penn State from 1.03 to 1.02 -- there is nothing for a dial to do here.
+    // On the light card -- and so, now, on the paper -- the same crests run
+    // 6.75:1 to 21:1.
+    const CRESTS = {
+      'Ole Miss navy': '#14213D',
+      'Penn State navy': '#041E42',
+      'Iowa black': '#000000',
+      'Ohio State scarlet': '#BB0000',
+    }
+    for (const crest of Object.values(CRESTS)) {
+      expect(contrastRatio(crest, CHART_TOKENS.dark['--bg-surface'])).toBeLessThan(3)
+      expect(contrastRatio(crest, dark.crestPaper!)).toBeGreaterThan(6)
+    }
+  })
+
+  it('draws nothing in light, where the crest is already on white', () => {
+    // A disc on the light card buys nothing and reads as a bubble chart, which
+    // in a shape that encodes position and size is a claim it must not make.
+    expect(literalInk('light').crestPaper).toBeNull()
+    // The browser ink cannot express "the other mode's value" through a
+    // `var()` at all -- see the field's doc comment.
+    expect(VAR_INK.crestPaper).toBeNull()
   })
 })
 

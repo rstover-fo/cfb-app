@@ -374,7 +374,113 @@ describe('team-metric-scatter — ink', () => {
     const svg = await renderChartSvg(MIXED, { theme: 'dark' })
     expect(svg).toContain('#252019') // --bg-surface, dark
     expect(svg).toContain('#8A847A') // --text-muted, dark
-    expect(svg).not.toContain('#FFFFFF')
+
+    // No light ink leaks into dark -- with exactly ONE ruled exception, carved
+    // out here rather than dropped. `ink.crestPaper` is the light card's
+    // `--bg-surface` on purpose: a crest is artwork drawn for a white page, and
+    // on `#252019` the navy ones measure 1.01:1. So the paper discs are removed
+    // and the guard then runs over everything else -- a `#FFFFFF` anywhere but
+    // under a crest is still a bug, and this is the assertion that says so.
+    expect(withoutCrestPaper(svg)).not.toContain('#FFFFFF')
+  })
+
+  it('gives every crest paper to sit on, and only in dark mode', async () => {
+    // The measured problem: at opacity 1.0 on the dark card, Ole Miss is
+    // 1.01:1, Penn State 1.03:1, Iowa 1.30:1. Roughly a third of a top-25
+    // field is not on the card at all, while the subtitle keeps claiming it is
+    // -- which is what made this blocking rather than cosmetic.
+    const dark = await renderChartSvg(MIXED, { theme: 'dark' })
+    const light = await renderChartSvg(MIXED, { theme: 'light' })
+
+    expect(crestPaper(dark)).toHaveLength(imageBoxes(dark).length)
+    expect(crestPaper(dark)[0].fill).toBe('#FFFFFF')
+
+    // Nothing added to the light card: a crest is already on white there, and
+    // a disc would only turn a scatter into a bubble chart. The two white
+    // circles light does emit are the highlight knockouts (r = 21), which
+    // predate this treatment -- they are `--bg-surface`, which simply happens
+    // to be the same value in light. No disc at either crest-paper radius.
+    expect(circlesFilled(light, CREST_PAPER_FILL).map(disc => disc.r)).toEqual([21, 21])
+  })
+
+  it('sizes the paper to the crest box, not to a bubble a reader would measure', async () => {
+    const discs = crestPaper(await renderChartSvg(MIXED, { theme: 'dark' }))
+    const radii = [...new Set(discs.map(disc => disc.r))].sort((a, b) => a - b)
+    expect(radii).toEqual([12, 17]) // the 20 and 30 crest boxes, plus 2 of air
+  })
+
+  it('lays the paper under its own crest, never over one', async () => {
+    // Under the crest and above the gridlines. Asserted as document order,
+    // because that IS the z-order in SVG: each disc must be the element
+    // immediately before the image it backs.
+    const dark = await renderChartSvg(MIXED, { theme: 'dark' })
+    const marks = [...dark.matchAll(/<circle cx="[-\d.]+" cy="[-\d.]+" r="[\d.]+" fill="#FFFFFF"><\/circle>|<image\b/g)]
+    expect(marks.map(match => (match[0].startsWith('<image') ? 'crest' : 'paper')).join(' ')).toBe(
+      Array(imageBoxes(dark).length).fill('paper crest').join(' '),
+    )
+    // And the gridlines are all behind both.
+    expect(dark.indexOf('<line')).toBeLessThan(dark.indexOf('fill="#FFFFFF"'))
+  })
+
+  it('does not move a single mark', async () => {
+    // Position is the one thing a scatter has to be trusted on, so the disc is
+    // centred on the same coordinates as the crest and changes no geometry.
+    const dark = await renderChartSvg(MIXED, { theme: 'dark' })
+    const light = await renderChartSvg(MIXED, { theme: 'light' })
+    expect(imageBoxes(dark)).toEqual(imageBoxes(light))
+
+    for (const disc of crestPaper(dark)) {
+      expect(imageBoxes(dark)).toContainEqual({ x: disc.cx, y: disc.cy, size: disc.r === 12 ? 20 : 30 })
+    }
+  })
+
+  it('backs a highlighted crest too, inside its knockout disc rather than instead of it', async () => {
+    // The knockout stays `--bg-surface` -- its job is to BE the card and clear
+    // the neighbours. In dark that is `#252019`, which left a highlighted navy
+    // crest invisible inside a bright ring: cleared space, but nothing to print
+    // on. Both discs, one inside the other.
+    const dark = await renderChartSvg(MIXED, { theme: 'dark' })
+    expect(circlesFilled(dark, '#252019')).toHaveLength(2) // one per highlighted team
+    expect(circlesFilled(dark, '#252019').every(disc => disc.r === 21)).toBe(true)
+
+    const inner = crestPaper(dark).filter(disc => disc.r === 17)
+    expect(inner).toHaveLength(2)
+    for (const disc of inner) {
+      expect(circlesFilled(dark, '#252019')).toContainEqual({ cx: disc.cx, cy: disc.cy, r: 21, fill: '#252019' })
+    }
+  })
+
+  it('keeps a highlighted label readable where it crosses a neighbour\'s paper', async () => {
+    // A label sits BESIDE its mark and so lands on a neighbour in a crowded
+    // field -- on the reference card "Texas" runs straight across BYU's disc.
+    // That was fine while the thing behind it was the card; once the neighbour
+    // is opaque white, near-white label text vanishes into it exactly as the
+    // navy crests used to. So the label brings the card along: the same string,
+    // stroked in `--bg-surface`, painted underneath it.
+    const dark = await renderChartSvg(MIXED, { theme: 'dark' })
+    const plates = [...dark.matchAll(/<text ([^>]*stroke="#252019"[^>]*)>([^<]+)<\/text>/g)]
+    expect(plates.map(match => match[2])).toEqual(plotLabels(dark))
+
+    // Placed exactly where the label is -- a plate off by a unit is a fringe.
+    const inkedLabel = literalInk('dark').textPrimary
+    for (const [, attrs, text] of plates) {
+      const placement = attrs.match(/^x="[-\d.]+" y="[-\d.]+" text-anchor="\w+"/)![0]
+      expect(dark).toContain(`<text ${placement} fill="${inkedLabel}" font-family="DM Sans" font-size="12">${text}</text>`)
+    }
+
+    // Nothing to clear on the light card, so nothing is drawn: the hazard is
+    // paper that is not the card colour, and light has none.
+    expect(await renderChartSvg(MIXED, { theme: 'light' })).not.toMatch(/<text[^>]*\sstroke=/)
+  })
+
+  it('never puts our own fallback mark on paper -- it does not have this problem', async () => {
+    // `--text-muted` on the dark card is 4.4:1 at full strength. On white it
+    // would be 3.0:1, so backing it would invert a contrast that is already
+    // fine. The treatment is for artwork we did not draw and cannot restyle.
+    const svg = await renderChartSvg(NO_LOGOS, { theme: 'dark' })
+    expect(svg).not.toContain('<image')
+    expect(crestPaper(svg)).toEqual([])
+    expect(withoutCrestPaper(svg)).not.toContain('#FFFFFF')
   })
 
   it('inks a fallback field mark in --text-muted, not a fifth series colour', async () => {
@@ -498,6 +604,51 @@ function drawOrder(scatter: TeamMetricScatter): ScatterMark[] {
     .slice(-scatter.fieldSize)
   return [...field, ...highlighted]
 }
+
+/**
+ * Every `<circle>` painted with `fill`, in document order.
+ *
+ * Written against the emitted attribute order rather than parsed, like the
+ * other helpers here: if the renderer stops emitting these it should fail
+ * loudly rather than quietly match nothing.
+ */
+function circlesFilled(svg: string, fill: string): Array<{ cx: number; cy: number; r: number; fill: string }> {
+  return [...svg.matchAll(circlePattern(fill))].map(match => ({
+    cx: Number(match[1]),
+    cy: Number(match[2]),
+    r: Number(match[3]),
+    fill,
+  }))
+}
+
+/**
+ * The paper discs laid under crests -- `ink.crestPaper`, dark mode only.
+ *
+ * Dark markup only: in light, `--bg-surface` is this same `#FFFFFF`, so the
+ * highlight knockout discs would be indistinguishable from paper by fill. That
+ * ambiguity is exactly why light draws no paper at all, and why the light-side
+ * assertions above go by radius instead.
+ */
+function crestPaper(svg: string): Array<{ cx: number; cy: number; r: number; fill: string }> {
+  return circlesFilled(svg, CREST_PAPER_FILL)
+}
+
+/**
+ * The same markup with the crest paper removed, so the "no light ink in dark"
+ * guard can run over everything else. A deliberate carve-out for one ruled
+ * treatment, not a blanket exemption -- see the dark-ink test.
+ */
+function withoutCrestPaper(svg: string): string {
+  return svg.replace(circlePattern(CREST_PAPER_FILL), '')
+}
+
+/** One filled `<circle>`, as the renderer emits it (never self-closing). */
+function circlePattern(fill: string): RegExp {
+  return new RegExp(`<circle cx="([-\\d.]+)" cy="([-\\d.]+)" r="([\\d.]+)" fill="${fill}"></circle>`, 'g')
+}
+
+/** The light card's `--bg-surface`, which is what the paper is (`tokens.ts`). */
+const CREST_PAPER_FILL = literalInk('light').bgSurface
 
 /** Every `<image>` box in document order. */
 function imageBoxes(svg: string): Array<{ x: number; y: number; size: number }> {

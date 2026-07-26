@@ -56,6 +56,13 @@
  * A team with no logo -- and there are always some, plus whatever did not come
  * back in time -- draws a rough mark instead. Never a hole.
  *
+ * A crest is also artwork drawn for somebody else's background: ESPN's are made
+ * for a white page, and on the dark card the navy and black ones vanish
+ * outright. In dark mode each one is therefore given paper to sit on --
+ * `ink.crestPaper`, which is the light card's own surface. The measurements and
+ * the treatments that were rejected are on `ChartInk.crestPaper`; how it is
+ * applied is on `ScatterMarkShape`.
+ *
  * ---------------------------------------------------------------------------
  * The field is context; the named teams are the subject
  * ---------------------------------------------------------------------------
@@ -139,13 +146,29 @@ const HIGHLIGHT_LOGO = 30
  * offers (nor something spec §7 would allow doing to a logo).
  *
  * Not lower than this. Size, the absent ring and the absent label already say
- * "context" three times over, and a dark-crested school on the dark card's
- * #252019 has very little contrast to give away before it stops being a logo
- * at all.
+ * "context" three times over, and a crest has little contrast to give away
+ * before it stops being a logo at all.
+ *
+ * Not HIGHER either, and raising it was never the fix for the dark card: on
+ * `#252019` a navy crest measures 1.03:1 at opacity 1.0, so the whole range
+ * this dial can travel is worth 0.01. What that problem needed was a different
+ * surface, not more of the mark -- see `ink.crestPaper`.
  *
  * Logos only, never the rough fallback -- see `ScatterMarkShape`.
  */
 const FIELD_OPACITY = 0.65
+/**
+ * Air between a crest's box and the edge of the paper disc drawn under it in
+ * dark mode (`ink.crestPaper`).
+ *
+ * Small on purpose. The disc has to read as the stock the crest is printed on,
+ * not as a plotted bubble -- this shape encodes position and size, and a disc
+ * with a generous margin starts making a claim of its own. Two units past the
+ * box is enough that a crest which fills its box does not touch the edge; the
+ * corners of a square-ish crest still overhang slightly, which is what keeps it
+ * looking like backing rather than like a mark.
+ */
+const CREST_PAPER_PAD = 2
 /** Rough fallback marks, for a team with no logo. */
 const FIELD_MARK = 11
 const HIGHLIGHT_MARK = 16
@@ -246,6 +269,11 @@ interface MarkProps {
    * fallback deliberately does NOT take it -- see `ScatterMarkShape`.
    */
   logoOpacity?: number
+  /**
+   * `ink.crestPaper`: the backing to lay under a crest, or null for none.
+   * Non-null in dark mode only.
+   */
+  paper: string | null
 }
 
 /**
@@ -264,19 +292,56 @@ interface MarkProps {
  * 5.9:1. Nothing is lost by that: the field's "this is context" signal is
  * carried by the smaller box, the absent ring and the absent label, all three
  * of which still apply.
+ *
+ * In dark mode a crest is drawn on its own paper (`ink.crestPaper`), because a
+ * navy or black crest on `#252019` is not a muted mark, it is an absent one --
+ * the full argument, with the measured ratios, is on `ChartInk.crestPaper`. Two
+ * things about how it is applied here:
+ *
+ *   - **The paper is opaque; the crest keeps its own opacity.** That is what
+ *     makes the claim "back at its light-mode legibility" literally true: a
+ *     field crest at 0.65 over `#FFFFFF` is pixel-for-pixel what the light card
+ *     already draws. Muting the disc to match would compound the two and land
+ *     somewhere neither mode has ever shown.
+ *   - **Crests only, never the rough fallback.** The fallback is OUR ink, drawn
+ *     at full strength against a card it was chosen for -- `--text-muted` on
+ *     the dark card is 4.36:1. Putting it on paper would LOWER that to 3.71:1,
+ *     to fix a problem it does not have.
+ *
+ * The one thing drawn across the paper rather than under it is a highlighted
+ * team's ring, and it needs no special handling: `--series-*` is required to
+ * clear 3:1 against BOTH card surfaces, white included, and tokens.sync.test.ts
+ * already enforces it (the dark ramp measures 4.36:1 and up on white).
  */
-function ScatterMarkShape({ generator, mark, cx, cy, color, logoBox, markSize, logoOpacity }: MarkProps): ReactNode {
+function ScatterMarkShape({
+  generator,
+  mark,
+  cx,
+  cy,
+  color,
+  logoBox,
+  markSize,
+  logoOpacity,
+  paper,
+}: MarkProps): ReactNode {
   if (mark.logo) {
     return (
-      <image
-        href={mark.logo}
-        x={cx - logoBox / 2}
-        y={cy - logoBox / 2}
-        width={logoBox}
-        height={logoBox}
-        preserveAspectRatio="xMidYMid meet"
-        opacity={logoOpacity}
-      />
+      <>
+        {/* Under the crest and over the gridlines -- and centred on the same
+            cx/cy the image is, so it cannot nudge a mark off its true
+            position. Plain, not rough: like the knockout disc below it is a
+            surface, not data (spec §6). */}
+        {paper && <circle cx={cx} cy={cy} r={logoBox / 2 + CREST_PAPER_PAD} fill={paper} />}
+        <image
+          href={mark.logo}
+          x={cx - logoBox / 2}
+          y={cy - logoBox / 2}
+          width={logoBox}
+          height={logoBox}
+          preserveAspectRatio="xMidYMid meet"
+          opacity={logoOpacity}
+        />
+      </>
     )
   }
   return (
@@ -489,6 +554,7 @@ export function TeamMetricScatterChart({ scatter, ink }: TeamMetricScatterProps)
           logoBox={FIELD_LOGO}
           markSize={FIELD_MARK}
           logoOpacity={FIELD_OPACITY}
+          paper={ink.crestPaper}
         />
       ))}
 
@@ -516,6 +582,17 @@ export function TeamMetricScatterChart({ scatter, ink }: TeamMetricScatterProps)
         const flip = cx > (PLOT_LEFT + PLOT_RIGHT) / 2
         const labelX = flip ? cx - ring / 2 - 6 : cx + ring / 2 + 6
 
+        // Shared by the label and the plate under it, so the two can never
+        // drift apart into a visible fringe. Placement only -- paint differs,
+        // and the remaining attributes are spelled out on both so the emitted
+        // attribute ORDER is unchanged from before the plate existed (the light
+        // card is byte-identical, and the snapshots prove it).
+        const labelPlacement = {
+          x: labelX,
+          y: cy + centerDy(CHART_FONT_SIZE.xs),
+          textAnchor: (flip ? 'end' : 'start') as 'end' | 'start',
+        }
+
         return (
           <g key={`highlight-${entry.team}`}>
             {/* The subject clears its own space. A highlighted mark draws last
@@ -523,7 +600,16 @@ export function TeamMetricScatterChart({ scatter, ink }: TeamMetricScatterProps)
                 a crest read against another crest is not read at all. The card
                 colour behind it is the same device as PlaycallingProfile's row
                 highlight -- a surface under a mark, drawn plain because it is
-                not itself data (spec §6). */}
+                not itself data (spec §6).
+
+                It stays `bgSurface` in both modes: its job is to BE the card,
+                and any other colour would read as a plotted disc rather than as
+                cleared space. It is therefore not the crest's backing -- in
+                dark it is `#252019`, which knocks the neighbours out correctly
+                and leaves a navy crest with nothing to sit on. The paper the
+                crest actually needs is drawn inside this one, by
+                `ScatterMarkShape`, at 34 units across against this 42 -- so the
+                subject gets both: cleared space, and stock to print on. */}
             <circle cx={cx} cy={cy} r={ring / 2} fill={ink.bgSurface} />
             {/* Emphasis around raster is drawn rough (spec §7). §7's ring is
                 `--accent` because it describes a hover/selection affordance on
@@ -543,11 +629,46 @@ export function TeamMetricScatterChart({ scatter, ink }: TeamMetricScatterProps)
               color={color}
               logoBox={HIGHLIGHT_LOGO}
               markSize={HIGHLIGHT_MARK}
+              paper={ink.crestPaper}
             />
+            {/* The label clears its own space too, for the same reason and by
+                the same device as the disc above it -- and only where there is
+                something to clear.
+
+                A label sits BESIDE its mark, so in a crowded field it lands on
+                a NEIGHBOUR. That was survivable while everything behind it was
+                the card: `--text-primary` over a mostly-transparent crest still
+                had the card to read against. `crestPaper` takes that away --
+                the neighbour is now opaque white, and near-white label text
+                crossing it disappears exactly as the navy crests used to (the
+                reference card's "Texas" runs straight across BYU's disc).
+                Drawn here, so the label carries the card with it.
+
+                Same copy, stroked and filled in `bgSurface`, then the real
+                label painted on top: the stroke widens the glyph outline into a
+                thin plate and the second pass restores the letterform exactly,
+                which a stroke on the label itself cannot do (SVG 1.1 paints
+                fill first, and `paint-order` is SVG2 -- see ./document.tsx).
+                Invisible everywhere it is not needed, because it IS the card.
+
+                Gated on `crestPaper`, not on the theme: the hazard is paper
+                that is not the card colour, which is the same condition. Light
+                has none, draws none, and is byte-identical to before. */}
+            {ink.crestPaper && (
+              <text
+                {...labelPlacement}
+                fill={ink.bgSurface}
+                stroke={ink.bgSurface}
+                strokeWidth={2.5}
+                strokeLinejoin="round"
+                fontFamily={ink.fontBody}
+                fontSize={CHART_FONT_SIZE.xs}
+              >
+                {label}
+              </text>
+            )}
             <text
-              x={labelX}
-              y={cy + centerDy(CHART_FONT_SIZE.xs)}
-              textAnchor={flip ? 'end' : 'start'}
+              {...labelPlacement}
               fill={ink.textPrimary}
               fontFamily={ink.fontBody}
               fontSize={CHART_FONT_SIZE.xs}

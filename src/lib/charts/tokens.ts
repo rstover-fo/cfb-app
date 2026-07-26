@@ -213,6 +213,40 @@ export interface ChartInk {
   series: readonly [string, string, string, string]
   /** `--heat-1` (worst) .. `--heat-5` (best), index 0..4. */
   heat: readonly [string, string, string, string, string]
+  /**
+   * Backing to lay under a team crest before drawing it, or `null` for "draw
+   * the crest straight onto the card".
+   *
+   * Dark mode only, and it is the LIGHT theme's `--bg-surface` -- the one place
+   * in this file where a value is deliberately read from the other mode.
+   *
+   * A crest is an input we do not control and cannot restyle: ESPN draws them
+   * for a white page, and spec §7 exempts raster imagery from being recoloured
+   * anyway. Measured against the dark card's `#252019` at full opacity, a third
+   * of a top-25 field is simply not there -- Ole Miss 1.01:1, Penn State
+   * 1.03:1, Texas A&M 1.03:1, Iowa 1.30:1, Alabama 2.04:1, Ohio State 2.40:1.
+   * The same crests on the light card run 6.75:1 to 21:1. Opacity is not the
+   * lever (raising it moves Penn State from 1.03 to 1.02), and neither is a
+   * halo or a stroke: both outline a solid navy blob and leave its interior --
+   * which is the whole problem -- untouched. Giving the crest its own paper is
+   * the only treatment that reaches the inside of the mark: `#FFFFFF` is
+   * 16.16:1 on the dark card, and every crest lands back at exactly the
+   * legibility it has in light mode, because it is sitting on exactly the same
+   * colour.
+   *
+   * `null` in light, where the crest is already on white: a disc there buys
+   * nothing and turns a scatter into a bubble chart. Per-mode divergence for
+   * the same class of reason `--series-1..4` diverge -- one value cannot serve
+   * both surfaces.
+   *
+   * `null` for `VAR_INK` too, and that is a real limit rather than an
+   * oversight: a `var()` reference resolves to whatever the live page's mode
+   * says, so the browser ink cannot express "the other mode's value" at all. No
+   * client chart draws crests today; the first one that does needs a concrete
+   * per-mode ink, which is what `useChartTheme`/`resolveColor` already hand the
+   * roughjs recipe.
+   */
+  crestPaper: string | null
   fontHeadline: string
   fontBody: string
 }
@@ -243,6 +277,8 @@ function inkFrom(lookup: (token: ChartTokenName) => string): ChartInk {
       lookup('--heat-4'),
       lookup('--heat-5'),
     ],
+    // No backing by default -- only the dark literal ink opts in, below.
+    crestPaper: null,
     fontHeadline: lookup('--font-headline'),
     fontBody: lookup('--font-body'),
   }
@@ -267,5 +303,12 @@ export function literalInk(theme: ChartThemeName = 'light'): ChartInk {
   // Colors become literal; so do fonts. resvg is given exactly two font files
   // and no system fonts, so a stack with fallbacks would be a lie -- hand it
   // the single family that is actually loaded (see `fontFamilyOf`).
-  return { ...ink, fontHeadline: CHART_FONT_FAMILY.headline, fontBody: CHART_FONT_FAMILY.body }
+  return {
+    ...ink,
+    // Read from LIGHT on purpose, in the dark ink -- see `ChartInk.crestPaper`.
+    // A token read, not a new colour: it is the light card's own surface.
+    crestPaper: theme === 'dark' ? LIGHT['--bg-surface'] : null,
+    fontHeadline: CHART_FONT_FAMILY.headline,
+    fontBody: CHART_FONT_FAMILY.body,
+  }
 }
