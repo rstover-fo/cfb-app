@@ -72,6 +72,7 @@ import {
   MetricMasthead,
   MissingTeamsNote,
   PLOT_TOP_BASE,
+  approxTextWidth,
   joinList,
   legendRows,
   metricSubtitle,
@@ -86,6 +87,12 @@ const WIDTH = CHART_WIDTH
 
 /** Reserved above the plot for annotation labels, only when there are any. */
 const ANNOTATION_BAND = 18
+/**
+ * Gap between an annotation's rule and its label. Named because the label's
+ * width budget is measured from the same point: move one and the other has to
+ * follow, or the label runs off the card.
+ */
+const ANNOTATION_LABEL_GAP = 5
 /**
  * Plot height. Held constant while the canvas grows with the legend and the
  * annotation band, so a four-team annotated chart is not a squashed version of
@@ -134,6 +141,68 @@ const SERIES_TREATMENTS = [
 export interface TrendAnnotation {
   season: number
   label: string
+}
+
+/** Every event the caller dated to one season -- one rule, one label. */
+interface SeasonAnnotation {
+  season: number
+  labels: string[]
+}
+
+/**
+ * Groups annotations by season.
+ *
+ * A season is a single point on the time axis, so two events dated to it have
+ * one rule to draw and one label position between them: rendered per
+ * annotation they land on identical coordinates and superimpose into
+ * unreadable ink. Nothing upstream prevents it -- the route's schema checks
+ * parseability and a count, and `2024:SEC move|2024:new OC` is an ordinary
+ * thing for a model composing a chart URL to emit.
+ *
+ * Merged rather than rejected: a 400 reaches Discord as a broken image with no
+ * explanation, and this route's contract is that a valid signature always
+ * yields a legible picture. Merging is also the honest reading -- the two
+ * events really do share one x.
+ *
+ * Map insertion order keeps the rules in the order the caller first named each
+ * season, and the labels within a season in the order given, so the output
+ * stays byte-deterministic.
+ */
+function mergeAnnotations(annotations: readonly TrendAnnotation[]): SeasonAnnotation[] {
+  const bySeason = new Map<number, SeasonAnnotation>()
+  for (const { season, label } of annotations) {
+    const existing = bySeason.get(season)
+    if (existing) existing.labels.push(label)
+    else bySeason.set(season, { season, labels: [label] })
+  }
+  return [...bySeason.values()]
+}
+
+/**
+ * An annotation's label, trimmed to the paper it has.
+ *
+ * The label is placed beside its rule and flips anchor across the plot's
+ * midpoint, so the room it has is the distance from the rule to the near edge
+ * of the card's content box -- roughly half a card. One 40-character label fits
+ * that; three merged ones (the route's ceiling) do not, and would run off the
+ * card. Width is estimated, not measured -- see `approxTextWidth` -- so this
+ * errs toward cutting early.
+ *
+ * Cut with an ellipsis rather than by dropping the last event: an event the
+ * caller asked for that silently never appears is a chart that answers a
+ * question it was not asked, while "Venables hired, new O…" still tells the
+ * reader that more happened here and that the card ran out of room.
+ */
+function annotationLabel(labels: string[], season: number, available: number): string {
+  const size = CHART_FONT_SIZE.footnote
+  const suffix = ` · ${season}`
+  const joined = labels.join(', ')
+
+  if (approxTextWidth(`${joined}${suffix}`, size) <= available) return `${joined}${suffix}`
+
+  let cut = joined.length
+  while (cut > 0 && approxTextWidth(`${joined.slice(0, cut)}…${suffix}`, size) > available) cut--
+  return `${joined.slice(0, cut).trimEnd()}…${suffix}`
 }
 
 /** Everything the renderer needs. Assembled by the route from the query. */
@@ -362,12 +431,17 @@ export function TeamMetricTrendChart({ trend, ink }: TeamMetricTrendProps) {
         strokeWidth={1.5}
       />
 
-      {/* Annotations, under the series so a rule never sits on top of data. */}
-      {annotations.map(annotation => {
+      {/* Annotations, under the series so a rule never sits on top of data.
+          One rule per season, however many events share it -- see
+          `mergeAnnotations`. */}
+      {mergeAnnotations(annotations).map(annotation => {
         const x = xFor(annotation.season)
         const flip = x > (PLOT_LEFT + PLOT_RIGHT) / 2
+        const available = flip
+          ? x - ANNOTATION_LABEL_GAP - geo.contentX
+          : geo.contentRight - (x + ANNOTATION_LABEL_GAP)
         return (
-          <g key={`annotation-${annotation.season}-${annotation.label}`}>
+          <g key={`annotation-${annotation.season}`}>
             <RoughShape
               generator={gen}
               strokeDasharray="4 4"
@@ -378,14 +452,14 @@ export function TeamMetricTrendChart({ trend, ink }: TeamMetricTrendProps) {
               })}
             />
             <text
-              x={flip ? x - 5 : x + 5}
+              x={flip ? x - ANNOTATION_LABEL_GAP : x + ANNOTATION_LABEL_GAP}
               y={plotTop - 7}
               textAnchor={flip ? 'end' : 'start'}
               fill={ink.textMuted}
               fontFamily={ink.fontBody}
               fontSize={CHART_FONT_SIZE.footnote}
             >
-              {`${annotation.label} · ${annotation.season}`}
+              {annotationLabel(annotation.labels, annotation.season, available)}
             </text>
           </g>
         )
