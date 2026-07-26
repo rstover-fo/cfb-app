@@ -85,6 +85,13 @@ import { RoughShape, createRoughGenerator } from './rough'
 
 const WIDTH = CHART_WIDTH
 
+/**
+ * Grapheme segmenter for label truncation. Hoisted because it is a pure,
+ * reusable object and a card can truncate several labels per render. Grapheme
+ * segmentation is effectively locale-independent, so the locale is nominal.
+ */
+const GRAPHEMES = new Intl.Segmenter('en', { granularity: 'grapheme' })
+
 /** Reserved above the plot for annotation labels, only when there are any. */
 const ANNOTATION_BAND = 18
 /**
@@ -200,9 +207,23 @@ function annotationLabel(labels: string[], season: number, available: number): s
 
   if (approxTextWidth(`${joined}${suffix}`, size) <= available) return `${joined}${suffix}`
 
-  let cut = joined.length
-  while (cut > 0 && approxTextWidth(`${joined.slice(0, cut)}…${suffix}`, size) > available) cut--
-  return `${joined.slice(0, cut).trimEnd()}…${suffix}`
+  // Walk back by GRAPHEME, not by UTF-16 code unit. `String.prototype.slice`
+  // counts code units, so a cut landing inside a surrogate pair keeps half of
+  // it and the card renders a replacement glyph immediately before the
+  // ellipsis (resvg tolerates the markup, so it corrupts the label rather than
+  // failing the render -- which is why it would ship unnoticed).
+  //
+  // Code points alone are not enough: a ZWJ sequence -- a family emoji, a
+  // flag, a skin-tone modifier -- is several code points that together are one
+  // character, and splitting it corrupts the label just as visibly.
+  //
+  // Reachable because annotation labels are free text composed by the model,
+  // and the merged label of three same-season events is long enough to need
+  // truncating.
+  const graphemes = [...GRAPHEMES.segment(joined)].map(part => part.segment)
+  let cut = graphemes.length
+  while (cut > 0 && approxTextWidth(`${graphemes.slice(0, cut).join('')}…${suffix}`, size) > available) cut--
+  return `${graphemes.slice(0, cut).join('').trimEnd()}…${suffix}`
 }
 
 /** Everything the renderer needs. Assembled by the route from the query. */

@@ -293,6 +293,66 @@ describe('team-metric-trend — content', () => {
     expect(left + width).toBeLessThanOrEqual(672)
   })
 
+  it('never truncates through the middle of a character', async () => {
+    // Annotation labels are free text composed by the model, so a
+    // multi-code-unit character can land exactly where the ellipsis cut falls.
+    // Slicing by UTF-16 code unit would keep half a surrogate pair and the card
+    // would render a replacement glyph right before the ellipsis -- resvg
+    // tolerates the markup, so it corrupts the label instead of failing loudly.
+    //
+    // Offset 40 is where the cut lands for three 40-char labels; the sweep
+    // covers either side of it so the assertion does not depend on that
+    // arithmetic staying put.
+    for (const at of [38, 39, 40, 41, 42]) {
+      const withEmoji = 'A'.repeat(at) + '\u{1F600}' + 'A'.repeat(Math.max(0, 40 - at - 2))
+      const svg = await renderChartSvg(
+        spec({
+          series: [OKLAHOMA_SP_DEFENSE],
+          annotations: [
+            { season: 2020, label: withEmoji },
+            { season: 2020, label: 'B'.repeat(40) },
+            { season: 2020, label: 'C'.repeat(40) },
+          ],
+        }),
+      )
+
+      const [label] = annotationTexts(svg)
+      // No lone surrogate, and no replacement character standing in for one.
+      // Iterating a string yields CODE POINTS, so a correctly paired emoji
+      // surfaces as 0x1F600 -- above the surrogate block, not inside it. Only
+      // an UNPAIRED half lands in D800..DFFF, so the range is the whole test.
+      for (const char of label.text) {
+        const code = char.codePointAt(0)!
+        const isLoneSurrogate = code >= 0xd800 && code <= 0xdfff
+        expect(isLoneSurrogate, `lone surrogate at emoji offset ${at}`).toBe(false)
+      }
+      expect(label.text, `replacement char at emoji offset ${at}`).not.toContain('\uFFFD')
+    }
+  })
+
+  it('keeps a ZWJ sequence whole, not just a surrogate pair', async () => {
+    // A family emoji is several code points joined by U+200D. Splitting on code
+    // points rather than graphemes would cut it into component people --
+    // corrupt in a different way than a half surrogate, and just as visible.
+    const family = '\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}'
+    const svg = await renderChartSvg(
+      spec({
+        series: [OKLAHOMA_SP_DEFENSE],
+        annotations: [
+          { season: 2020, label: 'A'.repeat(38) + family },
+          { season: 2020, label: 'B'.repeat(40) },
+          { season: 2020, label: 'C'.repeat(40) },
+        ],
+      }),
+    )
+
+    const [label] = annotationTexts(svg)
+    // Either the whole sequence survived or none of it did -- never a fragment.
+    const kept = label.text.includes(family)
+    const anyPart = /[\u{1F468}\u{1F469}\u{1F467}\u{200D}]/u.test(label.text)
+    expect(anyPart && !kept, 'ZWJ sequence was split into fragments').toBe(false)
+  })
+
   it('never repeats a y label on a rank axis only a few positions wide', async () => {
     // A team sitting between #4 and #6 across three seasons: a fractional tick
     // step printed "4, 4, 5, 5, 6, 6, 7" down the gutter.
