@@ -129,6 +129,40 @@ describe('askClaude request shape', () => {
     expect(text).toMatch(/max ~5 rows/)
   })
 
+  it('caps monospace block width for mobile, not just row count', async () => {
+    betaCreateMock.mockResolvedValueOnce(apiResponse('answer'))
+    await askClaude('anything')
+
+    const text = betaCreateMock.mock.calls[0]?.[0].system[0].text as string
+    // The live-server incident: a hand-built ASCII bar chart wrapped on mobile
+    // because the old rule only capped rows ("max ~5 rows"), never width. Discord
+    // doesn't horizontally scroll a code block on a phone -- it wraps, which
+    // destroys column alignment. The rule must name a concrete width cap.
+    expect(text).toMatch(/max ~32 characters/)
+    expect(text).toMatch(/per line/)
+    expect(text).toMatch(/does not horizontally scroll/)
+    expect(text).toMatch(/wraps/)
+  })
+
+  it('forbids hand-built ASCII/text charts when render_chart cannot help, without discouraging render_chart', async () => {
+    betaCreateMock.mockResolvedValueOnce(apiResponse('answer'))
+    await askClaude('anything')
+
+    const text = betaCreateMock.mock.calls[0]?.[0].system[0].text as string
+    // The live-server incident: asked for a decade-long two-team SP+ defense
+    // comparison, render_chart only supports one single-team single-season
+    // recipe, so the model improvised an ASCII bar chart -- which is precisely
+    // what wraps into illegible noise on mobile.
+    expect(text).toMatch(/do NOT hand-build a/)
+    expect(text).toMatch(/no ASCII bar charts/)
+    expect(text).toMatch(/block-character sparklines/)
+    expect(text).toMatch(/arrow\/scale art/)
+    // Must stay affirmative about calling render_chart when it CAN help --
+    // the failure mode to avoid is a model that stops trying to chart things.
+    expect(text).toMatch(/call it/)
+    expect(text).toMatch(/whenever it CAN show what was asked/)
+  })
+
   it('tells the model not to duplicate a chart as a monospace table', async () => {
     betaCreateMock.mockResolvedValueOnce(apiResponse('answer'))
     await askClaude('anything')

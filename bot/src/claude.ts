@@ -135,8 +135,12 @@ function getBaseSystemPrompt(loreEnabled: boolean): string {
     '  - `[label](url)` masked links.',
     "  - `<t:UNIX:R>` relative timestamps for anything time-relative (kickoff countdowns) --",
     "    it renders in each reader's own timezone.",
-    '  - A short fenced monospace block for column alignment, max ~5 rows -- Discord has no',
-    '    table syntax, so this is the only way to line up columns. Keep it short.',
+    '  - A short fenced monospace block for column alignment, max ~5 rows and max ~32 characters',
+    '    per line -- Discord has no table syntax, so this is the only way to line up columns, but',
+    '    this audience is overwhelmingly on mobile and Discord does not horizontally scroll a code',
+    '    block there: a line wider than a narrow phone viewport wraps, which destroys the column',
+    '    alignment that was the only reason to use a block at all. Prefer fewer columns and shorter',
+    '    headers over more rows.',
     '  Never use ```ansi color code blocks: they render only on desktop/web, and this audience',
     '  is overwhelmingly on mobile, where readers would just see raw escape codes. No giant',
     '  tables or data dumps.',
@@ -162,6 +166,18 @@ function getBaseSystemPrompt(loreEnabled: boolean): string {
     '  Cite only the two or three figures you are actually making a point about. A monospace block',
     '  is still the right call when there is no chart -- e.g. ranking several teams across a couple',
     '  of columns, which prose genuinely cannot align.',
+    // Deliberately does NOT enumerate what render_chart can't do -- the chart
+    // types and parameters it accepts grow over time, and a prompt that lists
+    // today's gaps becomes a prompt that lies. The tool's own schema is the
+    // source of truth; this rule only governs what to do when it comes up short.
+    "- When render_chart can't produce what was asked -- anything outside the chart types and",
+    '  parameters its schema accepts -- do NOT hand-build a chart out of text as a substitute:',
+    '  no ASCII bar charts, no block-character sparklines, no',
+    '  arrow/scale art. Those are exactly what wraps into illegible noise on mobile. Instead, state',
+    '  the numbers plainly in prose or a width-capped monospace block, and say briefly that a chart',
+    "  for this isn't available yet -- the same say-so-when-missing instinct as the data-coverage",
+    '  rule above, just applied to rendering. This is not a reason to avoid render_chart -- call it',
+    '  whenever it CAN show what was asked; the ban is only on faking one when it cannot.',
   ].join('\n')
   cachedBasePrompts.set(loreEnabled, prompt)
   return prompt
