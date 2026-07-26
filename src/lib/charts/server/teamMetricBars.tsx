@@ -79,7 +79,7 @@ import {
   MetricEmptyCard,
   MetricMasthead,
   MissingTeamsNote,
-  PLOT_TOP_BASE,
+  RULE_Y,
   joinList,
   metricSubtitle,
   partitionSeries,
@@ -91,12 +91,14 @@ const WIDTH = CHART_WIDTH
 
 // --- Vertical geometry -----------------------------------------------------
 /**
- * Top of the first row. Above the trend's `PLOT_TOP_BASE` because bars carry no
- * legend: each row is captioned with its own team name, so a key repeating
- * those four names two-up would be redundant chrome on a card that has room to
- * spare. The masthead rhythm above this is shared and unchanged.
+ * Top of the first row, measured from the masthead rule rather than from the
+ * trend's `PLOT_TOP_BASE`: this shape carries no legend (each row is captioned
+ * with its own team name, so a key repeating those four names two-up would be
+ * redundant chrome), and deriving from a constant that reserves a legend row
+ * would silently drag the bars around whenever the legend rhythm changed.
+ * Numerically identical to the old `PLOT_TOP_BASE - 22`.
  */
-const ROWS_TOP = PLOT_TOP_BASE - 22
+const ROWS_TOP = RULE_Y + 20
 /** Row pitch. Generous: 1-4 rows on a 700px canvas can afford the air. */
 const ROW_HEIGHT = 46
 const BAR_HEIGHT = 22
@@ -117,6 +119,11 @@ const PLOT_LEFT = 28 + LABEL_W + 14
  * run to the last gridline without a label ever colliding with the frame -- and
  * it means a very short bar's label is legible instead of overhanging a 6px
  * stub.
+ *
+ * A two-sided metric (scoring margin, EPA) needs the SAME reservation on the
+ * left: a left-pointing bar hangs its label off its left end, and without a
+ * gutter that label runs straight into the team-name column. Paid for only when
+ * the domain actually crosses zero -- see `plotLeft` below.
  */
 const VALUE_GUTTER = 54
 const PLOT_RIGHT = 672 - VALUE_GUTTER
@@ -187,8 +194,13 @@ export function TeamMetricBarsChart({ bars, ink }: TeamMetricBarsProps) {
     anchorZero: true,
   })
 
+  // Mirror of VALUE_GUTTER, charged only to a domain that actually goes
+  // negative: those rows put a value label to the LEFT of their bar end, and
+  // the un-guttered plot starts 14px from the team-name column.
+  const plotLeft = PLOT_LEFT + (scale.lo < 0 ? VALUE_GUTTER : 0)
+
   const xFor = (value: number): number =>
-    PLOT_LEFT + ((value - scale.lo) / (scale.hi - scale.lo)) * (PLOT_RIGHT - PLOT_LEFT)
+    plotLeft + ((value - scale.lo) / (scale.hi - scale.lo)) * (PLOT_RIGHT - plotLeft)
   const baselineX = xFor(0)
 
   /**
@@ -200,13 +212,13 @@ export function TeamMetricBarsChart({ bars, ink }: TeamMetricBarsProps) {
   const layout: ChartLayout = {
     width: WIDTH,
     height: rowsBottom + X_LABEL_GAP,
-    padding: { top: ROWS_TOP, right: WIDTH - PLOT_RIGHT, bottom: X_LABEL_GAP, left: PLOT_LEFT },
+    padding: { top: ROWS_TOP, right: WIDTH - PLOT_RIGHT, bottom: X_LABEL_GAP, left: plotLeft },
   }
   const xTicks = scale.ticks.map(value => ({ x: xFor(value), label: metric.format(value) }))
 
   const ariaLabel =
     `${metric.label} in ${season} for ${joinList(ranked.map(entry => entry.team))}, ` +
-    `ranked best first. ${barsDirectionNote(bars.metric)}`
+    `ranked best first. ${barsDirectionNote(bars.metric, { spansZero: scale.lo < 0 })}`
 
   return (
     <ChartDocument width={WIDTH} height={height} ink={ink} ariaLabel={ariaLabel}>
@@ -252,7 +264,7 @@ export function TeamMetricBarsChart({ bars, ink }: TeamMetricBarsProps) {
         strokeWidth={1.5}
       />
       <line
-        x1={PLOT_LEFT}
+        x1={plotLeft}
         y1={rowsBottom}
         x2={PLOT_RIGHT}
         y2={rowsBottom}
@@ -329,7 +341,7 @@ export function TeamMetricBarsChart({ bars, ink }: TeamMetricBarsProps) {
         fontFamily={ink.fontBody}
         fontSize={CHART_FONT_SIZE.xs}
       >
-        {barsDirectionNote(bars.metric)}
+        {barsDirectionNote(bars.metric, { spansZero: scale.lo < 0 })}
       </text>
       <MissingTeamsNote
         teams={missing}

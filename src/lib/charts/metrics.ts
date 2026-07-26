@@ -247,13 +247,29 @@ export function trendDirectionNote(id: MetricId): string {
  *
  * Same no-metric-label rule as above, for the same grammar reasons.
  */
-export function barsDirectionNote(id: MetricId): string {
+export function barsDirectionNote(id: MetricId, opts: { spansZero?: boolean } = {}): string {
   const metric = METRICS[id]
-  if (metric.kind === 'rank') {
-    return 'Rank 1 is best — ranked best first, so the shortest bar is the strongest team.'
+  // Hoisted rather than re-tested below: `metric.lowerIsBetter` narrows the
+  // union to the value variant, which makes a later `kind === 'rank'` a
+  // comparison the compiler knows can never be true.
+  const isRank = metric.kind === 'rank'
+  const lead = isRank ? 'Rank 1 is best' : metric.lowerIsBetter ? 'Lower is better' : 'Higher is better'
+
+  // A domain that crosses zero breaks the length rule outright: bars run both
+  // ways from the baseline, so length encodes MAGNITUDE, not quality. On a
+  // margin chart holding Oklahoma +3.1 and Purdue -24.6, the longest bar is
+  // the worst team -- "the longest bar is the strongest" is then precisely
+  // inverted, and it is the one sentence the picture depends on.
+  //
+  // So drop the length claim and keep the claim that survives: the row order.
+  // Keyed off the rendered DOMAIN rather than a per-metric flag, so it stays
+  // correct if a negative-capable lower-is-better metric is ever added (today
+  // every rank and lowerIsBetter metric is non-negative, so only
+  // higher-is-better metrics can reach this branch).
+  if (opts.spansZero) {
+    return `${lead} — ranked best first, so read the row order, not the bar length.`
   }
-  if (metric.lowerIsBetter) {
-    return 'Lower is better — ranked best first, so the shortest bar is the strongest team.'
-  }
-  return 'Higher is better — ranked best first, so the longest bar is the strongest team.'
+
+  const best = isRank || metric.lowerIsBetter ? 'shortest' : 'longest'
+  return `${lead} — ranked best first, so the ${best} bar is the strongest team.`
 }

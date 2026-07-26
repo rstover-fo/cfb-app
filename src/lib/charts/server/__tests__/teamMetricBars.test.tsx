@@ -133,6 +133,48 @@ describe('team-metric-bars — ranking is the direction treatment', () => {
     expect(rank).toContain('shortest bar is the strongest team')
   })
 
+  it('drops the length claim entirely once the domain crosses zero', async () => {
+    // Bars run both ways from the baseline, so on a two-sided domain length
+    // encodes MAGNITUDE, not quality -- the worst team owns the longest bar.
+    // "The longest bar is the strongest team" is then exactly inverted, on the
+    // one sentence the picture depends on. The honest fallback is row order.
+    //
+    // The fixture matters: it has to be one where the most-negative team is
+    // also the longest bar. A spans-zero fixture whose best team happens to be
+    // longest would pass a broken implementation.
+    const svg = await renderChartSvg(
+      spec({
+        metric: 'avg_margin',
+        series: [
+          { team: 'Oklahoma', value: 3.1 },
+          { team: 'Kansas', value: -18.4 },
+          { team: 'Purdue', value: -24.6 },
+        ],
+      }),
+    )
+    expect(svg).toContain('Higher is better')
+    expect(svg).toContain('ranked best first')
+    expect(svg).toContain('read the row order, not the bar length')
+    // The falsehood must be gone, not merely accompanied by a caveat.
+    expect(svg).not.toContain('longest bar is the strongest team')
+    expect(svg).not.toContain('shortest bar is the strongest team')
+  })
+
+  it('keeps the length claim on a one-sided domain of the same metric', async () => {
+    // Guards the fix against over-firing: avg_margin is only ambiguous when the
+    // rendered domain actually spans zero, not whenever the metric could.
+    const svg = await renderChartSvg(
+      spec({
+        metric: 'avg_margin',
+        series: [
+          { team: 'Oklahoma', value: 14.2 },
+          { team: 'Texas', value: 6.8 },
+        ],
+      }),
+    )
+    expect(svg).toContain('longest bar is the strongest team')
+  })
+
   it("never claims the axis is inverted -- that is the line chart's treatment", async () => {
     expect(await renderChartSvg(FOUR_TEAMS)).not.toContain('the axis is inverted')
   })
