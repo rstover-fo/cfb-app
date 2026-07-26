@@ -16,7 +16,11 @@ export const POSTSEASON_MIN_WEEK = 15
 export const PBP_MIN_SEASON = 2014
 
 // House prediction model versions written by cfb-database's compute_predictions.py.
-// home_win_prob is Elo-only in both rows; the blend only changes expected margin.
-export const PREDICTION_MODEL_VERSIONS = ['elo_v1', 'elo_epa_blend_v1'] as const
+// The two Elo rows share one Elo-derived home_win_prob and differ only in
+// expected_home_margin. That shared-win-prob rule does NOT extend to
+// 'fitted_v1', the current house model: a fitted 20-feature ridge that carries
+// its own Platt-scaled win probability (game 401856634 -> 0.8772 where both Elo
+// rows say 0.7000). Never assume win probability is constant across versions.
+export const PREDICTION_MODEL_VERSIONS = ['elo_v1', 'elo_epa_blend_v1', 'fitted_v1'] as const
 export type PredictionModelVersion = typeof PREDICTION_MODEL_VERSIONS[number]
-export const DEFAULT_PREDICTION_MODEL: PredictionModelVersion = 'elo_epa_blend_v1'
+export const DEFAULT_PREDICTION_MODEL: PredictionModelVersion = 'fitted_v1'

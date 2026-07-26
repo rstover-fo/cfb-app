@@ -29,9 +29,11 @@ export type EdgePick = 'home' | 'away'
 // ---------------------------------------------------------------------------
 // api.game_predictions -- already latest-snapshot (DISTINCT ON game_id,
 // model_version ORDER BY prediction_date DESC), so a game_id + model_version
-// filter returns at most one row. Two model versions are written per game
-// ('elo_v1', 'elo_epa_blend_v1' -- see constants.ts); home_win_prob is
-// Elo-only in both, so callers must always filter model_version.
+// filter returns at most one row. Three model versions are written per game
+// ('elo_v1', 'elo_epa_blend_v1', 'fitted_v1' -- see constants.ts). The two Elo
+// rows share one Elo-derived home_win_prob; 'fitted_v1' has its own. Callers
+// must always filter model_version -- both margin AND win probability move
+// with it.
 //
 // See src/lib/types/api.generated.ts's `game_predictions` Row for the full
 // generated shape -- kept hand-typed here since this query's .select() pulls

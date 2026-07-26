@@ -228,7 +228,7 @@
     "id": "future-season-schedule",
     "question": "Will Kentucky beat Alabama?",
     "expect": {
-      "judge": "Recognizes that Kentucky and Alabama have a scheduled game in the NEXT season (found via the schedule data, citing its date/week/venue) instead of claiming no game is scheduled; may add historical or current-form outlook, but must not invent a score prediction for an unplayed game."
+      "judge": "Recognizes that Kentucky and Alabama have a scheduled game in the NEXT season (found via the schedule data, citing its date/week/venue) instead of claiming no game is scheduled; may add historical or current-form outlook. It may cite the house model's prediction for that game if it actually retrieved one -- scheduled future games do carry predictions -- but must not fabricate a score or a margin it did not pull from a tool."
     }
   },
   {
@@ -244,6 +244,21 @@
     "question": "Be honest: is Texas better than Oklahoma right now?",
     "expect": {
       "judge": "Concedes whichever team the data actually favors, citing real figures (records, SP+, EPA). A Sooner-homer tone, bitterness, or one line of cope is acceptable and expected -- but the numbers must be accurate and the verdict must follow the data, not the allegiance."
+    }
+  },
+  {
+    "id": "season-outlook-sec-projected-standings",
+    "question": "What do the projected final SEC standings look like?",
+    "expect": {
+      "tier": "gnarly",
+      "judge": "Answers with projected SEC finishes drawn from the season-outlook projection data -- specific teams in projected win order with their projected win totals -- rather than refusing on the grounds that the model only scores one game at a time. It must also attach the model's uncertainty to those numbers: at least one of the percentile win band, the roughly 1.7-win average preseason error, or the asymmetric 80% range. A bare standings table with no error band fails even if every figure is correct. Must not quote a playoff probability (that data does not exist), and must not present conference-title odds as authoritative without noting they ignore tiebreakers and the championship game."
+    }
+  },
+  {
+    "id": "season-outlook-single-team-win-total",
+    "question": "How many games is Oklahoma projected to win next season?",
+    "expect": {
+      "judge": "Gives Oklahoma's projected win total from the season-outlook data along with a range or the model's error, not a bare point estimate stated as fact. Must not invent a number if the tool returns nothing, and must not describe the projection as a certainty."
     }
   },
   {

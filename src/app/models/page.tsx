@@ -14,6 +14,7 @@ export const metadata: Metadata = {
 const MODEL_LABELS: Record<string, string> = {
   elo_v1: 'Elo (v1)',
   elo_epa_blend_v1: 'Elo + EPA blend (v1)',
+  fitted_v1: 'Fitted ridge (v1)',
 }
 
 function formatModel(model: string): string {
@@ -69,12 +70,24 @@ export default async function ModelsPage() {
 
       <section className="max-w-3xl mb-10 space-y-4 font-body text-[var(--text-secondary)]">
         <p className="text-sm sm:text-base leading-relaxed">
-          Two models sit behind every prediction on this site. <strong className="text-[var(--text-primary)] font-medium">elo_v1</strong> is
+          Three models sit behind the predictions on this site. <strong className="text-[var(--text-primary)] font-medium">elo_v1</strong> is
           a pure Elo rating system -- transparent, well-understood math that updates a team&apos;s rating after every
           game based on the result and the opponent&apos;s strength. <strong className="text-[var(--text-primary)] font-medium">elo_epa_blend_v1</strong> keeps
           that same Elo-based win probability but blends the projected margin 0.6 parts Elo to 0.4 parts a
           ridge-regression-adjusted EPA rating, an attempt to fold in-season efficiency into a system that
-          otherwise only sees final scores.
+          otherwise only sees final scores. <strong className="text-[var(--text-primary)] font-medium">fitted_v1</strong> is
+          the current house model and the one selected by default: a ridge regression fit over a
+          twenty-feature vector -- Elo, adjusted EPA on both sides, success rate, explosiveness, tempo,
+          returning production, recruiting, preseason SP+ -- with its own win probability rather than a
+          borrowed Elo one. It is also the only one of the three that projects a full season.
+        </p>
+        <p className="text-sm sm:text-base leading-relaxed">
+          Default does not mean best at everything, and the table below is the reason we say so. On 2025,
+          fitted_v1 predicted the final margin more accurately than either Elo model -- but it picked
+          against the spread <em>worse</em> than both of them, and its win-probability calibration was a
+          wash. Predicting a score and beating a betting line are different problems, and a model can get
+          measurably better at the first while getting no better, or slightly worse, at the second. Which
+          number matters depends on the question you came with.
         </p>
         <p className="text-sm sm:text-base leading-relaxed">
           Every number below comes from a walk-forward backtest: for each game, the model only ever sees data

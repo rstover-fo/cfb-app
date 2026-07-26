@@ -883,6 +883,50 @@ export type ApiSchema = {
       }
       Relationships: []
     }
+    // Unlike the rest of this file (hand-transcribed from cfb-database's
+    // CREATE VIEW SQL), these columns were confirmed by live introspection of
+    // information_schema.columns on 2026-07-26. Grain is
+    // DISTINCT ON (season, team, model_version) ORDER BY projection_date DESC
+    // -- i.e. already the latest snapshot per team-season; a query that does
+    // not pin model_version gets one row per version, not one row per team.
+    // projection_id is bigint, typed `string` per this file's int8-as-string
+    // convention (see game_win_probability below). playoff_prob is NULL on
+    // every row by design and is not a column to fill in.
+    season_outlook: {
+      Row: {
+        projection_id: string | null
+        computed_at: string | null
+        projection_date: string | null
+        model_version: string | null
+        season: number | null
+        team: string | null
+        conference: string | null
+        games_scheduled: number | null
+        games_simulated: number | null
+        games_unscored: number | null
+        games_completed: number | null
+        actual_wins: number | null
+        schedule_complete: boolean | null
+        projected_wins: number | null
+        projected_losses: number | null
+        median_wins: number | null
+        wins_p10: number | null
+        wins_p25: number | null
+        wins_p75: number | null
+        wins_p90: number | null
+        p_win_dist: Record<string, number> | null
+        p_bowl_eligible: number | null
+        p_ten_plus: number | null
+        sos_rating: number | null
+        sos_rank: number | null
+        conf_title_prob: number | null
+        playoff_prob: number | null
+        n_sims: number | null
+        residual_sigma: number | null
+        strength_share: number | null
+      }
+      Relationships: []
+    }
     // prediction_id's real PostgREST wire type (uuid vs bigint, stringified
     // per PostgREST's int8-as-string convention -- see the game_win_probability
     // Row below for the established pattern in this codebase) is UNCONFIRMED

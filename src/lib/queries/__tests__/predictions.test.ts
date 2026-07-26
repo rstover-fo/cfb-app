@@ -18,8 +18,10 @@ import {
   getTeamElo, getTeamAts, getPredictionAccuracy, getScoredMatchupEdges,
 } from '../predictions'
 import { createSupabaseMock, dbError, ok, type SupabaseMockConfig } from './helpers'
+import { DEFAULT_PREDICTION_MODEL } from '../constants'
 import {
   createGamePredictionRow,
+  createGamePredictionRowFitted,
   createGamePredictionRowEloOnly,
   createGamePredictionRowNoMarket,
   createLineMovementRows,
@@ -53,12 +55,16 @@ describe('getGamePrediction', () => {
     expect(result!.edge_pick).toBe('home')
   })
 
-  it('defaults to DEFAULT_PREDICTION_MODEL (elo_epa_blend_v1) when no model version is given', async () => {
-    mockClient({ apiTables: { game_predictions: ok(createGamePredictionRow()) } })
+  it('returns the DEFAULT_PREDICTION_MODEL row when no model version is given', async () => {
+    mockClient({ apiTables: { game_predictions: ok(createGamePredictionRowFitted()) } })
 
     const result = await getGamePrediction(401752873)
 
-    expect(result!.model_version).toBe('elo_epa_blend_v1')
+    expect(result!.model_version).toBe(DEFAULT_PREDICTION_MODEL)
+    // fitted_v1 does not decompose its margin into Elo/EPA components, unlike
+    // the two Elo rows -- callers must tolerate both being null.
+    expect(result!.elo_margin).toBeNull()
+    expect(result!.epa_margin).toBeNull()
   })
 
   it('returns the elo_v1 row when that model version is requested -- distinct margin/edge from the blend row', async () => {
@@ -281,9 +287,10 @@ describe('getPredictionAccuracy', () => {
 
     const result = await getPredictionAccuracy()
 
-    expect(result).toHaveLength(4)
+    expect(result).toHaveLength(6)
     expect(result.map(r => `${r.model_version}:${r.edge_threshold}`)).toEqual([
       'elo_epa_blend_v1:0', 'elo_epa_blend_v1:6', 'elo_v1:0', 'elo_v1:6',
+      'fitted_v1:0', 'fitted_v1:6',
     ])
   })
 
@@ -305,13 +312,19 @@ describe('getScoredMatchupEdges', () => {
     vi.clearAllMocks()
   })
 
-  it('returns the slate for a season, defaulting to DEFAULT_PREDICTION_MODEL (elo_epa_blend_v1)', async () => {
-    mockClient({ apiTables: { scored_matchup_edges: ok(createScoredMatchupEdgeRows()) } })
+  it('returns the slate for a season, defaulting to DEFAULT_PREDICTION_MODEL', async () => {
+    mockClient({
+      apiTables: {
+        scored_matchup_edges: ok(
+          createScoredMatchupEdgeRows().map(r => ({ ...r, model_version: DEFAULT_PREDICTION_MODEL }))
+        ),
+      },
+    })
 
     const result = await getScoredMatchupEdges(2025)
 
     expect(result).toHaveLength(2)
-    expect(result.every(r => r.model_version === 'elo_epa_blend_v1')).toBe(true)
+    expect(result.every(r => r.model_version === DEFAULT_PREDICTION_MODEL)).toBe(true)
   })
 
   it('includes a null-market row (edge/edge_pick/abs_edge null, expected margin still present)', async () => {

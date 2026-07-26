@@ -31,7 +31,7 @@ describe('getGamePredictionTool', () => {
   it('wraps a found prediction in the api.game_predictions envelope, defaulting model_version', async () => {
     const prediction = {
       game_id: 401520123,
-      model_version: 'elo_epa_blend_v1',
+      model_version: 'fitted_v1',
       expected_home_margin: 3.2,
       home_win_prob: 0.61,
       market_spread: -2.5,
@@ -44,7 +44,7 @@ describe('getGamePredictionTool', () => {
     const parsed = JSON.parse(await getGamePredictionTool({ game_id: 401520123 }))
 
     expect(parsed).toEqual({ _source: 'api.game_predictions', count: 1, rows: [prediction] })
-    expect(getGamePrediction).toHaveBeenCalledWith(401520123, 'elo_epa_blend_v1')
+    expect(getGamePrediction).toHaveBeenCalledWith(401520123, 'fitted_v1')
   })
 
   it('forwards an explicit model_version instead of the default', async () => {
@@ -60,7 +60,7 @@ describe('getGamePredictionTool', () => {
 
     const text = await getGamePredictionTool({ game_id: 999999 })
 
-    expect(text).toMatch(/^No prediction found for game_id=999999 with model_version='elo_epa_blend_v1'/)
+    expect(text).toMatch(/^No prediction found for game_id=999999 with model_version='fitted_v1'/)
   })
 
   it('never throws: a null result resolves to a string, not a rejection', async () => {
@@ -135,12 +135,12 @@ describe('getMatchupEdgesTool', () => {
     expect(getScoredMatchupEdges).toHaveBeenCalledWith(2025, 6, 'elo_v1')
   })
 
-  it('defaults season to CURRENT_SEASON, week to undefined, and model_version to the default blend', async () => {
+  it('defaults season to CURRENT_SEASON, week to undefined, and model_version to the house model', async () => {
     vi.mocked(getScoredMatchupEdges).mockResolvedValue([])
 
     await getMatchupEdgesTool({})
 
-    expect(getScoredMatchupEdges).toHaveBeenCalledWith(2025, undefined, 'elo_epa_blend_v1')
+    expect(getScoredMatchupEdges).toHaveBeenCalledWith(2025, undefined, 'fitted_v1')
   })
 
   it('slices to `limit` client-side after the query, taking the top of the sorted list', async () => {

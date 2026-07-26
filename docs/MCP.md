@@ -102,7 +102,7 @@ bearer token as `MCP_AUTH_TOKEN`). See `bot/README.md` for the full setup.
 
 ## Tool catalog
 
-All eight tools are read-only, non-destructive, idempotent, and return a compact JSON string
+All twenty-four tools are read-only, non-destructive, idempotent, and return a compact JSON string
 (never throw). Every successful result includes a `_source` field naming the exact `api.*`
 view or `public` RPC the data came from, plus a `count` and a `rows` array -- or a plain
 `"No ... found"` string when a query matches nothing. Rows are capped at 100 per call
@@ -126,11 +126,22 @@ row caps) are ported faithfully from the Python reference server -- see
 rationale behind each one, and the per-tool `description`/argument docs registered in
 `src/lib/mcp/tools.ts` for the exact wording exposed to MCP clients.
 
-The table above documents the original 8 tools ported from the Python reference server. 12
+The table above documents the original 8 tools ported from the Python reference server. 16
 further app-native tools (predictions, Elo, matchup edges, playcalling profiles, adjusted EPA,
 live scoreboard, model accuracy, player leaders, player comparison, conference comparison, coach
-history, and `run_sql`) have been added since -- see `src/lib/mcp/tools.ts` for the full current
-set. `run_sql` executes one read-only SELECT over the `api` schema through the guarded
+history, `run_sql`, penalty profile, penalty log, `render_chart`, and season outlook) have been
+added since -- see `src/lib/mcp/tools.ts` for the full current set.
+
+`get_season_outlook` is the one tool whose payload carries honesty metadata structurally rather
+than only in its description. It attaches a hardcoded `accuracy` block (the preseason backtest
+lives in cfb-database's `scripts/backtest_preseason.py` and is not exposed through any `api.*`
+view) plus a `caveats` array computed from the rows actually returned -- a static description
+cannot say "this season is already played" or "6 of these 16 teams have half a schedule loaded",
+and those facts decide whether the numbers may be presented as a forecast at all. It also
+resolves a missing `season` from `MAX(season)` in the view rather than from `CURRENT_SEASON`,
+which trails the calendar in the offseason and trails it to a *completed* season.
+
+`run_sql` executes one read-only SELECT over the `api` schema through the guarded
 `public.run_analyst_query` RPC (SELECT-only role, statement timeout, row cap); the RPC's
 migration lives in cfb-database -- see `docs/RUN_SQL_HANDOFF.md`. Until that migration is
 applied the tool reports itself as not enabled.

@@ -4,8 +4,9 @@
  */
 import { describe, it, expect } from 'vitest'
 import { render, screen } from '@testing-library/react'
-import { AccuracyTrendChart } from '../AccuracyTrendChart'
+import { AccuracyTrendChart, modelColorVar } from '../AccuracyTrendChart'
 import { createPredictionAccuracyRow } from '@/lib/queries/__tests__/fixtures/predictions'
+import { PREDICTION_MODEL_VERSIONS, DEFAULT_PREDICTION_MODEL } from '@/lib/queries/constants'
 
 describe('AccuracyTrendChart', () => {
   it('renders an accessible svg chart with fixture rows', () => {
@@ -14,6 +15,8 @@ describe('AccuracyTrendChart', () => {
       createPredictionAccuracyRow({ model_version: 'elo_epa_blend_v1', season: 2025, ats_hit_rate: 0.5205 }),
       createPredictionAccuracyRow({ model_version: 'elo_v1', season: 2024, ats_hit_rate: 0.49 }),
       createPredictionAccuracyRow({ model_version: 'elo_v1', season: 2025, ats_hit_rate: 0.5 }),
+      createPredictionAccuracyRow({ model_version: 'fitted_v1', season: 2024, ats_hit_rate: 0.48 }),
+      createPredictionAccuracyRow({ model_version: 'fitted_v1', season: 2025, ats_hit_rate: 0.4765 }),
     ]
 
     render(<AccuracyTrendChart rows={rows} />)
@@ -22,9 +25,21 @@ describe('AccuracyTrendChart', () => {
     expect(svg).toBeInTheDocument()
     expect(svg.tagName.toLowerCase()).toBe('svg')
 
-    // Legend shows both model labels
+    // Legend shows all three model labels
     expect(screen.getByText('Elo + EPA blend (v1)')).toBeInTheDocument()
     expect(screen.getByText('Elo (v1)')).toBeInTheDocument()
+    expect(screen.getByText('Fitted ridge (v1)')).toBeInTheDocument()
+  })
+
+  it('gives every model version a distinct series color', () => {
+    // Regression: the old mapping was a binary `default ? run : pass`, which
+    // collided the two non-default versions on one color as soon as a third
+    // model landed. Each version must resolve to its own --series-N swatch.
+    const colors = PREDICTION_MODEL_VERSIONS.map(modelColorVar)
+
+    expect(new Set(colors).size).toBe(PREDICTION_MODEL_VERSIONS.length)
+    // The house model leads on --series-1, which carries the signature accent hue.
+    expect(modelColorVar(DEFAULT_PREDICTION_MODEL)).toBe('var(--series-1)')
   })
 
   it('renders a framed empty state when there are no rows', () => {

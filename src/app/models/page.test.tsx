@@ -43,13 +43,14 @@ describe('Models page', () => {
     const jsx = await ModelsPage()
     render(jsx)
 
-    // Fixture has 4 rows total (2 models x edge_threshold 0/6); only the
+    // Fixture has 6 rows total (3 models x edge_threshold 0/6); only the
     // edge_threshold=0 rows (one per model) belong in the main table, in
-    // PREDICTION_MODEL_VERSIONS order (elo_v1 first, then elo_epa_blend_v1).
+    // PREDICTION_MODEL_VERSIONS order (elo_v1, elo_epa_blend_v1, fitted_v1).
     const rows = getBodyRows()
-    expect(rows).toHaveLength(2)
+    expect(rows).toHaveLength(3)
     expect(within(rows[0]).getByText('Elo (v1)')).toBeInTheDocument()
     expect(within(rows[1]).getByText('Elo + EPA blend (v1)')).toBeInTheDocument()
+    expect(within(rows[2]).getByText('Fitted ridge (v1)')).toBeInTheDocument()
   })
 
   it('formats MAE, ATS record, hit rate, and Brier columns for a row', async () => {

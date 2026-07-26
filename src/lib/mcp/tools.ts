@@ -49,10 +49,16 @@ import {
   type TeamPenaltyGameRow,
   type PenaltyPlayAggRow,
 } from '@/lib/queries/penalties'
+import {
+  queryLatestOutlookSeason,
+  querySeasonOutlook,
+  SEASON_OUTLOOK_DEFAULT_LIMIT,
+  type SeasonOutlookRow,
+} from '@/lib/queries/season-outlook'
 import { CURRENT_SEASON, PREDICTION_MODEL_VERSIONS, DEFAULT_PREDICTION_MODEL } from '@/lib/queries/constants'
 
 // ---------------------------------------------------------------------------
-// MCP v2: twenty-two read-only tools over the cfb-database warehouse, mounted
+// MCP v2: twenty-four read-only tools over the cfb-database warehouse, mounted
 // at src/app/api/[transport]/route.ts via mcp-handler's createMcpHandler.
 //
 // Tools 1-8 are a TypeScript port of the reference Python server
@@ -104,13 +110,23 @@ import { CURRENT_SEASON, PREDICTION_MODEL_VERSIONS, DEFAULT_PREDICTION_MODEL } f
 // makes charts *model-selected*: the model calls render_chart alongside a
 // data tool whenever a picture would help, at ~1ms added latency instead of
 // a second database round trip.
+// Tool 24 (get_season_outlook) is the season-projection surface over
+// api.season_outlook (src/lib/queries/season-outlook.ts, which keeps the
+// McpResult error-passthrough contract of tools 1-8/21-22). It is the first
+// tool whose payload carries honesty metadata structurally rather than only in
+// its description: a hardcoded `accuracy` block (the preseason backtest is not
+// exposed through any api.* view) and a `caveats` array computed from the rows
+// actually returned. That split is deliberate -- a static description cannot
+// say "this season is already played" or "6 of these 16 teams have half a
+// schedule loaded", and those are precisely the facts that decide whether the
+// numbers may be presented as a forecast at all.
 // Tool implementations are exported as plain async (args) => string
 // functions (below) so they're unit-testable without spinning up the MCP
 // transport; registerMcpTools() is the only place that touches the SDK's
 // McpServer.
 // ---------------------------------------------------------------------------
 
-// All twenty-two tools are read-only, non-destructive, idempotent, and talk to
+// All twenty-four tools are read-only, non-destructive, idempotent, and talk to
 // an external service (Supabase/PostgREST) -- same annotation set for every
 // one, mirroring cfb_mcp/server.py's READ_ONLY_ANNOTATIONS.
 const READ_ONLY_ANNOTATIONS = {
@@ -1206,6 +1222,208 @@ export async function renderChartTool(args: RenderChartArgs): Promise<string> {
 }
 
 // ---------------------------------------------------------------------------
+// 24. get_season_outlook -- api.season_outlook
+//
+// The first tool to attach an `accuracy` block and a computed `caveats` array
+// alongside its envelope. Both exist because this is the only tool that hands
+// back a forward-looking number, and a projected standings table with no error
+// band is the same overconfidence as inventing one, just better dressed.
+//
+// `accuracy` is hardcoded: the preseason backtest lives in cfb-database's
+// scripts/backtest_preseason.py and is not exposed through any api.* view
+// (features.model_metadata holds only the walk-forward ridge fits), so there
+// is nothing to query. `caveats` is computed per result set, because this
+// view's honesty problems are properties of the ROWS, not of the view -- a
+// completed season, a half-loaded schedule and an unscored game each need a
+// different warning, and none of them can be stated in a static description.
+// ---------------------------------------------------------------------------
+
+/**
+ * Preseason backtest for the season-projection model, from cfb-database's
+ * scripts/backtest_preseason.py: 2019-2025 week-1 feature vectors scored with
+ * prior-season fits frozen at the time.
+ *
+ * Hardcoded because no api.* view exposes it. Refresh these numbers whenever
+ * that script reruns -- and note the interval is deliberately ASYMMETRIC:
+ * quoting +/- the MAE instead spans only ~58% of outcomes and reads as far
+ * more confident than the model actually is.
+ */
+const SEASON_OUTLOOK_ACCURACY = {
+  _source: 'cfb-database scripts/backtest_preseason.py (not queryable via api.*)',
+  metric: 'final win total, preseason (week-1) projection',
+  backtest_seasons: '2019-2025, frozen prior-season fits',
+  n_team_seasons: 921,
+  win_mae: 1.743,
+  win_rmse: 2.168,
+  bias: -0.126,
+  interval_80_pct: { low: -2.68, high: 3.02 },
+  baseline_win_mae: { prior_season_record: 2.128, flat_500: 2.14 },
+  summary:
+    'A typical projection misses by about 1.7 wins, and 80% of teams finish between 2.68 wins ' +
+    'below and 3.02 wins above their projection. That beats both naive baselines (prior-season ' +
+    'record 2.128, flat .500 2.140) but is not precise -- report a range, never a bare number.',
+} as const
+
+export interface GetSeasonOutlookArgs {
+  team?: string
+  conference?: string
+  season?: number
+  limit?: number
+}
+
+/**
+ * Warnings derived from the returned rows. Everything here is conditional on
+ * the data: a static description cannot say "6 of these 16 teams have half a
+ * schedule loaded", and that is exactly the sentence a reader needs.
+ */
+function seasonOutlookCaveats(rows: SeasonOutlookRow[], season: number): string[] {
+  const caveats: string[] = [
+    'These are simulated projections, not results: each row summarizes n_sims Monte Carlo ' +
+      "seasons drawn from the game-level model's per-game predictions. projected_wins is the " +
+      'MEAN of that distribution; median_wins and wins_p10/p25/p75/p90 describe its spread. ' +
+      'Always report a range or the accuracy block alongside the point estimate.',
+    'playoff_prob is NULL on every row by design -- the 12-team format\'s autobids and seeding ' +
+      'are not modeled here. Do not state or estimate a playoff probability.',
+  ]
+
+  const played = rows.filter(r => r.games_completed > 0)
+  if (played.length > 0) {
+    const settled = rows.filter(r => r.games_completed >= r.games_scheduled)
+    caveats.push(
+      settled.length === rows.length
+        ? `Season ${season} is already fully played. Every "projection" here is just the final ` +
+            'record, and the percentile band has collapsed onto it. Report these as results, not ' +
+            'as a forecast.'
+        : `${played.length} of ${rows.length} teams have already played games in season ${season}: ` +
+            'their projected_wins is banked wins plus simulated remaining games, so the band is ' +
+            'narrower than a true preseason projection and the backtest error below overstates it.'
+    )
+    if (settled.length === rows.length) {
+      caveats.push(
+        'conf_title_prob for a completed season is a simulation tiebreak artifact -- teams that ' +
+          'finished level split it evenly -- NOT the actual conference champion. Do not report it ' +
+          'as history.'
+      )
+    }
+  }
+
+  const partial = rows.filter(r => !r.schedule_complete)
+  if (partial.length > 0) {
+    const fewest = Math.min(...partial.map(r => r.games_simulated))
+    caveats.push(
+      `${partial.length} of ${rows.length} teams have an incomplete schedule loaded (as few as ` +
+        `${fewest} games). Their projected_wins/projected_losses cover only the games that exist ` +
+        'and are floors, never extrapolated to a full slate.'
+    )
+  }
+
+  const unscored = rows.filter(r => r.games_unscored > 0)
+  if (unscored.length > 0) {
+    caveats.push(
+      `${unscored.length} of ${rows.length} teams have scheduled games the model could not score ` +
+        '(unrated opponent). Those games are EXCLUDED from the simulation, not counted as losses, ' +
+        'so projected_losses understates their remaining slate -- read games_unscored first.'
+    )
+  }
+
+  if (rows.some(r => r.conf_title_prob != null)) {
+    caveats.push(
+      'conf_title_prob is a naive v1: the share of simulations in which a team has the best ' +
+        'conference win percentage, ties split evenly. It models NO tiebreakers and NO conference ' +
+        'championship game. Prefer projected wins for a standings question and call the title ' +
+        'odds approximate.'
+    )
+  }
+
+  const noConference = rows.filter(r => r.conference == null)
+  if (noConference.length > 0) {
+    caveats.push(
+      `${noConference.length} of ${rows.length} teams have no conference assigned, so they have no ` +
+        'conference-title probability and cannot be placed in a standings table.'
+    )
+  }
+
+  return caveats
+}
+
+export async function getSeasonOutlookTool(args: GetSeasonOutlookArgs): Promise<string> {
+  if (!args.team && !args.conference) {
+    return (
+      'Provide a team or a conference. api.season_outlook is not FBS-only -- it also carries FCS, ' +
+      'DII and DIII teams, many with only one or two games loaded -- so an unfiltered ranking by ' +
+      'projected wins would compare teams playing entirely different numbers of games.'
+    )
+  }
+
+  // Resolve the season from the data rather than CURRENT_SEASON: that constant
+  // trails the calendar in the offseason, and the season it trails to is a
+  // COMPLETED one whose rows are final records wearing projection column names.
+  let season = args.season
+  let seasonSource: 'requested' | 'latest_projection' | 'fallback' = 'requested'
+  const resolverCaveats: string[] = []
+
+  if (season == null) {
+    const latest = await queryLatestOutlookSeason()
+    if (latest.rows.length > 0) {
+      season = latest.rows[0].season
+      seasonSource = 'latest_projection'
+    } else {
+      season = CURRENT_SEASON + 1
+      seasonSource = 'fallback'
+      resolverCaveats.push(
+        `The newest projected season could not be read from the view, so this fell back to ` +
+          `${season}. Confirm the season before quoting these numbers.`
+      )
+    }
+  }
+
+  const result = await querySeasonOutlook({
+    season,
+    team: args.team,
+    conference: args.conference,
+    limit: args.limit,
+  })
+
+  if (result.error) return result.error
+  if (result.rows.length === 0) {
+    const scope = args.team
+      ? `team '${args.team}'`
+      : `conference '${args.conference}'`
+    return (
+      `No season outlook found for ${scope} in season ${season}. Team and conference names are ` +
+      "exact and case-sensitive ('SEC', not 'sec'; 'Ole Miss', not 'Mississippi'), and a season " +
+      'only appears here once cfb-database has simulated it.'
+    )
+  }
+
+  const teamMode = Boolean(args.team) && result.rows.length === 1
+  // p_win_dist is ~14 float pairs per team. Worth returning for a single team;
+  // for a 16-team conference it is 200+ numbers nobody will cite, crowding out
+  // the percentile columns that answer the same question in one line.
+  const rows: Record<string, unknown>[] = result.rows.map(r => {
+    const copy: Record<string, unknown> = { ...r }
+    if (!teamMode) delete copy.p_win_dist
+    return copy
+  })
+
+  const first = result.rows[0]
+  return dump({
+    season,
+    season_source: seasonSource,
+    model_version: first.model_version,
+    projection_date: first.projection_date,
+    scope: args.team ? { team: args.team } : { conference: args.conference },
+    n_sims: first.n_sims,
+    // A model hyperparameter shared by every row, not a team attribute -- so it
+    // is reported once here rather than repeated down the rows.
+    residual_sigma: first.residual_sigma,
+    accuracy: SEASON_OUTLOOK_ACCURACY,
+    caveats: [...resolverCaveats, ...seasonOutlookCaveats(result.rows, season)],
+    ...wrap('api.season_outlook', rows),
+  })
+}
+
+// ---------------------------------------------------------------------------
 // Tool registration (MCP SDK wiring).
 // ---------------------------------------------------------------------------
 
@@ -1497,10 +1715,13 @@ export function registerMcpTools(server: McpServer): void {
         'Get the house model\'s prediction for a single game, plus how it stacks up against the market ' +
         'line. Use for "what does the model predict for the Oklahoma vs Texas game", "is there value on ' +
         'this line", "how confident is the model in this matchup". Backed by api.game_predictions, which ' +
-        'is already latest-snapshot per (game_id, model_version) -- at most one row. Two model versions ' +
-        "are written per game: 'elo_v1' (Elo rating differential only) and 'elo_epa_blend_v1' (default -- " +
-        'blends Elo with recent EPA form); home_win_prob is Elo-only in BOTH versions, so only ' +
-        'expected_home_margin changes between them. `edge` = expected_home_margin + market_spread: a ' +
+        'is already latest-snapshot per (game_id, model_version) -- at most one row. Three model versions ' +
+        "are written per game: 'fitted_v1' (default -- the current house model, a fitted 20-feature ridge), " +
+        "'elo_v1' (Elo rating differential only), and 'elo_epa_blend_v1' (blends Elo with recent EPA form). " +
+        'The two Elo versions share one Elo-derived home_win_prob and differ only in expected_home_margin; ' +
+        "'fitted_v1' carries its OWN Platt-scaled win probability, so BOTH expected_home_margin and " +
+        'home_win_prob change when you switch to or from it -- never quote a win probability without saying ' +
+        'which version produced it. `edge` = expected_home_margin + market_spread: a ' +
         'positive edge means the model favors the home team more than the market does (vs. the number); a ' +
         'negative edge means the model favors the away team relative to the market. market_provider, ' +
         'market_spread, market_home_margin, market_captured_at, edge, and edge_pick are all null when no ' +
@@ -1517,9 +1738,11 @@ export function registerMcpTools(server: McpServer): void {
           .enum(PREDICTION_MODEL_VERSIONS)
           .optional()
           .describe(
-            `Which model version to fetch. Defaults to '${DEFAULT_PREDICTION_MODEL}' (Elo + recent-EPA ` +
-              "blend). 'elo_v1' is Elo-only; home_win_prob is identical between versions, only " +
-              'expected_home_margin (and therefore edge) differs.'
+            `Which model version to fetch. Defaults to '${DEFAULT_PREDICTION_MODEL}', the current house ` +
+              "model (fitted 20-feature ridge with its own win-probability fit). 'elo_v1' is Elo-only and " +
+              "'elo_epa_blend_v1' is the Elo + recent-EPA blend; those two share a win probability and " +
+              'differ only in expected_home_margin, but switching between an Elo version and the fitted ' +
+              'model moves home_win_prob as well as expected_home_margin (and therefore edge).'
           ),
       },
       annotations: { title: 'Get Game Prediction', ...READ_ONLY_ANNOTATIONS },
@@ -1569,8 +1792,8 @@ export function registerMcpTools(server: McpServer): void {
         "completes), ordered by abs_edge descending (biggest model-vs-market disagreement first; rows with " +
         'no posted market line have a null edge and sort last, but are still included, not filtered out). ' +
         '`edge` = expected_home_margin + market_spread: positive favors the home team vs. the market, ' +
-        'negative favors the away team. Two model versions are written per game; pass `model_version` ' +
-        `explicitly to pin one, otherwise the default blended model ('${DEFAULT_PREDICTION_MODEL}') is used. ` +
+        'negative favors the away team. Three model versions are written per game; pass `model_version` ' +
+        `explicitly to pin one, otherwise the current house model ('${DEFAULT_PREDICTION_MODEL}') is used. ` +
         'IMPORTANT: this view only ever contains games that have not yet been played, so during the ' +
         'off-season, or after a season\'s full slate has already locked in and completed, an EMPTY result ' +
         '({"count": 0, "rows": []}) is the expected, correct response -- not an error and not a sign the ' +
@@ -1713,7 +1936,12 @@ export function registerMcpTools(server: McpServer): void {
         "computed for CFBD's own published win probability over the same games, included as an " +
         'external benchmark -- a lower brier than cfbd_brier means the house model out-calibrated ' +
         'CFBD\'s. n_games/n_with_market/n_scored_win_prob are the sample sizes behind each row (small ' +
-        "samples, e.g. early in a new model_version's life, should be read with more caution). Takes " +
+        "samples, e.g. early in a new model_version's life, should be read with more caution). " +
+        'IMPORTANT -- no single version wins on every metric, so do not call one "the best model" ' +
+        `flatly. '${DEFAULT_PREDICTION_MODEL}' is the current house default because it has the lowest ` +
+        'margin_mae/margin_rmse, but on 2025 at edge_threshold=0 it posted a WORSE ats_hit_rate than ' +
+        'both Elo versions and a level brier. Beating the market against the spread and predicting a ' +
+        'margin accurately are different tests: report the metric you actually measured. Takes ' +
         'no arguments. Returns JSON {"_source": "api.prediction_accuracy", "count", "rows"}, ordered ' +
         'season descending, then model_version, then edge_threshold ascending.',
       inputSchema: {},
@@ -1908,7 +2136,18 @@ export function registerMcpTools(server: McpServer): void {
         '  recruiting_rank + *_rank columns. Works for any past season, not just the current one\n' +
         '- api.team_wepa_season: team, season, epa_total, epa_passing, epa_rushing, epa_allowed_*, success_rate_*, explosiveness\n' +
         '- api.team_ats: team, season, ats record vs the spread\n' +
-        '- api.scored_matchup_edges / api.game_predictions / api.prediction_accuracy: model predictions vs market\n' +
+        '- api.scored_matchup_edges / api.game_predictions / api.prediction_accuracy: model predictions vs\n' +
+        `  market. THREE model_versions per game: elo_v1, elo_epa_blend_v1, ${DEFAULT_PREDICTION_MODEL}\n` +
+        '  (the current house model). ALWAYS filter model_version or every game appears three times\n' +
+        '- api.season_outlook: season, team, conference, model_version, projected_wins, projected_losses,\n' +
+        '  median_wins, wins_p10/p25/p75/p90, p_win_dist (jsonb {"0":p,...}), p_bowl_eligible, p_ten_plus,\n' +
+        '  sos_rating, sos_rank, conf_title_prob, games_scheduled/simulated/unscored/completed,\n' +
+        '  actual_wins, schedule_complete, n_sims -- latest Monte Carlo snapshot per (season, team,\n' +
+        '  model_version); pin model_version or teams appear once per version. Prefer get_season_outlook,\n' +
+        '  which attaches the backtest error and the per-result caveats. playoff_prob is NULL everywhere\n' +
+        '  by design. Projected quantities are over games_simulated, NOT games_scheduled. NOT FBS-only:\n' +
+        '  FCS/DII/DIII rows are included, many with 1-3 games loaded, so an unfiltered ORDER BY\n' +
+        '  projected_wins is meaningless -- filter by conference or join api.team_detail\n' +
         '- api.player_season_leaders, api.player_wepa_leaders, api.player_usage_leaders: player-season stats\n' +
         '- api.recruiting_roi, api.transfer_portal_impact, api.team_returning_production, api.conference_comparison\n' +
         '- api.team_penalties: game_id, season, week, season_type, team, opponent, home_away, penalties,\n' +
@@ -2058,6 +2297,87 @@ export function registerMcpTools(server: McpServer): void {
       annotations: { title: 'Get Penalty Log', ...READ_ONLY_ANNOTATIONS },
     },
     async args => textResult(await getPenaltyLogTool(args))
+  )
+
+  server.registerTool(
+    'get_season_outlook',
+    {
+      title: 'Get Season Outlook',
+      description:
+        'Get the simulated season win-total outlook for one team or a whole conference: projected ' +
+        'wins/losses, the percentile band around them, bowl-eligibility and ten-win probabilities, ' +
+        'strength of schedule, and conference-title odds. Use for "projected final SEC standings", ' +
+        '"how many games does Oklahoma win this year", "who is favored to win the Big 12", "what is ' +
+        "this team's ceiling and floor\". These are real simulated projections -- answering a " +
+        'season-outlook question from them is grounded, not invented. Backed by api.season_outlook: ' +
+        `one row per (season, team) at model_version '${DEFAULT_PREDICTION_MODEL}', already ` +
+        'latest-snapshot per team-season, each row summarizing n_sims Monte Carlo seasons drawn from ' +
+        'the same game-level model get_game_prediction serves. Pass `conference` for standings-style ' +
+        'questions (rows come back sorted by projected_wins descending -- that ordering IS the ' +
+        'projected standings) or `team` for one team; AT LEAST ONE IS REQUIRED, because this view is ' +
+        'NOT FBS-only (it also carries FCS/DII/DIII teams, many with one or two games loaded, so an ' +
+        'unfiltered ranking compares teams playing wildly different numbers of games).\n\n' +
+        'HOW TO REPORT IT. projected_wins is the MEAN of the simulated distribution; median_wins and ' +
+        'wins_p10/p25/p75/p90 are its spread. A standings table with no error band is overconfidence ' +
+        'in a nicer suit -- always pair the point estimate with either the percentile band or the ' +
+        'response\'s "accuracy" block (preseason projections miss by ~1.7 wins on average; the 80% ' +
+        'interval is asymmetric at -2.68/+3.02 wins, so never quote +/- the MAE). The response also ' +
+        'carries a "caveats" array computed from the rows actually returned -- it flags an already- ' +
+        'played season, partially-loaded schedules, and unscored games. Relay every caveat that ' +
+        'bears on the answer.\n\n' +
+        'THINGS THAT ARE EASY TO GET WRONG: playoff_prob is NULL on every row BY DESIGN -- there is ' +
+        'no playoff projection here, never state or estimate one. Projected quantities are over ' +
+        'games_simulated, NEVER games_scheduled: a game the model could not score is excluded from ' +
+        'the simulation, not counted as a loss, so check games_unscored before quoting ' +
+        'projected_losses. schedule_complete=false means the slate is still filling in and the win ' +
+        'total is a floor over listed games only. conf_title_prob is a naive v1 that models no ' +
+        'tiebreakers and no championship game -- prefer projected wins and call title odds ' +
+        'approximate. Do not rank an FCS team against an FBS one on projected_wins.\n\n' +
+        'Returns JSON with "season", "season_source", "model_version", "projection_date", "scope", ' +
+        '"n_sims", "residual_sigma", "accuracy", "caveats", plus {"_source": "api.season_outlook", ' +
+        '"count", "rows"} -- or a friendly "No season outlook found..." string. p_win_dist (the full ' +
+        'win distribution) is included only in single-team mode.',
+      inputSchema: {
+        team: z
+          .string()
+          .optional()
+          .describe(
+            "Exact school name as used by CFBD, e.g. 'Oklahoma'. Case-sensitive. Returns one row, " +
+              'including p_win_dist (the full win distribution).'
+          ),
+        conference: z
+          .string()
+          .optional()
+          .describe(
+            "Exact conference name, e.g. 'SEC', 'Big Ten', 'American Athletic'. Case-sensitive. " +
+              'Returns every team in it sorted by projected_wins descending, which is the projected ' +
+              'standings order.'
+          ),
+        season: z
+          .number()
+          .int()
+          .optional()
+          .describe(
+            'Season year, e.g. 2026. Defaults to the NEWEST season present in api.season_outlook, ' +
+              `which is normally the upcoming season and NOT the app's current-season constant ` +
+              `(${CURRENT_SEASON}). Pass a season only if the user named one -- the resolved season ` +
+              'comes back as "season" with "season_source" saying where it came from. Older seasons ' +
+              'are present but already played, so their "projections" are final records.'
+          ),
+        limit: z
+          .number()
+          .int()
+          .min(1)
+          .max(DEFAULT_ROW_CAP)
+          .optional()
+          .describe(
+            `Max rows (default ${SEASON_OUTLOOK_DEFAULT_LIMIT}, hard-capped at ${DEFAULT_ROW_CAP}). ` +
+              'A conference is at most ~18 teams, so the default covers any single conference.'
+          ),
+      },
+      annotations: { title: 'Get Season Outlook', ...READ_ONLY_ANNOTATIONS },
+    },
+    async args => textResult(await getSeasonOutlookTool(args))
   )
 
   server.registerTool(

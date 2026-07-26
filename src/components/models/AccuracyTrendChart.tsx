@@ -4,7 +4,6 @@ import { useRef, useMemo, useCallback, useEffect } from 'react'
 import { TrendUp } from '@phosphor-icons/react'
 import rough from 'roughjs'
 import { CHART_INK, resolveColor, useChartTheme } from '@/lib/charts/theme'
-import { inkFor } from '@/lib/charts/series'
 import { ChartFrame } from '@/lib/charts/ChartFrame'
 import { ChartLegend } from '@/lib/charts/ChartLegend'
 import type { ChartLegendItem } from '@/lib/charts/ChartLegend'
@@ -25,17 +24,31 @@ const BREAK_EVEN_MINUS_110 = 0.524
 const MODEL_LABELS: Record<string, string> = {
   elo_v1: 'Elo (v1)',
   elo_epa_blend_v1: 'Elo + EPA blend (v1)',
+  fitted_v1: 'Fitted ridge (v1)',
 }
 
-// The blended model is the house's headline model, so it gets the signature
-// accent; the pure-Elo baseline gets the secondary semantic color. Neither
-// model actually concerns run/pass play-calling -- this just reuses the
-// app's two-series semantic palette per the chart-engineer convention.
-function modelRole(model: string): 'run' | 'pass' {
-  return model === DEFAULT_PREDICTION_MODEL ? 'run' : 'pass'
+// Model versions are N peer entities, not a valenced pair, so they take the
+// categorical --series ramp rather than the semantic run/pass colors (tokens.ts
+// §series: borrowing the semantic palette to separate peers would make the
+// chart assert a meaning it does not have -- and with three models the old
+// binary `default ? run : pass` mapping collided two of them on one color).
+// The house model takes --series-1, which carries the --color-run hue, so the
+// signature accent still leads.
+const SERIES_COUNT = 4 // length of the --series-1..4 ramp in charts/tokens.ts
+const SERIES_ORDER: readonly string[] = [
+  DEFAULT_PREDICTION_MODEL,
+  ...PREDICTION_MODEL_VERSIONS.filter(m => m !== DEFAULT_PREDICTION_MODEL),
+]
+
+function modelSeriesIndex(model: string): number {
+  const idx = SERIES_ORDER.indexOf(model)
+  // Unknown versions (a new one landing in the warehouse before this list
+  // catches up) wrap through the ramp rather than drawing untinted.
+  return (idx === -1 ? SERIES_ORDER.length : idx) % SERIES_COUNT
 }
-function modelColorVar(model: string): string {
-  return modelRole(model) === 'run' ? 'var(--color-run)' : 'var(--color-pass)'
+/** Exported for unit test: every known version must map to a distinct swatch. */
+export function modelColorVar(model: string): string {
+  return `var(--series-${modelSeriesIndex(model) + 1})`
 }
 
 const WIDTH = 700
@@ -124,7 +137,7 @@ export function AccuracyTrendChart({ rows }: AccuracyTrendChartProps) {
     const surfaceColor = resolveColor(CHART_INK.surface)
 
     for (const s of chartGeometry.seriesPoints) {
-      const color = inkFor(modelRole(s.model))
+      const color = resolveColor(modelColorVar(s.model))
 
       if (s.points.length >= 2) {
         const line = rc.linearPath(
