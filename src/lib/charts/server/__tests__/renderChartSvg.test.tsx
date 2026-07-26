@@ -145,9 +145,10 @@ describe('renderChartSvg — content', () => {
 })
 
 describe('chart id helpers', () => {
-  it('recognises the shipped chart and rejects anything else', () => {
-    expect(CHART_IDS).toEqual(['team-playcalling'])
+  it('recognises the shipped charts and rejects anything else', () => {
+    expect(CHART_IDS).toEqual(['team-playcalling', 'team-metric-trend'])
     expect(isChartId('team-playcalling')).toBe(true)
+    expect(isChartId('team-metric-trend')).toBe(true)
     expect(isChartId('team-trajectory')).toBe(false)
   })
 })

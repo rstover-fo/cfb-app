@@ -32,9 +32,16 @@ import type { PlaycallingProfile } from '@/lib/queries/playcalling'
 import { literalInk, type ChartThemeName } from '../tokens'
 import { EmptyCard } from './emptyCard'
 import { TeamPlaycallingChart } from './teamPlaycalling'
+import { TeamMetricTrendChart, type TeamMetricTrend } from './teamMetricTrend'
 
-/** Charts this renderer can produce. Phase 2.1 ships exactly one. */
-export const CHART_IDS = ['team-playcalling'] as const
+/**
+ * Charts this renderer can produce.
+ *
+ * Not one id per question -- `team-metric-trend` is a *primitive*: one metric
+ * from a closed enum, up to four teams, any season range. Prefer widening a
+ * primitive's parameters over adding an id.
+ */
+export const CHART_IDS = ['team-playcalling', 'team-metric-trend'] as const
 export type ChartId = (typeof CHART_IDS)[number]
 
 export function isChartId(value: string): value is ChartId {
@@ -48,6 +55,7 @@ export function isChartId(value: string): value is ChartId {
  */
 export type ChartSpec =
   | { chart: 'team-playcalling'; profile: PlaycallingProfile }
+  | { chart: 'team-metric-trend'; trend: TeamMetricTrend }
   | { chart: 'empty'; title: string; message?: string }
 
 export interface ChartRenderOptions {
@@ -69,6 +77,8 @@ export function renderChartSvg(spec: ChartSpec, options: ChartRenderOptions = {}
   switch (spec.chart) {
     case 'team-playcalling':
       return renderElement(<TeamPlaycallingChart profile={spec.profile} ink={ink} />)
+    case 'team-metric-trend':
+      return renderElement(<TeamMetricTrendChart trend={spec.trend} ink={ink} />)
     case 'empty':
       return renderElement(<EmptyCard title={spec.title} message={spec.message} ink={ink} />)
   }

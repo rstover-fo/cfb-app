@@ -16,6 +16,13 @@ vi.mock('@/lib/queries/playcalling', () => ({
   getPlaycallingProfile: vi.fn(),
 }))
 
+vi.mock('@/lib/queries/trend', async importOriginal => {
+  // Constants (MAX_TREND_TEAMS et al) stay real -- the route's schema is built
+  // from them, so faking them would test a schema that does not ship.
+  const actual = await importOriginal<typeof import('@/lib/queries/trend')>()
+  return { ...actual, getTeamMetricTrend: vi.fn() }
+})
+
 // Real renderer, wrapped in a spy so one test can force the "render throws"
 // branch without giving up real bytes everywhere else.
 vi.mock('@/lib/charts/server', async importOriginal => {
@@ -27,8 +34,11 @@ import { renderChartPng } from '@/lib/charts/server'
 import { resetChartRateLimit, CHART_RATE_LIMIT } from '@/lib/charts/server/rateLimit'
 import { signChartParams } from '@/lib/charts/server/signing'
 import { createPlaycallingProfileRow } from '@/lib/queries/__tests__/fixtures/playcalling'
+import { CLEMSON_SP_DEFENSE, OKLAHOMA_SP_DEFENSE } from '@/lib/queries/__tests__/fixtures/trend'
 import { CURRENT_SEASON } from '@/lib/queries/constants'
 import { getPlaycallingProfile } from '@/lib/queries/playcalling'
+import { getTeamMetricTrend } from '@/lib/queries/trend'
+import { renderChartTool } from '@/lib/mcp/tools'
 import * as route from './route'
 
 const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
@@ -46,6 +56,7 @@ beforeEach(async () => {
   resetChartRateLimit()
   process.env.CHART_SIGNING_SECRET = SECRET
   vi.mocked(getPlaycallingProfile).mockResolvedValue(createPlaycallingProfileRow() as never)
+  vi.mocked(getTeamMetricTrend).mockResolvedValue([OKLAHOMA_SP_DEFENSE, CLEMSON_SP_DEFENSE])
   // clearAllMocks() resets call history but NOT an implementation installed by
   // mockResolvedValue, so a test that stubs the rasterizer would otherwise leak
   // that stub into every test after it. Re-point at the real one each time.
@@ -361,5 +372,213 @@ describe('Cache-Control branches', () => {
   it('gives the current season a short TTL plus stale-while-revalidate', async () => {
     const response = await get('team-playcalling', { team: 'Oklahoma', season: CURRENT_SEASON })
     expect(response.headers.get('cache-control')).toBe('public, s-maxage=3600, stale-while-revalidate=86400')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// team-metric-trend -- the generative chart
+// ---------------------------------------------------------------------------
+
+/** The request the primitive was built for. */
+const TREND = {
+  metric: 'sp_defense',
+  teams: 'Oklahoma,Clemson',
+  from: 2015,
+  to: SETTLED_SEASON,
+} as const
+
+const trend = (overrides: Params = {}) => get('team-metric-trend', { ...TREND, ...overrides })
+
+describe('team-metric-trend -- 200', () => {
+  it('renders a PNG and passes the spec straight through to the query', async () => {
+    const bytes = await expectPng(await trend())
+    expect(bytes.byteLength).toBeGreaterThan(2000)
+    expect(getTeamMetricTrend).toHaveBeenCalledWith(['Oklahoma', 'Clemson'], 'sp_defense', 2015, SETTLED_SEASON)
+  })
+
+  it('accepts a single team, and the full four', async () => {
+    await expectPng(await trend({ teams: 'Oklahoma' }))
+    await expectPng(await trend({ teams: 'Oklahoma,Clemson,Texas,Ohio State' }))
+  })
+
+  it('parses annotations into the rendered spec', async () => {
+    await trend({ annotations: '2022:Venables hired' })
+    expect(renderChartPng).toHaveBeenCalledWith(
+      expect.objectContaining({
+        chart: 'team-metric-trend',
+        trend: expect.objectContaining({ annotations: [{ season: 2022, label: 'Venables hired' }] }),
+      }),
+      expect.anything(),
+    )
+  })
+
+  it('renders the dark palette when mode=dark', async () => {
+    const light = await expectPng(await trend({ mode: 'light' }))
+    const dark = await expectPng(await trend({ mode: 'dark' }))
+    expect(dark.equals(light)).toBe(false)
+  })
+
+  it('is byte-identical across repeat requests, which is what makes caching safe', async () => {
+    const first = await expectPng(await trend())
+    const second = await expectPng(await trend())
+    expect(second.equals(first)).toBe(true)
+  })
+})
+
+describe('team-metric-trend -- 400 parameter validation', () => {
+  it('rejects an unknown metric -- the enum is what stops an invented column', async () => {
+    const response = await trend({ metric: 'vibes_per_drive' })
+    expect(response.status).toBe(400)
+    expect((await response.json()).error).toMatch(/metric/)
+    expect(getTeamMetricTrend).not.toHaveBeenCalled()
+  })
+
+  it('rejects a missing required param', async () => {
+    const response = await get('team-metric-trend', { metric: 'sp_defense', teams: 'Oklahoma', from: 2015 })
+    expect(response.status).toBe(400)
+    expect((await response.json()).error).toMatch(/to/)
+  })
+
+  it('.strict() rejects an unknown param even when it is correctly signed', async () => {
+    const response = await trend({ scale: 4 })
+    expect(response.status).toBe(400)
+    expect((await response.json()).error).toMatch(/Unrecognized key/)
+  })
+
+  it('rejects seasons outside the window the view can answer for', async () => {
+    expect((await trend({ from: 1869 })).status).toBe(400)
+    expect((await trend({ to: CURRENT_SEASON + 50 })).status).toBe(400)
+  })
+
+  it('rejects a backwards range', async () => {
+    const response = await trend({ from: 2025, to: 2015 })
+    expect(response.status).toBe(400)
+    expect((await response.json()).error).toMatch(/to must be the same season as from or later/)
+  })
+
+  it('rejects a range longer than one chart can carry', async () => {
+    const response = await trend({ from: 1960, to: 2020 })
+    expect(response.status).toBe(400)
+    expect((await response.json()).error).toMatch(/season range is at most/)
+  })
+
+  it('rejects a fifth team rather than silently dropping it', async () => {
+    const response = await trend({ teams: 'Oklahoma,Clemson,Texas,Ohio State,Alabama' })
+    expect(response.status).toBe(400)
+    expect((await response.json()).error).toMatch(/at most 4 teams/)
+  })
+
+  it('rejects a duplicated team', async () => {
+    expect((await trend({ teams: 'Oklahoma,Oklahoma' })).status).toBe(400)
+  })
+
+  it('rejects an empty team list', async () => {
+    expect((await trend({ teams: ',,' })).status).toBe(400)
+  })
+
+  it('rejects a malformed annotation', async () => {
+    const response = await trend({ annotations: 'Venables hired' })
+    expect(response.status).toBe(400)
+    expect((await response.json()).error).toMatch(/annotations/)
+  })
+
+  it('rejects more annotations than the layout reserves room for', async () => {
+    expect((await trend({ annotations: '2016:a|2017:b|2018:c|2019:d' })).status).toBe(400)
+  })
+})
+
+describe('team-metric-trend -- 403 signature', () => {
+  it('rejects a tampered teams list', async () => {
+    const request = signedRequest('team-metric-trend', { ...TREND })
+    const tampered = new Request(request.url.replace('Clemson', 'Texas'))
+    const response = await call('team-metric-trend.png', tampered)
+    expect(response.status).toBe(403)
+    expect((await response.json()).error).toMatch(/Invalid signature/)
+  })
+
+  it('rejects a tampered metric', async () => {
+    const request = signedRequest('team-metric-trend', { ...TREND })
+    const tampered = new Request(request.url.replace('sp_defense', 'sp_offense'))
+    expect((await call('team-metric-trend.png', tampered)).status).toBe(403)
+  })
+
+  it('accepts the same params in a different order', async () => {
+    const sig = signChartParams('team-metric-trend', { ...TREND, mode: 'dark' })
+    const reordered = new Request(
+      `https://charts.example.com/api/chart/team-metric-trend.png?sig=${sig}&to=${TREND.to}` +
+        `&mode=dark&teams=${encodeURIComponent(TREND.teams)}&from=${TREND.from}&metric=${TREND.metric}`,
+    )
+    await expectPng(await call('team-metric-trend.png', reordered))
+  })
+
+  it('serves a URL minted by the render_chart MCP tool -- the full producer/consumer round trip', async () => {
+    // The strongest guard there is: the tool's normalization, the signature,
+    // and this route's .strict() schema all have to agree, or the chart the
+    // model posts is a broken embed.
+    process.env.CHART_BASE_URL = 'https://charts.example.com'
+    const minted = JSON.parse(
+      await renderChartTool({
+        chart: 'team-metric-trend',
+        metric: 'sp_defense',
+        teams: ['Oklahoma', 'Clemson'],
+        from: 2015,
+        to: SETTLED_SEASON,
+        annotations: [{ season: 2022, label: 'Venables hired' }],
+      }),
+    )
+
+    const response = await call('team-metric-trend.png', new Request(minted.url))
+    await expectPng(response)
+    delete process.env.CHART_BASE_URL
+  })
+})
+
+describe('team-metric-trend -- empty and cache branches', () => {
+  it('serves the empty card, briefly cached, when no team has data', async () => {
+    vi.mocked(getTeamMetricTrend).mockResolvedValue([
+      { team: 'Nobody State', points: [] },
+      { team: 'Nowhere Tech', points: [] },
+    ])
+
+    const response = await trend({ teams: 'Nobody State,Nowhere Tech' })
+    await expectPng(response)
+    expect(response.headers.get('cache-control')).toBe('public, s-maxage=300, stale-while-revalidate=600')
+    expect(renderChartPng).toHaveBeenCalledWith(
+      expect.objectContaining({ chart: 'empty', message: expect.stringContaining('Nobody State') }),
+      expect.anything(),
+    )
+  })
+
+  it('still renders when only some teams have data', async () => {
+    vi.mocked(getTeamMetricTrend).mockResolvedValue([OKLAHOMA_SP_DEFENSE, { team: 'Nobody State', points: [] }])
+
+    const response = await trend({ teams: 'Oklahoma,Nobody State' })
+    await expectPng(response)
+    expect(renderChartPng).toHaveBeenCalledWith(
+      expect.objectContaining({ chart: 'team-metric-trend' }),
+      expect.anything(),
+    )
+  })
+
+  it('treats a range ENDING in a settled season as settled -- it can never change again', async () => {
+    const response = await trend({ from: 2015, to: SETTLED_SEASON })
+    expect(response.headers.get('cache-control')).toBe('public, max-age=31536000, s-maxage=31536000, immutable')
+  })
+
+  it('gives a range that touches the current season the short TTL', async () => {
+    const response = await trend({ from: 2015, to: CURRENT_SEASON })
+    expect(response.headers.get('cache-control')).toBe('public, s-maxage=3600, stale-while-revalidate=86400')
+  })
+
+  it('serves an error card when the query layer rejects', async () => {
+    vi.mocked(getTeamMetricTrend).mockRejectedValue(new Error('supabase is down'))
+
+    const response = await trend()
+    await expectPng(response)
+    expect(response.headers.get('cache-control')).toBe('no-store')
+    expect(renderChartPng).toHaveBeenLastCalledWith(
+      expect.objectContaining({ chart: 'empty', title: 'Chart unavailable' }),
+      expect.anything(),
+    )
   })
 })

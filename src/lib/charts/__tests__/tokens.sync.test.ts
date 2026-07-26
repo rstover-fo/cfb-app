@@ -140,6 +140,73 @@ describe('no chart-relevant token is missing from tokens.ts', () => {
   })
 })
 
+/**
+ * WCAG 2.x relative luminance, then the 1.4.11 contrast ratio. Inlined rather
+ * than pulled from a dependency so the numbers the design gate was given are
+ * reproducible from this repo alone.
+ */
+function relativeLuminance(hex: string): number {
+  const n = parseInt(hex.slice(1), 16)
+  const channel = (v: number): number => {
+    const c = v / 255
+    return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4
+  }
+  return 0.2126 * channel((n >> 16) & 255) + 0.7152 * channel((n >> 8) & 255) + 0.0722 * channel(n & 255)
+}
+
+function contrastRatio(a: string, b: string): number {
+  const [hi, lo] = [relativeLuminance(a), relativeLuminance(b)].sort((x, y) => y - x)
+  return (hi + 0.05) / (lo + 0.05)
+}
+
+describe('categorical series ramp contrast', () => {
+  // Both card surfaces a chart can land on. The ramp exists because the
+  // theme-invariant `--color-*` set could not clear the dark one: `--color-pass`
+  // measured 2.46:1 there, which is why a peer series receded in dark mode.
+  const SURFACES = { light: '#FFFFFF', dark: '#252019' } as const
+  const SERIES = ['--series-1', '--series-2', '--series-3', '--series-4'] as const
+
+  it('sanity-checks the ratio helper against known pairs', () => {
+    expect(contrastRatio('#000000', '#FFFFFF')).toBeCloseTo(21, 5)
+    expect(contrastRatio('#FFFFFF', '#FFFFFF')).toBeCloseTo(1, 5)
+    // The measurement that made the ramp blocking in the first place.
+    expect(contrastRatio('#5C5A7A', SURFACES.dark)).toBeCloseTo(2.46, 2)
+  })
+
+  for (const mode of ['light', 'dark'] as const) {
+    for (const token of SERIES) {
+      // Every value clears 3:1 against BOTH surfaces, not just its own mode's.
+      // A chart rendered light and viewed on a dark page (or vice versa via a
+      // stale cached PNG) then still meets 1.4.11 for non-text.
+      it.each(Object.entries(SURFACES))(`${mode} ${token} clears 3:1 on the %s surface`, (_name, surface) => {
+        expect(contrastRatio(CHART_TOKENS[mode][token], surface)).toBeGreaterThanOrEqual(3)
+      })
+    }
+  }
+
+  it('keeps --series-1 on the --color-run hue so the signature accent leads', () => {
+    const hueOf = (hex: string): number => {
+      const n = parseInt(hex.slice(1), 16)
+      const [r, g, b] = [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255]
+      const [mx, mn] = [Math.max(r, g, b), Math.min(r, g, b)]
+      const d = mx - mn
+      if (d === 0) return 0
+      const h = mx === r ? 60 * (((g - b) / d) % 6) : mx === g ? 60 * ((b - r) / d + 2) : 60 * ((r - g) / d + 4)
+      return (h + 360) % 360
+    }
+    const runHue = hueOf(CHART_TOKENS.light['--color-run'])
+    for (const mode of ['light', 'dark'] as const) {
+      expect(Math.abs(hueOf(CHART_TOKENS[mode]['--series-1']) - runHue)).toBeLessThan(4)
+    }
+  })
+
+  it('varies the ramp per mode -- a single set cannot serve both surfaces well', () => {
+    for (const token of SERIES) {
+      expect(CHART_TOKENS.dark[token]).not.toBe(CHART_TOKENS.light[token])
+    }
+  })
+})
+
 describe('font families', () => {
   it('derives the resvg family name from the same token the browser uses', () => {
     expect(fontFamilyOf("'Libre Baskerville', Georgia, serif")).toBe('Libre Baskerville')

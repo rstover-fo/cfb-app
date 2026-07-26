@@ -95,6 +95,13 @@ export type ApiSchema = {
       }
       Relationships: []
     }
+    // CORRECTION (2026-07-26): `sp_offense` / `sp_defense` were missing here
+    // while genuinely present on the live view -- confirmed against
+    // information_schema.columns for api.team_history, and they carry values
+    // back to 2015 for every FBS team. They were the columns the
+    // `team-metric-trend` chart's metric enum needed
+    // (src/lib/charts/trendMetrics.ts), so the omission would have read as
+    // "SP+ splits are only per-season current data", which is false.
     team_history: {
       Row: {
         team: string | null
@@ -110,6 +117,8 @@ export type ApiSchema = {
         avg_margin: number | null
         sp_rating: number | null
         sp_rank: number | null
+        sp_offense: number | null
+        sp_defense: number | null
         elo: number | null
         fpi: number | null
         epa_per_play: number | null

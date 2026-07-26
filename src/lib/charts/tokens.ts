@@ -40,6 +40,10 @@ export const CHART_TOKEN_NAMES = [
   '--color-negative',
   '--color-neutral',
   '--color-field-goal',
+  '--series-1',
+  '--series-2',
+  '--series-3',
+  '--series-4',
   '--heat-1',
   '--heat-2',
   '--heat-3',
@@ -81,6 +85,14 @@ const LIGHT: Record<ChartTokenName, string> = {
   '--color-neutral': '#6B635A',
   '--color-field-goal': '#5A7AC4',
 
+  // Categorical series ramp -- valence-free, and per-mode rather than
+  // theme-invariant so both the light card and #252019 clear 3:1 (see the
+  // globals.css comment for the measured numbers).
+  '--series-1': '#BF714F',
+  '--series-2': '#556CBA',
+  '--series-3': '#B16498',
+  '--series-4': '#378287',
+
   '--heat-1': '#D7B5B5',
   '--heat-2': '#E9D6D6',
   '--heat-3': '#E1E0DE',
@@ -118,6 +130,11 @@ const DARK: Record<ChartTokenName, string> = {
   '--text-muted': '#8A847A',
 
   '--border': '#3D362E',
+
+  '--series-1': '#C47C5C',
+  '--series-2': '#5F76BE',
+  '--series-3': '#B76F9F',
+  '--series-4': '#3B8C91',
 
   '--heat-1': '#523430',
   '--heat-2': '#3F2C26',
@@ -188,6 +205,12 @@ export interface ChartInk {
   negative: string
   neutral: string
   fieldGoal: string
+  /**
+   * `--series-1` .. `--series-4`, index 0..3. The categorical ramp: use this
+   * -- never the semantic `run`/`positive`/... fields -- when the colors
+   * separate N peer entities rather than encoding meaning.
+   */
+  series: readonly [string, string, string, string]
   /** `--heat-1` (worst) .. `--heat-5` (best), index 0..4. */
   heat: readonly [string, string, string, string, string]
   fontHeadline: string
@@ -212,6 +235,7 @@ function inkFrom(lookup: (token: ChartTokenName) => string): ChartInk {
     negative: lookup('--color-negative'),
     neutral: lookup('--color-neutral'),
     fieldGoal: lookup('--color-field-goal'),
+    series: [lookup('--series-1'), lookup('--series-2'), lookup('--series-3'), lookup('--series-4')],
     heat: [
       lookup('--heat-1'),
       lookup('--heat-2'),

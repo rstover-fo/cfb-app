@@ -28,6 +28,29 @@
   --color-neutral: #6B635A;
   --color-field-goal: #5A7AC4;
 
+  /* Categorical series ramp (--series-1 .. --series-4).
+     Distinct from the semantic --color-* set above on purpose: those encode
+     meaning (positive = good, run vs pass), so borrowing them to separate N
+     peer entities makes the chart assert a valence it does not mean -- green
+     for whoever happens to be third in request order. These four carry no
+     valence at all; they say only "a different one".
+
+     Unlike the semantic colors these are NOT theme-invariant. A single ramp
+     cannot sit well on both #FFFFFF and the dark card #252019 -- --color-pass
+     managed only 2.46:1 there -- so each mode gets its own values, every one
+     of which clears WCAG 1.4.11's 3:1 for non-text UI against BOTH surfaces
+     (measured worst case 3.26:1). Hues stay fixed across modes; only
+     lightness moves, so a chart keeps its identity through a theme flip.
+
+     --series-1 holds the --color-run hue (18deg) so the signature accent
+     still leads. Luminance is also spread across the four so they separate in
+     greyscale, but the redundant dash channel is what actually guarantees
+     that -- see src/lib/charts/server/teamMetricTrend.tsx. */
+  --series-1: #BF714F;
+  --series-2: #556CBA;
+  --series-3: #B16498;
+  --series-4: #378287;
+
   /* Heat ramp (worst -> best): semantic-family tints mixed over the mode's
      --bg-surface so --text-primary stays readable on every cell. */
   --heat-1: #D7B5B5;
@@ -157,6 +180,12 @@
 
     --border: #3D362E;
 
+    /* Series ramp, lifted for the dark card (see :root). */
+    --series-1: #C47C5C;
+    --series-2: #5F76BE;
+    --series-3: #B76F9F;
+    --series-4: #3B8C91;
+
     --heat-1: #523430;
     --heat-2: #3F2C26;
     --heat-3: #332D26;
@@ -187,6 +216,10 @@
   --text-secondary: #4A4740;
   --text-muted: #6B635A;
   --border: #D9D2C7;
+  --series-1: #BF714F;
+  --series-2: #556CBA;
+  --series-3: #B16498;
+  --series-4: #378287;
   --heat-1: #D7B5B5;
   --heat-2: #E9D6D6;
   --heat-3: #E1E0DE;
@@ -210,6 +243,10 @@
   --text-secondary: #C9C2B7;
   --text-muted: #8A847A;
   --border: #3D362E;
+  --series-1: #C47C5C;
+  --series-2: #5F76BE;
+  --series-3: #B76F9F;
+  --series-4: #3B8C91;
   --heat-1: #523430;
   --heat-2: #3F2C26;
   --heat-3: #332D26;

@@ -2,6 +2,12 @@
  * Chart image endpoint: signed URL in, PNG out.
  *
  *   /api/chart/team-playcalling.png?team=Oklahoma&season=2026&mode=light&sig=v1.<22ch>
+ *   /api/chart/team-metric-trend.png?from=2015&metric=sp_defense&teams=Oklahoma,Clemson&to=2025&mode=light&sig=v1.<22ch>
+ *
+ * The caller sends a *spec* -- which metric, which teams, which seasons -- and
+ * this route runs the query. Data series never travel in the URL: the URL has
+ * to stay short, permanent and signable, because Discord's media proxy
+ * re-fetches it on cache eviction and cannot send an auth header.
  *
  * Serves the server-rendered roughjs charts from `src/lib/charts/server` to
  * Discord, which embeds the URL and fetches it through its own media proxy.
@@ -45,11 +51,19 @@
  */
 import { z } from 'zod'
 import { isChartId, renderChartPng, type ChartId, type ChartSpec } from '@/lib/charts/server'
+import type { TrendAnnotation } from '@/lib/charts/server/teamMetricTrend'
 import { checkChartRateLimit, rateLimitKey } from '@/lib/charts/server/rateLimit'
 import { verifyChartSignature } from '@/lib/charts/server/signing'
 import type { ChartThemeName } from '@/lib/charts/tokens'
+import { TREND_METRICS, TREND_METRIC_IDS } from '@/lib/charts/trendMetrics'
 import { CURRENT_SEASON } from '@/lib/queries/constants'
 import { getPlaycallingProfile } from '@/lib/queries/playcalling'
+import {
+  getTeamMetricTrend,
+  MAX_TREND_SPAN,
+  MAX_TREND_TEAMS,
+  MIN_TREND_SEASON,
+} from '@/lib/queries/trend'
 
 // Node runtime, not edge: rasterization goes through the native
 // `@resvg/resvg-js` binary and reads the vendored TTFs off disk, and
@@ -90,7 +104,12 @@ const CACHE_NONE = 'no-store'
 interface ChartResolution {
   /** What to draw. An `empty` spec when the query came back with nothing. */
   spec: ChartSpec
-  /** Season requested -- selects the Cache-Control branch. */
+  /**
+   * The NEWEST season this render depends on -- it selects the Cache-Control
+   * branch. A single-season chart passes its season; a range passes its end,
+   * so a decade ending in a settled year is immutable like any other settled
+   * render, and only a range touching the current season gets the short TTL.
+   */
   season: number
   theme: ChartThemeName
   /** False when the query returned no row, which shortens the cache TTL. */
@@ -148,6 +167,93 @@ const teamPlaycallingParams = z
   })
   .strict()
 
+// ---------------------------------------------------------------------------
+// team-metric-trend
+// ---------------------------------------------------------------------------
+// The generative chart: metric x teams x season range. Everything the renderer
+// needs still fits in a signable query string because the ROUTE runs the
+// query -- the caller sends a spec, never a data series. That is what keeps
+// these URLs permanent, cacheable, and short enough for Discord.
+
+/** A season inside the window `api.team_history` can plausibly answer for. */
+const trendSeason = z.coerce.number().int().min(MIN_TREND_SEASON).max(CURRENT_SEASON + 5)
+
+/**
+ * `teams` is one comma-joined list rather than a repeated param: repeated keys
+ * survive `URLSearchParams` but not `Object.fromEntries`, which the handler
+ * uses to feed zod. No FBS school name contains a comma (asserted in the query
+ * tests), so the split is unambiguous.
+ *
+ * Order is preserved, not sorted: it is the caller's job to normalize, and it
+ * already has (see `renderChartTool`). Preserving it means series colors
+ * follow the order the user named the teams in, and the same request always
+ * mints the same URL.
+ */
+const trendTeamsParam = z
+  .string()
+  .min(1)
+  .max(240)
+  .transform(raw =>
+    raw
+      .split(',')
+      .map(team => team.trim())
+      .filter(Boolean),
+  )
+  .refine(teams => teams.length >= 1, 'teams must name at least one team')
+  .refine(teams => teams.length <= MAX_TREND_TEAMS, `teams accepts at most ${MAX_TREND_TEAMS} teams`)
+  .refine(teams => new Set(teams).size === teams.length, 'teams must be unique')
+
+/**
+ * `annotations` is `<season>:<label>`, pipe-separated -- e.g.
+ * `2022:Venables hired`. Deliberately a flat string: a nested structure would
+ * need its own encoding inside a query param that also has to be signed, and
+ * the whole point of the URL shape is that it stays greppable in a log.
+ */
+const MAX_ANNOTATIONS = 3
+const MAX_ANNOTATION_LABEL = 40
+
+const trendAnnotationsParam = z
+  .string()
+  .max(240)
+  .transform(raw =>
+    raw
+      .split('|')
+      .map(entry => entry.trim())
+      .filter(Boolean)
+      .map(entry => {
+        const separator = entry.indexOf(':')
+        if (separator <= 0) return null
+        const season = Number(entry.slice(0, separator))
+        const label = entry.slice(separator + 1).trim()
+        if (!Number.isInteger(season) || !label) return null
+        return { season, label } satisfies TrendAnnotation
+      }),
+  )
+  .refine(entries => entries.every(entry => entry !== null), 'annotations look like "2022:Venables hired"')
+  .transform(entries => entries as TrendAnnotation[])
+  .refine(entries => entries.length <= MAX_ANNOTATIONS, `at most ${MAX_ANNOTATIONS} annotations`)
+  .refine(
+    entries => entries.every(entry => entry.label.length <= MAX_ANNOTATION_LABEL),
+    `annotation labels are at most ${MAX_ANNOTATION_LABEL} characters`,
+  )
+
+const teamMetricTrendParams = z
+  .object({
+    metric: z.enum(TREND_METRIC_IDS),
+    teams: trendTeamsParam,
+    from: trendSeason,
+    to: trendSeason,
+    annotations: trendAnnotationsParam.optional(),
+    mode: modeParam,
+    sig: sigParam,
+  })
+  .strict()
+  .refine(input => input.to >= input.from, { message: 'to must be the same season as from or later', path: ['to'] })
+  .refine(input => input.to - input.from < MAX_TREND_SPAN, {
+    message: `season range is at most ${MAX_TREND_SPAN} seasons`,
+    path: ['to'],
+  })
+
 // Record<ChartId, ...> so adding an id to CHART_IDS without a route here is a
 // compile error rather than a runtime 404.
 const CHART_ROUTES: Record<ChartId, ChartRoute> = {
@@ -174,6 +280,45 @@ const CHART_ROUTES: Record<ChartId, ChartRoute> = {
     return {
       spec: { chart: 'team-playcalling', profile },
       season: input.season,
+      theme: input.mode,
+      hasData: true,
+    }
+  }),
+
+  'team-metric-trend': defineChart(teamMetricTrendParams, async input => {
+    // Same reason as above: not wrapped in React `cache()` (see
+    // src/lib/queries/mcp.ts:18-24 -- a Route Handler is not a render pass).
+    const series = await getTeamMetricTrend(input.teams, input.metric, input.from, input.to)
+    const metric = TREND_METRICS[input.metric]
+    const range = input.from === input.to ? `${input.from}` : `${input.from}–${input.to}`
+    const hasData = series.some(entry => entry.points.length > 0)
+
+    if (!hasData) {
+      return {
+        spec: {
+          chart: 'empty',
+          title: `No ${metric.label.toLowerCase()} on record`,
+          message: `Nothing charted for ${input.teams.join(', ')} in ${range}.`,
+        },
+        season: input.to,
+        theme: input.mode,
+        hasData: false,
+      }
+    }
+
+    return {
+      spec: {
+        chart: 'team-metric-trend',
+        trend: {
+          metric: input.metric,
+          from: input.from,
+          to: input.to,
+          series,
+          annotations: input.annotations,
+        },
+      },
+      // The range's end: a decade ending in a settled season can never change.
+      season: input.to,
       theme: input.mode,
       hasData: true,
     }

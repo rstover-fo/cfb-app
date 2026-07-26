@@ -15,7 +15,8 @@
 import { describe, it, expect } from 'vitest'
 import { Resvg } from '@resvg/resvg-js'
 import { PLAYCALLING_PROFILE } from '@/lib/fixtures/gallery/team'
-import { renderChartSvg } from '../svg'
+import { CLEMSON_SP_DEFENSE, OKLAHOMA_SP_DEFENSE } from '@/lib/queries/__tests__/fixtures/trend'
+import { renderChartSvg, type ChartSpec } from '../svg'
 import { renderChartPng, DEFAULT_PNG_SCALE } from '../png'
 import { chartFontFiles, chartFontOptions, assertChartFontsPresent } from '../fonts'
 import { CHART_FONT_FAMILY } from '../../tokens'
@@ -62,6 +63,35 @@ describe('renderChartPng', () => {
     const dark = await renderChartPng(chartSpec, { theme: 'dark' })
     expect(readIhdr(light)).toEqual(readIhdr(dark))
     expect(light.equals(dark)).toBe(false)
+  })
+
+  it('rasterizes the trend chart at its own dynamic height', async () => {
+    // The one rasterization check for the generative chart: real PNG, at the
+    // dimensions its spec implies. Everything else about this chart is
+    // asserted on the SVG, where a diff is reviewable -- see
+    // ./teamMetricTrend.test.tsx.
+    const trendSpec: ChartSpec = {
+      chart: 'team-metric-trend',
+      trend: {
+        metric: 'sp_defense',
+        from: 2015,
+        to: 2025,
+        series: [OKLAHOMA_SP_DEFENSE, CLEMSON_SP_DEFENSE],
+        annotations: [{ season: 2022, label: 'Venables hired' }],
+      },
+    }
+
+    const png = await renderChartPng(trendSpec)
+    const box = viewBoxSize(await renderChartSvg(trendSpec))
+
+    const { width, height } = readIhdr(png)
+    expect(width).toBe(700 * DEFAULT_PNG_SCALE)
+    expect(height).toBe(box.height * DEFAULT_PNG_SCALE)
+    // Taller than the default canvas: a legend row plus the annotation band.
+    expect(box.height).toBeGreaterThan(350)
+
+    expect(png.byteLength).toBeGreaterThan(5_000)
+    expect(png.byteLength).toBeLessThan(500_000)
   })
 
   it('rasterizes the empty card', async () => {

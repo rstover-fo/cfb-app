@@ -29,24 +29,39 @@ interface RoughShapeProps {
   drawable: Drawable
   /** Element-level opacity, e.g. TrajectoryChart's 0.1 area fills. */
   opacity?: number
+  /**
+   * SVG `stroke-dasharray` for the stroked paths, e.g. `'9 5'`.
+   *
+   * roughjs's own `strokeLineDash` option is dropped by `toPaths()` -- only
+   * `RoughSVG.draw()` (the DOM path, which we cannot use here) reads it, and
+   * it applies it to the stroke op alone. So the dash arrives as an explicit
+   * prop instead, applied to every stroked path of the drawable.
+   *
+   * For UNFILLED drawables only (lines, linear paths). A filled drawable's
+   * hachure strokes come back from `toPaths()` indistinguishable from its
+   * outline, so dashing one would dash the fill too.
+   */
+  strokeDasharray?: string
 }
 
 /** Renders one roughjs `Drawable` as the `<path>` elements it decomposes into. */
-export function RoughShape({ generator, drawable, opacity }: RoughShapeProps): ReactNode {
+export function RoughShape({ generator, drawable, opacity, strokeDasharray }: RoughShapeProps): ReactNode {
   const evenOdd = drawable.shape === 'curve' || drawable.shape === 'polygon'
 
   return (
     <>
       {generator.toPaths(drawable).map((p, i) => {
         const fill = p.fill || NONE
+        const stroke = p.stroke || NONE
         return (
           <path
             key={i}
             d={p.d}
-            stroke={p.stroke || NONE}
+            stroke={stroke}
             strokeWidth={p.strokeWidth}
             fill={fill}
             fillRule={evenOdd && fill !== NONE ? 'evenodd' : undefined}
+            strokeDasharray={stroke === NONE ? undefined : strokeDasharray}
             opacity={opacity}
           />
         )

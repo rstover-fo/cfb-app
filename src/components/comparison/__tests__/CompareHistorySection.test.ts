@@ -17,6 +17,8 @@ function historyRow(overrides: Partial<TeamHistoryRow>): TeamHistoryRow {
     avg_margin: 16.1,
     sp_rating: 15.2,
     sp_rank: 12,
+    sp_offense: 32.4,
+    sp_defense: 17.2,
     elo: 1800,
     fpi: 10.5,
     epa_per_play: 0.21,
