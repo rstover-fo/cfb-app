@@ -27,8 +27,9 @@ import type { TeamMetricSeries } from '@/lib/queries/teamMetric'
 import { literalInk } from '../../tokens'
 import { renderChartSvg, type ChartSpec } from '../svg'
 import { teamMetricTrendHeight, type TeamMetricTrend } from '../teamMetricTrend'
-import { METRIC_EMPTY_HEIGHT } from '../metricCard'
+import { METRIC_EMPTY_HEIGHT, approxTextWidth } from '../metricCard'
 import { METRIC_IDS } from '../../metrics'
+import { CHART_FONT_SIZE } from '../../presets'
 import { expectResvgSafe, elidePathData, cheapHash } from './resvgSafe'
 
 function spec(trend: Partial<TeamMetricTrend> & Pick<TeamMetricTrend, 'series'>): ChartSpec {
@@ -218,6 +219,168 @@ describe('team-metric-trend — content', () => {
     expect(svg).toContain('stroke-dasharray="4 4"')
   })
 
+  it('merges two annotations dated to the same season into one rule and one label', async () => {
+    // Nothing upstream requires distinct seasons, and `2022:SEC move|2022:new
+    // OC` is an ordinary thing for a model to compose. Drawn per annotation,
+    // both rules land on the same x and both labels on the same x AND y.
+    const svg = await renderChartSvg(
+      spec({
+        series: [OKLAHOMA_SP_DEFENSE],
+        annotations: [
+          { season: 2022, label: 'Venables hired' },
+          { season: 2022, label: 'New OC' },
+        ],
+      }),
+    )
+    expect(annotationLabels(svg)).toEqual(['Venables hired, New OC · 2022'])
+    expect(countAnnotationRules(svg)).toBe(1)
+  })
+
+  it('merges three on one season without dropping the last event', async () => {
+    const svg = await renderChartSvg(
+      spec({
+        series: [OKLAHOMA_SP_DEFENSE],
+        annotations: [
+          { season: 2019, label: 'Riley year 3' },
+          { season: 2019, label: 'Hurts arrives' },
+          { season: 2019, label: 'Playoff loss' },
+        ],
+      }),
+    )
+    expect(annotationLabels(svg)).toEqual(['Riley year 3, Hurts arrives, Playoff loss · 2019'])
+    expect(countAnnotationRules(svg)).toBe(1)
+  })
+
+  it('still draws one rule per season when the seasons differ', async () => {
+    const svg = await renderChartSvg(
+      spec({
+        series: [OKLAHOMA_SP_DEFENSE],
+        annotations: [
+          { season: 2018, label: 'Riley year 2' },
+          { season: 2022, label: 'Venables hired' },
+        ],
+      }),
+    )
+    expect(annotationLabels(svg)).toEqual(['Riley year 2 · 2018', 'Venables hired · 2022'])
+    expect(countAnnotationRules(svg)).toBe(2)
+  })
+
+  it('keeps a merged label on the card, ellipsizing rather than overflowing', async () => {
+    // Three labels at the route's 40-character ceiling is far more text than
+    // half a card holds, and the label is anchored beside its rule -- so
+    // unchecked it runs straight off the paper.
+    const svg = await renderChartSvg(
+      spec({
+        series: [OKLAHOMA_SP_DEFENSE],
+        annotations: [
+          { season: 2020, label: 'A'.repeat(40) },
+          { season: 2020, label: 'B'.repeat(40) },
+          { season: 2020, label: 'C'.repeat(40) },
+        ],
+      }),
+    )
+
+    const [label] = annotationTexts(svg)
+    expect(label.text).toContain('…')
+    // Cut, not dropped: the ellipsis says more happened here.
+    expect(label.text).toContain('AAAA')
+    expect(label.text.endsWith('· 2020')).toBe(true)
+
+    // And the estimated extent stays inside the card's content box (28..672).
+    const width = approxTextWidth(label.text, CHART_FONT_SIZE.footnote)
+    const left = label.anchor === 'end' ? label.x - width : label.x
+    expect(left).toBeGreaterThanOrEqual(28)
+    expect(left + width).toBeLessThanOrEqual(672)
+  })
+
+  it('never truncates through the middle of a character', async () => {
+    // Annotation labels are free text composed by the model, so a
+    // multi-code-unit character can land exactly where the ellipsis cut falls.
+    // Slicing by UTF-16 code unit would keep half a surrogate pair and the card
+    // would render a replacement glyph right before the ellipsis -- resvg
+    // tolerates the markup, so it corrupts the label instead of failing loudly.
+    //
+    // Offset 40 is where the cut lands for three 40-char labels; the sweep
+    // covers either side of it so the assertion does not depend on that
+    // arithmetic staying put.
+    for (const at of [38, 39, 40, 41, 42]) {
+      const withEmoji = 'A'.repeat(at) + '\u{1F600}' + 'A'.repeat(Math.max(0, 40 - at - 2))
+      const svg = await renderChartSvg(
+        spec({
+          series: [OKLAHOMA_SP_DEFENSE],
+          annotations: [
+            { season: 2020, label: withEmoji },
+            { season: 2020, label: 'B'.repeat(40) },
+            { season: 2020, label: 'C'.repeat(40) },
+          ],
+        }),
+      )
+
+      const [label] = annotationTexts(svg)
+      // No lone surrogate, and no replacement character standing in for one.
+      // Iterating a string yields CODE POINTS, so a correctly paired emoji
+      // surfaces as 0x1F600 -- above the surrogate block, not inside it. Only
+      // an UNPAIRED half lands in D800..DFFF, so the range is the whole test.
+      for (const char of label.text) {
+        const code = char.codePointAt(0)!
+        const isLoneSurrogate = code >= 0xd800 && code <= 0xdfff
+        expect(isLoneSurrogate, `lone surrogate at emoji offset ${at}`).toBe(false)
+      }
+      expect(label.text, `replacement char at emoji offset ${at}`).not.toContain('\uFFFD')
+    }
+  })
+
+  it('keeps a ZWJ sequence whole, not just a surrogate pair', async () => {
+    // A family emoji is several code points joined by U+200D. Splitting on code
+    // points rather than graphemes would cut it into component people --
+    // corrupt in a different way than a half surrogate, and just as visible.
+    const family = '\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}'
+    const svg = await renderChartSvg(
+      spec({
+        series: [OKLAHOMA_SP_DEFENSE],
+        annotations: [
+          { season: 2020, label: 'A'.repeat(38) + family },
+          { season: 2020, label: 'B'.repeat(40) },
+          { season: 2020, label: 'C'.repeat(40) },
+        ],
+      }),
+    )
+
+    const [label] = annotationTexts(svg)
+    // Either the whole sequence survived or none of it did -- never a fragment.
+    const kept = label.text.includes(family)
+    const anyPart = /[\u{1F468}\u{1F469}\u{1F467}\u{200D}]/u.test(label.text)
+    expect(anyPart && !kept, 'ZWJ sequence was split into fragments').toBe(false)
+  })
+
+  it('never repeats a y label on a rank axis only a few positions wide', async () => {
+    // A team sitting between #4 and #6 across three seasons: a fractional tick
+    // step printed "4, 4, 5, 5, 6, 6, 7" down the gutter.
+    const ticks = await yAxisTicks(
+      spec({
+        metric: 'sp_rank',
+        from: 2023,
+        to: 2025,
+        series: [
+          {
+            team: 'Steady',
+            points: [
+              { season: 2023, value: 4 },
+              { season: 2024, value: 6 },
+              { season: 2025, value: 5 },
+            ],
+          },
+        ],
+      }),
+    )
+
+    const labels = ticks.map(tick => tick.value)
+    expect(labels.length).toBeGreaterThan(1)
+    expect(new Set(labels).size).toBe(labels.length)
+    expect(Math.min(...labels)).toBeGreaterThanOrEqual(1)
+    expect(labels.every(Number.isInteger)).toBe(true)
+  })
+
   it('drops an annotation outside the season range', async () => {
     const svg = await renderChartSvg(
       spec({ series: [OKLAHOMA_SP_DEFENSE], annotations: [{ season: 1999, label: 'Long ago' }] }),
@@ -315,6 +478,29 @@ describe('team-metric-trend — content', () => {
 /** Count of emitted `<path>` elements -- a proxy for "how much got drawn". */
 function countPaths(svg: string): number {
   return [...svg.matchAll(/<path\b/g)].length
+}
+
+/**
+ * The annotation labels, in document order, with the geometry that decides
+ * whether they fit. Identified by the pairing nothing else on the card uses: a
+ * flipped anchor (`start`/`end`) at footnote size.
+ */
+function annotationTexts(svg: string): Array<{ x: number; anchor: string; text: string }> {
+  const pattern = /<text x="([\d.]+)" y="[\d.]+" text-anchor="(start|end)"[^>]*font-size="11">([^<]*)<\/text>/g
+  return [...svg.matchAll(pattern)].map(match => ({
+    x: Number(match[1]),
+    anchor: match[2],
+    text: match[3],
+  }))
+}
+
+function annotationLabels(svg: string): string[] {
+  return annotationTexts(svg).map(label => label.text)
+}
+
+/** The dashed vertical rules -- one per annotated season, not per annotation. */
+function countAnnotationRules(svg: string): number {
+  return [...svg.matchAll(/stroke-dasharray="4 4"/g)].length
 }
 
 /**
