@@ -240,6 +240,28 @@ function isValidChartUrl(rawUrl: string, mcpUrl: string): boolean {
 }
 
 /**
+ * Validates a single mcp_tool_result as a render_chart success: not an error,
+ * JSON body with string `url`/`alt`, and a URL that passes isValidChartUrl.
+ * Shared by extractCharts (which chart(s) to surface to the user) and
+ * summarizeChartRequest (whether the request logged this turn actually
+ * produced one) so the two never disagree about what "rendered" means.
+ */
+function validateChartResult(block: Anthropic.Beta.Messages.BetaMCPToolResultBlock, mcpUrl: string): ChartInfo | null {
+  if (block.is_error) return null
+  try {
+    const parsed: unknown = JSON.parse(toolResultText(block.content))
+    const url = (parsed as { url?: unknown } | null)?.url
+    const alt = (parsed as { alt?: unknown } | null)?.alt
+    if (typeof url !== 'string' || typeof alt !== 'string') return null
+    if (!isValidChartUrl(url, mcpUrl)) return null
+    return { url, alt }
+  } catch (err) {
+    console.error('[claude] failed to parse render_chart tool result:', err instanceof Error ? err.message : err)
+    return null
+  }
+}
+
+/**
  * Extracts chart URLs from render_chart MCP tool calls, structurally rather
  * than by regex over the answer prose: collects mcp_tool_use blocks named
  * render_chart, maps their `id` to the matching mcp_tool_result by
@@ -265,20 +287,74 @@ function extractCharts(blocks: BetaContentBlock[], mcpUrl: string): ChartInfo[] 
     if (charts.length >= MAX_CHARTS_PER_ANSWER) break
     if (block.type !== 'mcp_tool_result') continue
     if (!chartToolUseIds.has(block.tool_use_id)) continue
-    if (block.is_error) continue
-
-    try {
-      const parsed: unknown = JSON.parse(toolResultText(block.content))
-      const url = (parsed as { url?: unknown } | null)?.url
-      const alt = (parsed as { alt?: unknown } | null)?.alt
-      if (typeof url !== 'string' || typeof alt !== 'string') continue
-      if (!isValidChartUrl(url, mcpUrl)) continue
-      charts.push({ url, alt })
-    } catch (err) {
-      console.error('[claude] failed to parse render_chart tool result:', err instanceof Error ? err.message : err)
-    }
+    const chart = validateChartResult(block, mcpUrl)
+    if (chart) charts.push(chart)
   }
   return charts
+}
+
+interface ChartRequestLog {
+  /** The `chart` id the model passed to render_chart, e.g. 'team-metric-trend'. */
+  chart: string
+  /** Only trend-shaped calls carry a metric ('team-playcalling' does not). */
+  chartMetric?: string
+  /** Count only -- never team names, per the no-user-text logging rule. */
+  chartTeamCount: number
+  /** Whether this call's result survived extractCharts's own validation --
+   * the most interesting failure mode, since it means the model tried to
+   * chart something and the user got nothing for it. */
+  chartRendered: boolean
+}
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return value !== null && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined
+}
+
+function readString(record: Record<string, unknown> | undefined, key: string): string | undefined {
+  const value = record?.[key]
+  return typeof value === 'string' ? value : undefined
+}
+
+/**
+ * Summarizes what this turn asked render_chart to do, for the structured log
+ * line only -- never used for chart selection itself (extractCharts already
+ * owns that). Reads the mcp_tool_use block's `input` directly: that's the
+ * model's actual arguments, ground truth even when the call's result errored
+ * or failed validation, unlike re-parsing a URL (which would miss exactly
+ * that failure case). `input` is `unknown` on the wire, so every field is
+ * narrowed defensively -- a malformed input must never throw out of here.
+ * Undefined when no render_chart call was made this turn, so callers can
+ * omit the log fields entirely in the common case.
+ */
+function summarizeChartRequest(blocks: BetaContentBlock[], mcpUrl: string): ChartRequestLog | undefined {
+  const call = blocks.find(
+    (block): block is Anthropic.Beta.Messages.BetaMCPToolUseBlock =>
+      block.type === 'mcp_tool_use' && block.name === RENDER_CHART_TOOL_NAME
+  )
+  if (!call) return undefined
+
+  const input = asRecord(call.input)
+  const teams = input?.teams
+  const teamCount = Array.isArray(teams)
+    ? teams.filter(team => typeof team === 'string').length
+    : typeof input?.team === 'string'
+      ? 1
+      : 0
+
+  let rendered = false
+  for (const block of blocks) {
+    if (block.type === 'mcp_tool_result' && block.tool_use_id === call.id) {
+      rendered = validateChartResult(block, mcpUrl) !== null
+      break
+    }
+  }
+
+  return {
+    chart: readString(input, 'chart') ?? 'unknown',
+    chartMetric: readString(input, 'metric'),
+    chartTeamCount: teamCount,
+    chartRendered: rendered,
+  }
 }
 
 function summarizeUsage(usage: Anthropic.Beta.Messages.BetaUsage): UsageSummary {
@@ -434,6 +510,7 @@ export async function askClaude(
   }
 
   const charts = extractCharts(chartBlocks, config.mcpUrl)
+  const chartRequest = summarizeChartRequest(chartBlocks, config.mcpUrl)
 
   if (text.length === 0) {
     // The caller shows a friendly "came back empty" reply; leave the reason in
@@ -443,10 +520,18 @@ export async function askClaude(
   }
 
   // One structured log line per question -- tier/usage only, no user text.
+  // chart/chartMetric/chartTeamCount/chartRendered are present only when a
+  // render_chart call happened this turn (chartMetric only when the call
+  // carried one); JSON.stringify drops undefined values, so the common
+  // no-chart case keeps this line at its original size.
   console.log(
     JSON.stringify({
       evt: 'llm', tier, escalated, model, ms: Date.now() - startedAt, usage,
       stop: stopReason, continuations,
+      chart: chartRequest?.chart,
+      chartMetric: chartRequest?.chartMetric,
+      chartTeamCount: chartRequest?.chartTeamCount,
+      chartRendered: chartRequest?.chartRendered,
     })
   )
 
