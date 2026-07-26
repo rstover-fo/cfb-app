@@ -40,6 +40,10 @@ export const CHART_TOKEN_NAMES = [
   '--color-negative',
   '--color-neutral',
   '--color-field-goal',
+  '--series-1',
+  '--series-2',
+  '--series-3',
+  '--series-4',
   '--heat-1',
   '--heat-2',
   '--heat-3',
@@ -81,6 +85,14 @@ const LIGHT: Record<ChartTokenName, string> = {
   '--color-neutral': '#6B635A',
   '--color-field-goal': '#5A7AC4',
 
+  // Categorical series ramp -- valence-free, and per-mode rather than
+  // theme-invariant so both the light card and #252019 clear 3:1 (see the
+  // globals.css comment for the measured numbers).
+  '--series-1': '#BF714F',
+  '--series-2': '#556CBA',
+  '--series-3': '#B16498',
+  '--series-4': '#378287',
+
   '--heat-1': '#D7B5B5',
   '--heat-2': '#E9D6D6',
   '--heat-3': '#E1E0DE',
@@ -118,6 +130,11 @@ const DARK: Record<ChartTokenName, string> = {
   '--text-muted': '#8A847A',
 
   '--border': '#3D362E',
+
+  '--series-1': '#C47C5C',
+  '--series-2': '#5F76BE',
+  '--series-3': '#B76F9F',
+  '--series-4': '#3B8C91',
 
   '--heat-1': '#523430',
   '--heat-2': '#3F2C26',
@@ -188,8 +205,48 @@ export interface ChartInk {
   negative: string
   neutral: string
   fieldGoal: string
+  /**
+   * `--series-1` .. `--series-4`, index 0..3. The categorical ramp: use this
+   * -- never the semantic `run`/`positive`/... fields -- when the colors
+   * separate N peer entities rather than encoding meaning.
+   */
+  series: readonly [string, string, string, string]
   /** `--heat-1` (worst) .. `--heat-5` (best), index 0..4. */
   heat: readonly [string, string, string, string, string]
+  /**
+   * Backing to lay under a team crest before drawing it, or `null` for "draw
+   * the crest straight onto the card".
+   *
+   * Dark mode only, and it is the LIGHT theme's `--bg-surface` -- the one place
+   * in this file where a value is deliberately read from the other mode.
+   *
+   * A crest is an input we do not control and cannot restyle: ESPN draws them
+   * for a white page, and spec §7 exempts raster imagery from being recoloured
+   * anyway. Measured against the dark card's `#252019` at full opacity, a third
+   * of a top-25 field is simply not there -- Ole Miss 1.01:1, Penn State
+   * 1.03:1, Texas A&M 1.03:1, Iowa 1.30:1, Alabama 2.04:1, Ohio State 2.40:1.
+   * The same crests on the light card run 6.75:1 to 21:1. Opacity is not the
+   * lever (raising it moves Penn State from 1.03 to 1.02), and neither is a
+   * halo or a stroke: both outline a solid navy blob and leave its interior --
+   * which is the whole problem -- untouched. Giving the crest its own paper is
+   * the only treatment that reaches the inside of the mark: `#FFFFFF` is
+   * 16.16:1 on the dark card, and every crest lands back at exactly the
+   * legibility it has in light mode, because it is sitting on exactly the same
+   * colour.
+   *
+   * `null` in light, where the crest is already on white: a disc there buys
+   * nothing and turns a scatter into a bubble chart. Per-mode divergence for
+   * the same class of reason `--series-1..4` diverge -- one value cannot serve
+   * both surfaces.
+   *
+   * `null` for `VAR_INK` too, and that is a real limit rather than an
+   * oversight: a `var()` reference resolves to whatever the live page's mode
+   * says, so the browser ink cannot express "the other mode's value" at all. No
+   * client chart draws crests today; the first one that does needs a concrete
+   * per-mode ink, which is what `useChartTheme`/`resolveColor` already hand the
+   * roughjs recipe.
+   */
+  crestPaper: string | null
   fontHeadline: string
   fontBody: string
 }
@@ -212,6 +269,7 @@ function inkFrom(lookup: (token: ChartTokenName) => string): ChartInk {
     negative: lookup('--color-negative'),
     neutral: lookup('--color-neutral'),
     fieldGoal: lookup('--color-field-goal'),
+    series: [lookup('--series-1'), lookup('--series-2'), lookup('--series-3'), lookup('--series-4')],
     heat: [
       lookup('--heat-1'),
       lookup('--heat-2'),
@@ -219,6 +277,8 @@ function inkFrom(lookup: (token: ChartTokenName) => string): ChartInk {
       lookup('--heat-4'),
       lookup('--heat-5'),
     ],
+    // No backing by default -- only the dark literal ink opts in, below.
+    crestPaper: null,
     fontHeadline: lookup('--font-headline'),
     fontBody: lookup('--font-body'),
   }
@@ -243,5 +303,12 @@ export function literalInk(theme: ChartThemeName = 'light'): ChartInk {
   // Colors become literal; so do fonts. resvg is given exactly two font files
   // and no system fonts, so a stack with fallbacks would be a lie -- hand it
   // the single family that is actually loaded (see `fontFamilyOf`).
-  return { ...ink, fontHeadline: CHART_FONT_FAMILY.headline, fontBody: CHART_FONT_FAMILY.body }
+  return {
+    ...ink,
+    // Read from LIGHT on purpose, in the dark ink -- see `ChartInk.crestPaper`.
+    // A token read, not a new colour: it is the light card's own surface.
+    crestPaper: theme === 'dark' ? LIGHT['--bg-surface'] : null,
+    fontHeadline: CHART_FONT_FAMILY.headline,
+    fontBody: CHART_FONT_FAMILY.body,
+  }
 }

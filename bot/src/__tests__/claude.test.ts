@@ -129,6 +129,40 @@ describe('askClaude request shape', () => {
     expect(text).toMatch(/max ~5 rows/)
   })
 
+  it('caps monospace block width for mobile, not just row count', async () => {
+    betaCreateMock.mockResolvedValueOnce(apiResponse('answer'))
+    await askClaude('anything')
+
+    const text = betaCreateMock.mock.calls[0]?.[0].system[0].text as string
+    // The live-server incident: a hand-built ASCII bar chart wrapped on mobile
+    // because the old rule only capped rows ("max ~5 rows"), never width. Discord
+    // doesn't horizontally scroll a code block on a phone -- it wraps, which
+    // destroys column alignment. The rule must name a concrete width cap.
+    expect(text).toMatch(/max ~32 characters/)
+    expect(text).toMatch(/per line/)
+    expect(text).toMatch(/does not horizontally scroll/)
+    expect(text).toMatch(/wraps/)
+  })
+
+  it('forbids hand-built ASCII/text charts when render_chart cannot help, without discouraging render_chart', async () => {
+    betaCreateMock.mockResolvedValueOnce(apiResponse('answer'))
+    await askClaude('anything')
+
+    const text = betaCreateMock.mock.calls[0]?.[0].system[0].text as string
+    // The live-server incident: asked for a decade-long two-team SP+ defense
+    // comparison, render_chart only supports one single-team single-season
+    // recipe, so the model improvised an ASCII bar chart -- which is precisely
+    // what wraps into illegible noise on mobile.
+    expect(text).toMatch(/do NOT hand-build a/)
+    expect(text).toMatch(/no ASCII bar charts/)
+    expect(text).toMatch(/block-character sparklines/)
+    expect(text).toMatch(/arrow\/scale art/)
+    // Must stay affirmative about calling render_chart when it CAN help --
+    // the failure mode to avoid is a model that stops trying to chart things.
+    expect(text).toMatch(/call it/)
+    expect(text).toMatch(/whenever it CAN show what was asked/)
+  })
+
   it('tells the model not to duplicate a chart as a monospace table', async () => {
     betaCreateMock.mockResolvedValueOnce(apiResponse('answer'))
     await askClaude('anything')
@@ -387,9 +421,14 @@ describe('askClaude escalation backstop', () => {
 // never by regex over the answer text -- see src/claude.ts's extractCharts.
 const CHART_URL = 'https://example.com/api/chart/team-playcalling.png?mode=light&season=2025&team=Oklahoma&sig=v1.abc123'
 
-function chartToolBlocks(toolUseId: string, resultJson: Record<string, unknown> | null, isError = false) {
+function chartToolBlocks(
+  toolUseId: string,
+  resultJson: Record<string, unknown> | null,
+  isError = false,
+  input: unknown = {}
+) {
   return [
-    { type: 'mcp_tool_use', id: toolUseId, name: 'render_chart', input: {}, server_name: 'cfb' },
+    { type: 'mcp_tool_use', id: toolUseId, name: 'render_chart', input, server_name: 'cfb' },
     {
       type: 'mcp_tool_result',
       tool_use_id: toolUseId,
@@ -569,5 +608,123 @@ describe('askClaude logging', () => {
     const parsed = JSON.parse(line as string)
     expect(parsed.escalated).toBe(true)
     expect(parsed.model).toBe('claude-opus-4-8')
+  })
+
+  // Chart usage is folded into the same line (never a second console.log) so
+  // that chart-shape counts can be derived from the existing per-question
+  // logs -- see summarizeChartRequest in claude.ts.
+  function loggedLlmLine(): Record<string, unknown> {
+    const line = logSpy.mock.calls
+      .map((call: unknown[]) => call[0])
+      .find((l: unknown): l is string => typeof l === 'string' && l.includes('"evt":"llm"'))
+    return JSON.parse(line as string) as Record<string, unknown>
+  }
+
+  it('includes chart fields, read structurally from the tool-use input, when render_chart was called and produced a chart', async () => {
+    betaCreateMock.mockResolvedValueOnce({
+      content: [
+        ...chartToolBlocks('t1', VALID_CHART_JSON, false, {
+          chart: 'team-metric-trend',
+          metric: 'wins',
+          teams: ['Oklahoma', 'Texas'],
+        }),
+        { type: 'text', text: 'Here you go.' },
+      ],
+      stop_reason: 'end_turn',
+      usage: { input_tokens: 1, output_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+    })
+
+    await askClaude('question')
+
+    const parsed = loggedLlmLine()
+    expect(parsed.chart).toBe('team-metric-trend')
+    expect(parsed.chartMetric).toBe('wins')
+    expect(parsed.chartTeamCount).toBe(2)
+    expect(parsed.chartRendered).toBe(true)
+  })
+
+  it('counts a single `team` field (team-playcalling shape) as one team and omits chartMetric', async () => {
+    betaCreateMock.mockResolvedValueOnce({
+      content: [
+        ...chartToolBlocks('t1', VALID_CHART_JSON, false, { chart: 'team-playcalling', team: 'Oklahoma' }),
+        { type: 'text', text: 'Here you go.' },
+      ],
+      stop_reason: 'end_turn',
+      usage: { input_tokens: 1, output_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+    })
+
+    await askClaude('question')
+
+    const parsed = loggedLlmLine()
+    expect(parsed.chart).toBe('team-playcalling')
+    expect(parsed.chartTeamCount).toBe(1)
+    expect('chartMetric' in parsed).toBe(false)
+  })
+
+  it('omits every chart field when no render_chart call was made this turn', async () => {
+    betaCreateMock.mockResolvedValueOnce(apiResponse('a plain answer'))
+
+    await askClaude('question')
+
+    const parsed = loggedLlmLine()
+    expect('chart' in parsed).toBe(false)
+    expect('chartMetric' in parsed).toBe(false)
+    expect('chartTeamCount' in parsed).toBe(false)
+    expect('chartRendered' in parsed).toBe(false)
+  })
+
+  it('logs chartRendered:false when render_chart was called but the result failed validation -- the interesting failure case', async () => {
+    betaCreateMock.mockResolvedValueOnce({
+      content: [
+        ...chartToolBlocks('t1', null, true, { chart: 'team-metric-trend', metric: 'wins', teams: ['Oklahoma'] }),
+        { type: 'text', text: 'Chart tool failed.' },
+      ],
+      stop_reason: 'end_turn',
+      usage: { input_tokens: 1, output_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+    })
+
+    await askClaude('question')
+
+    const parsed = loggedLlmLine()
+    expect(parsed.chart).toBe('team-metric-trend')
+    expect(parsed.chartRendered).toBe(false)
+  })
+
+  it('never throws on a malformed render_chart input and falls back to safe defaults', async () => {
+    const malformedInputs: unknown[] = ['not-an-object', null, 42, ['chart', 'team-metric-trend'], { teams: 'Oklahoma' }]
+
+    for (const input of malformedInputs) {
+      betaCreateMock.mockResolvedValueOnce({
+        content: [...chartToolBlocks('t1', VALID_CHART_JSON, false, input), { type: 'text', text: 'answer' }],
+        stop_reason: 'end_turn',
+        usage: { input_tokens: 1, output_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      })
+
+      await expect(askClaude('question')).resolves.toBeDefined()
+      const parsed = loggedLlmLine()
+      expect(parsed.chart).toBe('unknown')
+      expect(parsed.chartTeamCount).toBe(0)
+      expect('chartMetric' in parsed).toBe(false)
+    }
+  })
+
+  it('describes the rerun, not the discarded first run, after an [ESCALATE] -- consistent with chartBlocks reassignment', async () => {
+    betaCreateMock
+      .mockResolvedValueOnce({
+        content: [
+          ...chartToolBlocks('t1', VALID_CHART_JSON, false, { chart: 'team-metric-trend', metric: 'wins', teams: ['Oklahoma'] }),
+          { type: 'text', text: 'Partial.\n[ESCALATE]' },
+        ],
+        stop_reason: 'end_turn',
+        usage: { input_tokens: 1, output_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      })
+      .mockResolvedValueOnce(apiResponse('Advisor-grade answer, no chart this time.'))
+
+    await askClaude('question')
+
+    const parsed = loggedLlmLine()
+    expect(parsed.escalated).toBe(true)
+    expect('chart' in parsed).toBe(false)
+    expect('chartRendered' in parsed).toBe(false)
   })
 })

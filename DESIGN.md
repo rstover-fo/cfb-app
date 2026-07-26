@@ -151,6 +151,70 @@ Rules:
 - **Empty charts** render `EmptyState` inside `ChartFrame` behind an explicit null-guard
   predicate — never bare strings, bare `null`, or fake zero-data marks.
 
+## Server-rendered charts (`src/lib/charts/server/`)
+
+The Discord bot cannot run our client recipe, so `/api/chart/[chart].png` renders React to
+an SVG string and rasterizes it with resvg. Same editorial system, different constraints.
+`docs/chart-style-spec.md` §9 Gate E and its second pass are binding; this is the summary.
+
+- **Ink instead of `var()`.** `src/lib/charts/theme.ts` is `'use client'` and its
+  `resolveColor` returns `#999` with no `document` — it fails *silently grey*. Server
+  charts never touch it. They take a `ChartInk` (`src/lib/charts/tokens.ts`): `VAR_INK` for
+  the browser, `literalInk('light'|'dark')` for resvg, which bakes literal hex from a
+  DOM-free mirror of `globals.css`. The mirror is not a second source of truth —
+  `tokens.sync.test.ts` fails in both directions on drift, including hex letter-casing.
+  **Never write a hex into a server chart**; read it off the ink.
+- **resvg is SVG 1.1 static.** No custom properties, no stylesheets, no classes, only
+  partial `dominant-baseline`, and it fetches nothing. So: inline presentation attributes
+  only; every `<text>` states its own `font-family` and `font-size`; vertical centring is
+  an explicit `dy` via `centerDy()`; and every `<image href>` is a `data:` URI — a remote
+  href renders as a silent hole, and `expectResvgSafe` rejects one. Fonts are the two
+  vendored TTFs, named by `fontFamilyOf` so the family string cannot drift from the token.
+  **No Phosphor here** — there is no icon font in the rasterizer. A server chart's empty
+  state is `MetricEmptyCard`: masthead plus one sentence in the `EmptyState` voice.
+- **The `team-metric-*` family: shape is an id, not a parameter.** A signed chart URL is a
+  forever-API (Discord re-fetches after cache eviction, unauthenticated), so ids are cheap
+  to add and expensive to withdraw. Three today — `-trend` (lines), `-bars` (ranked rows),
+  `-scatter` (two axes, logo marks). Everything upstream of the picture is shared —
+  `metrics.ts` (the metric enum), `metricScale.ts` (domain + ticks), `metricCard.tsx`
+  (masthead, legend, series ink, empty state, missing-team note) — and a new shape costs a
+  renderer's worth of *geometry* and nothing else. Do not add an `orientation` prop or a
+  shared "plot area": a line's inverted axis and a bar's zero baseline are different ideas
+  that happen to share a rectangle.
+- **Every shape owes the reader a direction treatment, discharged per shape.** Half these
+  metrics are better when smaller. A **line** inverts its y-axis so up is better. A **bar**
+  cannot — its encoding is length from a baseline, and both available inversions would
+  misstate a quantity — so bars stay zero-anchored and move direction into *sort order*.
+  A **scatter** applies the line treatment per axis, so **top-right is always the good
+  corner**, whatever the pair. `axisIsReversed()` is the one predicate behind all three.
+  Each shape then *says so in words*, one step above footnote size in `--text-secondary`,
+  because a PNG has no hover to interrogate. State it **at most twice**, and only where
+  each statement carries something the other cannot (on a scatter: which axis reversed, on
+  the axis; which corner is good, in the note). A third is an echo — dropped at Gate E.
+- **`--series-1..4` by request order, never by rank.** `seriesInk()` is the only assigner,
+  so a team keeps its ink across every shape of the same request. Never the semantic set
+  (`--color-positive` on whoever placed third asserts a judgement the chart does not hold),
+  and never sort order (colour would become a redundant second encoding of rank).
+- **Canvas:** 700 wide, always. Height is per shape and grows with the legend. Type comes
+  from `CHART_FONT_SIZE`; the masthead headline is the one `--font-headline` slot and every
+  numeral on the card is DM Sans, same as the app.
+- **Logos are the §7 raster exemption**, never roughified or filtered. The route resolves
+  them to `data:` URIs (`src/lib/queries/teamLogos.ts`) and hands them to the renderer as
+  ordinary input — `renderChartSvg` is pure, and that purity is what makes the byte-hash
+  tests, the reviewable SVG snapshots and `Cache-Control: immutable` honest. A logo that
+  does not arrive draws a rough mark at the same position; never a hole. **Opacity mutes
+  somebody else's artwork, never our own ink** — `--text-muted` at 0.65 is under 3:1 in
+  both modes, so field opacity reaches the `<image>` and stops there.
+- **Dark mode needs a paper backing under crests.** ESPN crests are drawn for white, and
+  against `--bg-surface` dark a large minority of any real field sits at 1–2.5:1 at full
+  opacity — Penn State, Texas A&M, Ole Miss, Iowa, Alabama. The fix is a disc at the *light*
+  theme's `--bg-surface` under each mark, **in dark mode only**; per-mode divergence is
+  correct here because the inputs are asymmetric, exactly as `--series-*` already diverges.
+  (Ruled at Gate E second pass; landing.)
+- **Determinism is a contract, not a nicety.** No I/O, no clock, no unseeded randomness in
+  a renderer: `ROUGH_SEED` on every rough call, ties in any sort broken by name, and the
+  same spec must emit the same bytes.
+
 ## Component conventions
 
 - **Cards:** the `.card` class (1.5px `--border`, 3px radius, `--shadow-soft`,

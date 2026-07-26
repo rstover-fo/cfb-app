@@ -35,6 +35,10 @@ import { getLiveScoreboard } from '@/lib/queries/live'
 // the sole real import from the charts-server tree stays `./signing` below.
 import type { ChartId } from '@/lib/charts/server/svg'
 import { signChartUrl } from '@/lib/charts/server/signing'
+// trendMetrics.ts is a pure registry (no React, no roughjs, no Supabase), so
+// this one IS a value import: the tool needs the enum and the labels to build
+// its input schema and its alt text.
+import { METRICS, METRIC_IDS, type MetricId } from '@/lib/charts/metrics'
 import { getWepaLeaders, getUsageLeaders, getPlayerComparison, type WepaCategory } from '@/lib/queries/players'
 import { getConferenceComparison } from '@/lib/queries/conferences'
 import { getCoachingHistory } from '@/lib/queries/coaches'
@@ -893,6 +897,27 @@ const CHART_METADATA: Record<ChartId, { width: number; height: number; descripti
     description:
       'run/pass play-call split by situation (overall, early downs, 3rd down, red zone, leading vs trailing)',
   },
+  'team-metric-trend': {
+    width: 700,
+    height: 400,
+    description: 'one metric plotted season by season, as hand-drawn lines',
+  },
+  'team-metric-bars': {
+    width: 700,
+    // Grows with the row count (1-4 teams); this is the four-team card, which
+    // is what the model should assume when it sizes an embed.
+    height: 366,
+    description: 'one metric for one season, as ranked hand-drawn bars',
+  },
+  'team-metric-scatter': {
+    width: 700,
+    // Grows with the legend (0-4 highlighted teams); this is the four-team
+    // card, the tallest one a caller can ask for.
+    height: 550,
+    description:
+      'two metrics plotted against each other for one season, as team logos across a ~25-team field, ' +
+      'with named teams highlighted (top-right is always the good corner)',
+  },
 }
 
 // z.enum() needs a real, non-empty tuple of string literals -- Object.keys()
@@ -902,19 +927,257 @@ const RENDER_CHART_IDS = Object.keys(CHART_METADATA) as [ChartId, ...ChartId[]]
 
 export interface RenderChartArgs {
   chart: ChartId
-  team: string
+  /** team-playcalling. Also accepted as a one-team shorthand for team-metric-*. */
+  team?: string
+  /** team-playcalling and team-metric-bars: the single season to draw. */
   season?: number
+  /** team-metric-*: 1-4 teams. Readonly so an `as const` literal fits. */
+  teams?: readonly string[]
+  /** team-metric-*: which column to plot. */
+  metric?: MetricId
+  /** team-metric-scatter: the horizontal metric. */
+  x?: MetricId
+  /** team-metric-scatter: the vertical metric. */
+  y?: MetricId
+  /** team-metric-scatter: which metric picks the ~25-team field. Defaults to sp_rating. */
+  rank_by?: MetricId
+  /** team-metric-trend: first season, inclusive. */
+  from?: number
+  /** team-metric-trend: last season, inclusive. */
+  to?: number
+  /** team-metric-trend: dated events drawn as vertical rules. */
+  annotations?: ReadonlyArray<{ season: number; label: string }>
   mode?: 'light' | 'dark'
 }
 
-export async function renderChartTool(args: RenderChartArgs): Promise<string> {
+/** A minted request, or the sentence to say instead of minting one. */
+type ChartRequest = { params: Record<string, string | number>; alt: string } | { guidance: string }
+
+/** Default span when a caller names a metric but no seasons: the last decade. */
+const TREND_DEFAULT_SPAN = 10
+/** Mirrors the route's `.strict()` schema so a minted URL never 400s. */
+const METRIC_MAX_TEAMS = 4
+const TREND_MAX_SPAN = 40
+const METRIC_MIN_SEASON = 1950
+const TREND_MAX_ANNOTATIONS = 3
+const TREND_MAX_ANNOTATION_LABEL = 40
+/** Mirrors the route schema's `rankBy` default -- the two must agree exactly. */
+const SCATTER_DEFAULT_RANK_BY: MetricId = 'sp_rating'
+
+/**
+ * Team-list normalization shared by every `team-metric-*` shape.
+ *
+ * Dedupes while preserving the order the caller named them: that order decides
+ * series colors AND the URL, so the same request always mints the same
+ * cacheable URL. Over the cap it refuses rather than truncating -- a dropped
+ * team is a wrong answer that looks like a right one.
+ */
+function metricTeams(args: RenderChartArgs, chart: string): { teams: string[] } | { guidance: string } {
+  const requested = (args.teams ?? (args.team ? [args.team] : [])).map(team => team.trim()).filter(Boolean)
+  const teams = [...new Set(requested)]
+
+  if (teams.length === 0) {
+    return { guidance: `chart='${chart}' needs \`teams\`, e.g. teams=['Oklahoma', 'Clemson'].` }
+  }
+  if (teams.length > METRIC_MAX_TEAMS) {
+    return {
+      guidance:
+        `render_chart plots at most ${METRIC_MAX_TEAMS} teams on one chart (asked for ${teams.length}). ` +
+        'Pick the most important ones, or render more than one chart across separate answers.',
+    }
+  }
+  return { teams }
+}
+
+/** The metric guard, shared for the same reason as `metricTeams`. */
+function metricChoice(args: RenderChartArgs, chart: string): { metric: MetricId } | { guidance: string } {
+  const metric = args.metric
+  if (!metric || !(metric in METRICS)) {
+    return {
+      guidance:
+        `chart='${chart}' needs a \`metric\` from: ${METRIC_IDS.join(', ')}. ` +
+        'Pick the closest one -- there is no free-text metric.',
+    }
+  }
+  return { metric }
+}
+
+function playcallingRequest(args: RenderChartArgs): ChartRequest {
+  const team = args.team?.trim()
+  if (!team) return { guidance: "chart='team-playcalling' needs a `team`, e.g. team='Oklahoma'." }
+
   const season = args.season ?? CURRENT_SEASON
-  const mode = args.mode ?? 'light'
+  return {
+    params: { team, season, mode: args.mode ?? 'light' },
+    alt: `${team} -- ${CHART_METADATA['team-playcalling'].description} (${season})`,
+  }
+}
+
+/**
+ * Builds the trend request, validating exactly what the route's schema
+ * validates. Minting a URL the route will 400 is worse than answering in
+ * text: in Discord a 400 is a broken-image icon with no explanation, while a
+ * sentence back to the model gets the next call right.
+ */
+function trendRequest(args: RenderChartArgs): ChartRequest {
+  const chosen = metricChoice(args, 'team-metric-trend')
+  if ('guidance' in chosen) return chosen
+  const { metric } = chosen
+
+  const named = metricTeams(args, 'team-metric-trend')
+  if ('guidance' in named) return named
+  const { teams } = named
+
+  const to = args.to ?? CURRENT_SEASON
+  const from = args.from ?? to - (TREND_DEFAULT_SPAN - 1)
+  if (!Number.isInteger(from) || !Number.isInteger(to) || from < METRIC_MIN_SEASON || to > CURRENT_SEASON + 5) {
+    return { guidance: `Seasons must be whole years between ${METRIC_MIN_SEASON} and ${CURRENT_SEASON}.` }
+  }
+  if (to < from) return { guidance: '`to` must be the same season as `from` or later.' }
+  if (to - from >= TREND_MAX_SPAN) {
+    return { guidance: `A trend chart covers at most ${TREND_MAX_SPAN} seasons; narrow the range.` }
+  }
+
+  // `:` and `|` are the annotation encoding's own separators, so they are
+  // stripped rather than escaped -- a label is a short human phrase.
+  const annotations = (args.annotations ?? [])
+    .filter(a => Number.isInteger(a.season) && a.season >= from && a.season <= to && a.label.trim())
+    .slice(0, TREND_MAX_ANNOTATIONS)
+    .map(a => `${a.season}:${a.label.replace(/[|:]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, TREND_MAX_ANNOTATION_LABEL)}`)
+
+  const meta = METRICS[metric]
+  const range = from === to ? `${from}` : `${from}-${to}`
+
+  return {
+    params: {
+      metric,
+      teams: teams.join(','),
+      from,
+      to,
+      mode: args.mode ?? 'light',
+      ...(annotations.length > 0 ? { annotations: annotations.join('|') } : {}),
+    },
+    alt: `${teams.join(' vs ')} -- ${meta.blurb} by season, ${range}`,
+  }
+}
+
+/**
+ * The bars request. Same registry, same teams, same never-mint-a-400 rule --
+ * one `season` instead of a range, and no annotations (there is no time axis
+ * to mark, and the route's `.strict()` would reject one).
+ */
+function barsRequest(args: RenderChartArgs): ChartRequest {
+  const chosen = metricChoice(args, 'team-metric-bars')
+  if ('guidance' in chosen) return chosen
+  const { metric } = chosen
+
+  const named = metricTeams(args, 'team-metric-bars')
+  if ('guidance' in named) return named
+  const { teams } = named
+
+  const season = args.season ?? CURRENT_SEASON
+  if (!Number.isInteger(season) || season < METRIC_MIN_SEASON || season > CURRENT_SEASON + 5) {
+    return { guidance: `\`season\` must be a whole year between ${METRIC_MIN_SEASON} and ${CURRENT_SEASON}.` }
+  }
+
+  const meta = METRICS[metric]
+  return {
+    params: { metric, teams: teams.join(','), season, mode: args.mode ?? 'light' },
+    alt: `${teams.join(' vs ')} -- ${meta.blurb}, ${season}, ranked best first`,
+  }
+}
+
+/**
+ * The scatter request.
+ *
+ * Two differences from its siblings, both of which the route's schema enforces
+ * and this therefore has to enforce identically or it mints a URL that 400s:
+ *
+ * - two metrics, which must differ. `metric` is accepted as a shorthand for
+ *   `x` so a model that reaches for the family's usual param name gets a chart
+ *   rather than a lecture, but it still has to name the other axis;
+ * - `teams` is OPTIONAL. Named teams are highlighted against the field, not the
+ *   whole chart, so a scatter with none is a legitimate picture of the season.
+ *   `rank_by` chooses the field and is left off the URL when it is the default,
+ *   so the common request keeps the shortest, most cacheable URL.
+ */
+function scatterRequest(args: RenderChartArgs): ChartRequest {
+  const x = args.x ?? args.metric
+  const y = args.y
+  if (!x || !(x in METRICS) || !y || !(y in METRICS)) {
+    return {
+      guidance:
+        `chart='team-metric-scatter' needs two metrics, \`x\` and \`y\`, from: ${METRIC_IDS.join(', ')}. ` +
+        "For example x='sp_offense', y='sp_defense'.",
+    }
+  }
+  if (x === y) {
+    return {
+      guidance:
+        'A scatter needs two DIFFERENT metrics -- a metric against itself is just a diagonal line. ' +
+        "Try x='sp_offense', y='sp_defense'.",
+    }
+  }
+
+  const rankBy = args.rank_by ?? SCATTER_DEFAULT_RANK_BY
+  if (!(rankBy in METRICS)) {
+    return { guidance: `\`rank_by\` must be one of: ${METRIC_IDS.join(', ')}.` }
+  }
+
+  // Optional here, unlike every other shape -- so this deliberately does NOT
+  // go through `metricTeams`, whose contract is "no teams is a mistake".
+  const requested = (args.teams ?? (args.team ? [args.team] : [])).map(team => team.trim()).filter(Boolean)
+  const teams = [...new Set(requested)]
+  if (teams.length > METRIC_MAX_TEAMS) {
+    return {
+      guidance:
+        `render_chart highlights at most ${METRIC_MAX_TEAMS} teams on one scatter (asked for ${teams.length}). ` +
+        'The rest of the field is drawn anyway -- pick the ones the answer is actually about.',
+    }
+  }
+
+  const season = args.season ?? CURRENT_SEASON
+  if (!Number.isInteger(season) || season < METRIC_MIN_SEASON || season > CURRENT_SEASON + 5) {
+    return { guidance: `\`season\` must be a whole year between ${METRIC_MIN_SEASON} and ${CURRENT_SEASON}.` }
+  }
+
+  const subject = teams.length > 0 ? `${teams.join(' and ')} against the ${season} field` : `the ${season} field`
+  return {
+    params: {
+      x,
+      y,
+      season,
+      mode: args.mode ?? 'light',
+      ...(rankBy === SCATTER_DEFAULT_RANK_BY ? {} : { rankBy }),
+      ...(teams.length > 0 ? { teams: teams.join(',') } : {}),
+    },
+    alt: `${subject} -- ${METRICS[y].blurb} against ${METRICS[x].blurb}, top-right is best`,
+  }
+}
+
+/** Which builder answers for which id. Exhaustive over `ChartId` by construction. */
+const CHART_REQUEST_BUILDERS: Record<ChartId, (args: RenderChartArgs) => ChartRequest> = {
+  'team-playcalling': playcallingRequest,
+  'team-metric-trend': trendRequest,
+  'team-metric-bars': barsRequest,
+  'team-metric-scatter': scatterRequest,
+}
+
+export async function renderChartTool(args: RenderChartArgs): Promise<string> {
   const meta = CHART_METADATA[args.chart]
+  const build = CHART_REQUEST_BUILDERS[args.chart]
+  // Typed as a ChartId, but this tool's contract is that it never throws --
+  // and a model can send anything down an MCP transport.
+  if (!meta || !build) {
+    return `Unknown chart '${args.chart}'. Available charts: ${RENDER_CHART_IDS.join(', ')}.`
+  }
+
+  const request = build(args)
+  if ('guidance' in request) return request.guidance
 
   let url: string
   try {
-    url = signChartUrl(args.chart, { team: args.team, season, mode })
+    url = signChartUrl(args.chart, request.params)
   } catch {
     // signChartUrl throws when CHART_SIGNING_SECRET is unset; it also calls
     // chartBaseUrl() internally, which throws when no base URL is
@@ -928,15 +1191,17 @@ export async function renderChartTool(args: RenderChartArgs): Promise<string> {
     _source: 'chart-renderer',
     chart: args.chart,
     url,
-    alt: `${args.team} -- ${meta.description} (${season})`,
+    alt: request.alt,
     width: meta.width,
     height: meta.height,
     usage:
       'Post this URL on its own line in your reply so it renders as an image -- do not wrap it in ' +
       'markdown link syntax or describe it as a hyperlink. This tool never queries the database and ' +
       'this response carries no numbers, so also call the matching data tool (e.g. ' +
-      "get_playcalling_profile for chart='team-playcalling') and state the key figures in prose -- " +
-      'the chart supplements the numbers, it does not replace them. Include at most one chart per answer.',
+      "get_playcalling_profile for chart='team-playcalling', query_team for " +
+      "chart='team-metric-trend' and chart='team-metric-bars') and state the key figures in prose -- " +
+      'the chart supplements the numbers, it does not replace them. Include at most one chart per answer. ' +
+      "For chart='team-metric-scatter', get_leaderboard or query_team gives the figures behind the field.",
   })
 }
 
@@ -1625,7 +1890,9 @@ export function registerMcpTools(server: McpServer): void {
         "season_type is 'regular' or 'postseason'.\n" +
         'Core views (key columns):\n' +
         '- api.team_detail: school, conference, wins, losses, ppg, opp_ppg, sp_rating, sp_rank, elo, fpi, epa_per_play, recruiting_rank (current season, FBS only)\n' +
-        '- api.team_history: school (column: team), season, wins, losses, sp_rating, sp_rank -- one row per team-season\n' +
+        '- api.team_history: school (column: team), season, wins, losses, ppg, opp_ppg, avg_margin,\n' +
+        '  sp_rating, sp_rank, sp_offense, sp_defense (lower sp_defense is better), elo, fpi,\n' +
+        '  epa_per_play, success_rate, explosiveness, recruiting_rank -- one row per team-season\n' +
         '- api.game_detail: game_id, season, week, season_type, start_date, completed, home_team, away_team, home_points, away_points, winner, point_diff, home_spread, venue\n' +
         '- api.team_elo: team, season, season_end_elo, elo_rank, games_played -- one row per team-season\n' +
         '- api.game_elo_history: per-game pregame/postgame elo for both teams, win_prob, margin errors.\n' +
@@ -1808,33 +2075,143 @@ export function registerMcpTools(server: McpServer): void {
         'with nothing to chart, still returns a valid URL, and the image itself renders a friendly ' +
         'empty-state card rather than a broken link. Because this tool never touches the database, ' +
         'ALWAYS also call the matching data tool for the actual figures (e.g. get_playcalling_profile ' +
-        "for chart='team-playcalling') -- this tool's response carries a URL and a usage note, never " +
-        "the chart's underlying numbers. Currently supports: 'team-playcalling' (a team's run/pass " +
-        'play-call split by situation -- overall, early downs, 3rd down, red zone, leading vs trailing ' +
-        '-- as diverging hand-drawn bars; backed by the same api.team_playcalling_profile view as ' +
-        'get_playcalling_profile). Post the returned URL on its own line in the reply so it renders as ' +
+        "for chart='team-playcalling', query_team for the team-metric-* charts) -- this tool's " +
+        "response carries a URL and a usage note, never the chart's underlying numbers.\n\n" +
+        'CHARTS:\n' +
+        "- 'team-metric-trend' -- ONE metric plotted season by season for 1-4 teams, as hand-drawn " +
+        'lines. Reach for it for any "over time", "since 20xx", "last decade", "trend", "trajectory", ' +
+        'or "team A vs team B historically" question. Needs `metric` and `teams`; `from`/`to` default ' +
+        'to the last ten seasons. Metrics where smaller is better (sp_defense, sp_rank, losses, ' +
+        'opp_ppg, recruiting_rank) are drawn on an inverted axis so better is always up, and the ' +
+        'chart says so. Optional `annotations` mark a season with a labelled vertical rule (e.g. a ' +
+        'coaching change).\n' +
+        "- 'team-metric-bars' -- the SAME metric enum for 1-4 teams in ONE season, as ranked " +
+        'horizontal bars. Reach for it when the question is "who is best/worst right now", "compare ' +
+        'these teams this season", or any single-season comparison across teams -- a line chart of ' +
+        'one season is a dot. Needs `metric` and `teams`; `season` defaults to the current one. Rows ' +
+        'are always sorted best-first whichever way the metric runs, and the chart states which end ' +
+        'is good.\n' +
+        "- 'team-metric-scatter' -- TWO metrics plotted against each other for ONE season, as team " +
+        'logos across roughly the top 25 of that season. Reach for it when the question relates two ' +
+        'different things ("offense vs defense", "does recruiting buy wins", "who is efficient AND ' +
+        'explosive") or asks where a team sits in the wider landscape rather than against a handful ' +
+        'of named rivals. Needs `x` and `y` (two DIFFERENT metrics); `season` defaults to the current ' +
+        'one, `rank_by` (which metric picks the 25) defaults to sp_rating. `teams` is OPTIONAL here ' +
+        'and highlights those teams against the field -- a named team outside the top 25 is drawn ' +
+        'anyway, with its placing. The top-right corner is ALWAYS the good one: an axis whose metric ' +
+        'is better when smaller is drawn reversed, and the chart says so.\n' +
+        'All three team-metric-* charts share one fixed metric enum ' +
+        `(${METRIC_IDS.join(', ')}) mapped to real api.team_history columns -- pick the closest one ` +
+        'rather than inventing a name.\n' +
+        "- 'team-playcalling' -- one team's run/pass play-call split by situation (overall, early " +
+        'downs, 3rd down, red zone, leading vs trailing) as diverging hand-drawn bars, for a single ' +
+        'season; backed by the same api.team_playcalling_profile view as get_playcalling_profile. ' +
+        'Needs `team`, optionally `season`.\n\n' +
+        'Post the returned URL on its own line in the reply so it renders as ' +
         'an image, and still state the key numbers in prose alongside it; include at most one chart per ' +
         'answer. Returns JSON {"_source": "chart-renderer", "chart", "url", "alt", "width", "height", ' +
-        '"usage"}, or a plain "Chart rendering is not configured on this deployment..." string if the ' +
-        'deployment is missing required signing configuration -- in that case just answer in text.',
+        '"usage"}, a short sentence explaining what is missing if the arguments do not describe a ' +
+        'chart (e.g. no metric, or more than four teams), or a plain "Chart rendering is not configured ' +
+        'on this deployment..." string if the deployment is missing required signing configuration -- ' +
+        'in either case just answer in text and, for the former, fix the arguments if a chart still helps.',
       inputSchema: {
         chart: z
           .enum(RENDER_CHART_IDS)
           .describe(
-            "Which chart to render. 'team-playcalling' is the only chart currently available: a run/pass " +
-              'play-call split by situation for one team/season, backed by api.team_playcalling_profile.'
+            "Which chart to render. 'team-metric-trend' for a metric across multiple seasons; " +
+              "'team-metric-bars' for the same metric compared across teams within ONE season; " +
+              "'team-metric-scatter' for TWO metrics against each other across a whole season's " +
+              "field; 'team-playcalling' for one team's single-season run/pass situational split."
           ),
         team: z
           .string()
+          .optional()
           .describe(
-            "Exact school name as used by CFBD, e.g. 'Oklahoma', 'Ohio State', 'Texas A&M'. This is an " +
-              'exact, case-sensitive match, not a fuzzy search.'
+            "Required for chart='team-playcalling': exact school name as used by CFBD, e.g. 'Oklahoma', " +
+              "'Ohio State', 'Texas A&M'. Exact, case-sensitive -- not a fuzzy search. Also accepted as a " +
+              'one-team shorthand for the team-metric-* charts.'
           ),
         season: z
           .number()
           .int()
           .optional()
-          .describe(`Season year, e.g. 2024. Defaults to the current season (${CURRENT_SEASON}) if omitted.`),
+          .describe(
+            "The single season to draw, for chart='team-playcalling', chart='team-metric-bars' and " +
+              `chart='team-metric-scatter', e.g. 2024. Defaults to the current season ` +
+              `(${CURRENT_SEASON}) if omitted. Use from/to for chart='team-metric-trend' instead.`
+          ),
+        teams: z
+          .array(z.string())
+          .optional()
+          .describe(
+            "For the team-metric-* charts: 1 to 4 exact school names, e.g. ['Oklahoma', 'Clemson']. " +
+              "The order given decides each team's color (and, on the trend chart, its marker); the " +
+              'bars chart additionally sorts its rows best-first. More than four is refused rather ' +
+              'than truncated -- a dropped team would be a wrong answer. Required for the trend and ' +
+              "bars charts; OPTIONAL for chart='team-metric-scatter', where it highlights teams " +
+              'against the season field rather than being the whole chart.'
+          ),
+        metric: z
+          .enum(METRIC_IDS)
+          .optional()
+          .describe(
+            'Required for chart=\'team-metric-trend\' and chart=\'team-metric-bars\': which ' +
+              'api.team_history column to plot. ' +
+              METRIC_IDS.map(id => `${id} (${METRICS[id].blurb})`).join('; ') +
+              ". For chart='team-metric-scatter' use x and y instead."
+          ),
+        x: z
+          .enum(METRIC_IDS)
+          .optional()
+          .describe(
+            "Required for chart='team-metric-scatter': the horizontal metric, from the same enum as " +
+              "`metric`. Must differ from `y`. The axis is drawn reversed when smaller is better, so " +
+              'the right-hand side is always the good side.'
+          ),
+        y: z
+          .enum(METRIC_IDS)
+          .optional()
+          .describe(
+            "Required for chart='team-metric-scatter': the vertical metric, from the same enum as " +
+              '`metric`. Must differ from `x`. The axis is drawn reversed when smaller is better, so ' +
+              'the top is always the good side.'
+          ),
+        rank_by: z
+          .enum(METRIC_IDS)
+          .optional()
+          .describe(
+            "For chart='team-metric-scatter': which metric chooses the ~25 teams drawn as the field. " +
+              "Defaults to sp_rating (the closest thing to an overall 'top 25'). Teams named in " +
+              '`teams` are always drawn, even when they fall outside it.'
+          ),
+        from: z
+          .number()
+          .int()
+          .optional()
+          .describe(
+            "First season, inclusive, for chart='team-metric-trend'. Defaults to nine seasons before " +
+              '`to`, i.e. the last decade. At most 40 seasons per chart.'
+          ),
+        to: z
+          .number()
+          .int()
+          .optional()
+          .describe(
+            `Last season, inclusive, for chart='team-metric-trend'. Defaults to the current season (${CURRENT_SEASON}).`
+          ),
+        annotations: z
+          .array(
+            z.object({
+              season: z.number().int().describe('Season the event belongs to, e.g. 2022.'),
+              label: z.string().describe("Short phrase, e.g. 'Venables hired'. Max 40 characters."),
+            })
+          )
+          .optional()
+          .describe(
+            "For chart='team-metric-trend': up to 3 dated events, each drawn as a labelled vertical " +
+              'rule. Use for coaching changes, conference moves, or a rule change worth marking. ' +
+              'Annotations outside the season range are dropped.'
+          ),
         mode: z
           .enum(['light', 'dark'])
           .optional()

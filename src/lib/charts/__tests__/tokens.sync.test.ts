@@ -18,7 +18,7 @@
 import { describe, it, expect } from 'vitest'
 import fs from 'node:fs'
 import path from 'node:path'
-import { CHART_TOKENS, CHART_TOKEN_NAMES, CHART_FONT_FAMILY, fontFamilyOf } from '../tokens'
+import { CHART_TOKENS, CHART_TOKEN_NAMES, CHART_FONT_FAMILY, VAR_INK, fontFamilyOf, literalInk } from '../tokens'
 
 const CSS_PATH = path.join(process.cwd(), 'src', 'app', 'globals.css')
 const css = fs.readFileSync(CSS_PATH, 'utf8')
@@ -137,6 +137,118 @@ describe('no chart-relevant token is missing from tokens.ts', () => {
   it('never allowlists a token it also mirrors', () => {
     const both = [...NON_CHART_TOKENS].filter(t => mirrored.has(t))
     expect(both).toEqual([])
+  })
+})
+
+/**
+ * WCAG 2.x relative luminance, then the 1.4.11 contrast ratio. Inlined rather
+ * than pulled from a dependency so the numbers the design gate was given are
+ * reproducible from this repo alone.
+ */
+function relativeLuminance(hex: string): number {
+  const n = parseInt(hex.slice(1), 16)
+  const channel = (v: number): number => {
+    const c = v / 255
+    return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4
+  }
+  return 0.2126 * channel((n >> 16) & 255) + 0.7152 * channel((n >> 8) & 255) + 0.0722 * channel(n & 255)
+}
+
+function contrastRatio(a: string, b: string): number {
+  const [hi, lo] = [relativeLuminance(a), relativeLuminance(b)].sort((x, y) => y - x)
+  return (hi + 0.05) / (lo + 0.05)
+}
+
+describe('categorical series ramp contrast', () => {
+  // Both card surfaces a chart can land on. The ramp exists because the
+  // theme-invariant `--color-*` set could not clear the dark one: `--color-pass`
+  // measured 2.46:1 there, which is why a peer series receded in dark mode.
+  const SURFACES = { light: '#FFFFFF', dark: '#252019' } as const
+  const SERIES = ['--series-1', '--series-2', '--series-3', '--series-4'] as const
+
+  it('sanity-checks the ratio helper against known pairs', () => {
+    expect(contrastRatio('#000000', '#FFFFFF')).toBeCloseTo(21, 5)
+    expect(contrastRatio('#FFFFFF', '#FFFFFF')).toBeCloseTo(1, 5)
+    // The measurement that made the ramp blocking in the first place.
+    expect(contrastRatio('#5C5A7A', SURFACES.dark)).toBeCloseTo(2.46, 2)
+  })
+
+  for (const mode of ['light', 'dark'] as const) {
+    for (const token of SERIES) {
+      // Every value clears 3:1 against BOTH surfaces, not just its own mode's.
+      // A chart rendered light and viewed on a dark page (or vice versa via a
+      // stale cached PNG) then still meets 1.4.11 for non-text.
+      it.each(Object.entries(SURFACES))(`${mode} ${token} clears 3:1 on the %s surface`, (_name, surface) => {
+        expect(contrastRatio(CHART_TOKENS[mode][token], surface)).toBeGreaterThanOrEqual(3)
+      })
+    }
+  }
+
+  it('keeps --series-1 on the --color-run hue so the signature accent leads', () => {
+    const hueOf = (hex: string): number => {
+      const n = parseInt(hex.slice(1), 16)
+      const [r, g, b] = [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255]
+      const [mx, mn] = [Math.max(r, g, b), Math.min(r, g, b)]
+      const d = mx - mn
+      if (d === 0) return 0
+      const h = mx === r ? 60 * (((g - b) / d) % 6) : mx === g ? 60 * ((b - r) / d + 2) : 60 * ((r - g) / d + 4)
+      return (h + 360) % 360
+    }
+    const runHue = hueOf(CHART_TOKENS.light['--color-run'])
+    for (const mode of ['light', 'dark'] as const) {
+      expect(Math.abs(hueOf(CHART_TOKENS[mode]['--series-1']) - runHue)).toBeLessThan(4)
+    }
+  })
+
+  it('varies the ramp per mode -- a single set cannot serve both surfaces well', () => {
+    for (const token of SERIES) {
+      expect(CHART_TOKENS.dark[token]).not.toBe(CHART_TOKENS.light[token])
+    }
+  })
+})
+
+describe('crest paper', () => {
+  // The backing laid under a team crest in dark mode. A crest is an input we do
+  // not control -- ESPN draws them for a white page -- so the fix is to give it
+  // the page it was drawn for rather than to restyle artwork we may not touch
+  // (spec §7). Guarded here rather than only in the scatter's tests because the
+  // value is a cross-mode token read, and that is this file's subject.
+  const dark = literalInk('dark')
+
+  it('is the light card\'s own surface, not a colour invented for the purpose', () => {
+    expect(dark.crestPaper).toBe(CHART_TOKENS.light['--bg-surface'])
+    expect(dark.crestPaper).not.toBe(CHART_TOKENS.dark['--bg-surface'])
+  })
+
+  it('clears the dark card by the margin the treatment was ruled on', () => {
+    expect(contrastRatio(dark.crestPaper!, CHART_TOKENS.dark['--bg-surface'])).toBeCloseTo(16.16, 2)
+  })
+
+  it('exists because opacity could not reach the problem', () => {
+    // The measurements that made this blocking: at FULL opacity, on the dark
+    // card, these crests are not visible at all. Raising `FIELD_OPACITY` moves
+    // Penn State from 1.03 to 1.02 -- there is nothing for a dial to do here.
+    // On the light card -- and so, now, on the paper -- the same crests run
+    // 6.75:1 to 21:1.
+    const CRESTS = {
+      'Ole Miss navy': '#14213D',
+      'Penn State navy': '#041E42',
+      'Iowa black': '#000000',
+      'Ohio State scarlet': '#BB0000',
+    }
+    for (const crest of Object.values(CRESTS)) {
+      expect(contrastRatio(crest, CHART_TOKENS.dark['--bg-surface'])).toBeLessThan(3)
+      expect(contrastRatio(crest, dark.crestPaper!)).toBeGreaterThan(6)
+    }
+  })
+
+  it('draws nothing in light, where the crest is already on white', () => {
+    // A disc on the light card buys nothing and reads as a bubble chart, which
+    // in a shape that encodes position and size is a claim it must not make.
+    expect(literalInk('light').crestPaper).toBeNull()
+    // The browser ink cannot express "the other mode's value" through a
+    // `var()` at all -- see the field's doc comment.
+    expect(VAR_INK.crestPaper).toBeNull()
   })
 })
 

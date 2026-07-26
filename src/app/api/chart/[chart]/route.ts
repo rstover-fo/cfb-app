@@ -2,6 +2,14 @@
  * Chart image endpoint: signed URL in, PNG out.
  *
  *   /api/chart/team-playcalling.png?team=Oklahoma&season=2026&mode=light&sig=v1.<22ch>
+ *   /api/chart/team-metric-trend.png?from=2015&metric=sp_defense&teams=Oklahoma,Clemson&to=2025&mode=light&sig=v1.<22ch>
+ *   /api/chart/team-metric-bars.png?metric=sp_defense&season=2025&teams=Oklahoma,Texas&mode=light&sig=v1.<22ch>
+ *   /api/chart/team-metric-scatter.png?x=sp_offense&y=sp_defense&season=2025&teams=Oklahoma,Texas&mode=light&sig=v1.<22ch>
+ *
+ * The caller sends a *spec* -- which metric, which teams, which seasons -- and
+ * this route runs the query. Data series never travel in the URL: the URL has
+ * to stay short, permanent and signable, because Discord's media proxy
+ * re-fetches it on cache eviction and cannot send an auth header.
  *
  * Serves the server-rendered roughjs charts from `src/lib/charts/server` to
  * Discord, which embeds the URL and fetches it through its own media proxy.
@@ -45,11 +53,23 @@
  */
 import { z } from 'zod'
 import { isChartId, renderChartPng, type ChartId, type ChartSpec } from '@/lib/charts/server'
+import type { TrendAnnotation } from '@/lib/charts/server/teamMetricTrend'
 import { checkChartRateLimit, rateLimitKey } from '@/lib/charts/server/rateLimit'
 import { verifyChartSignature } from '@/lib/charts/server/signing'
 import type { ChartThemeName } from '@/lib/charts/tokens'
+import { METRICS, METRIC_IDS, type MetricId } from '@/lib/charts/metrics'
 import { CURRENT_SEASON } from '@/lib/queries/constants'
 import { getPlaycallingProfile } from '@/lib/queries/playcalling'
+import { getTeamLogoDataUris } from '@/lib/queries/teamLogos'
+import {
+  getTeamMetricField,
+  getTeamMetricHistory,
+  getTeamMetricSeason,
+  MAX_METRIC_TEAMS,
+  MAX_TREND_SPAN,
+  METRIC_FIELD_SIZE,
+  MIN_METRIC_SEASON,
+} from '@/lib/queries/teamMetric'
 
 // Node runtime, not edge: rasterization goes through the native
 // `@resvg/resvg-js` binary and reads the vendored TTFs off disk, and
@@ -90,7 +110,12 @@ const CACHE_NONE = 'no-store'
 interface ChartResolution {
   /** What to draw. An `empty` spec when the query came back with nothing. */
   spec: ChartSpec
-  /** Season requested -- selects the Cache-Control branch. */
+  /**
+   * The NEWEST season this render depends on -- it selects the Cache-Control
+   * branch. A single-season chart passes its season; a range passes its end,
+   * so a decade ending in a settled year is immutable like any other settled
+   * render, and only a range touching the current season gets the short TTL.
+   */
   season: number
   theme: ChartThemeName
   /** False when the query returned no row, which shortens the cache TTL. */
@@ -148,6 +173,178 @@ const teamPlaycallingParams = z
   })
   .strict()
 
+// ---------------------------------------------------------------------------
+// team-metric-* -- the generative family
+// ---------------------------------------------------------------------------
+// Shape is a chart id (see the CHART_IDS comment in
+// src/lib/charts/server/svg.tsx for why it is an id and not a parameter), but
+// the data axes are one vocabulary: which metric, which teams, which season(s).
+// Those params are declared once here and composed per shape, so a trend URL
+// and a bars URL cannot disagree about what a `metric` or a `teams` is.
+//
+// Everything a renderer needs still fits in a signable query string because the
+// ROUTE runs the query -- the caller sends a spec, never a data series. That is
+// what keeps these URLs permanent, cacheable, and short enough for Discord.
+
+/** A season inside the window `api.team_history` can plausibly answer for. */
+const metricSeason = z.coerce.number().int().min(MIN_METRIC_SEASON).max(CURRENT_SEASON + 5)
+
+const metricParam = z.enum(METRIC_IDS)
+
+/**
+ * `teams` is one comma-joined list rather than a repeated param: repeated keys
+ * survive `URLSearchParams` but not `Object.fromEntries`, which the handler
+ * uses to feed zod. No FBS school name contains a comma (asserted in the query
+ * tests), so the split is unambiguous.
+ *
+ * Order is preserved, not sorted: it is the caller's job to normalize, and it
+ * already has (see `renderChartTool`). Preserving it means series colors
+ * follow the order the user named the teams in, and the same request always
+ * mints the same URL.
+ */
+const metricTeamsParam = z
+  .string()
+  .min(1)
+  .max(240)
+  .transform(raw =>
+    raw
+      .split(',')
+      .map(team => team.trim())
+      .filter(Boolean),
+  )
+  .refine(teams => teams.length >= 1, 'teams must name at least one team')
+  .refine(teams => teams.length <= MAX_METRIC_TEAMS, `teams accepts at most ${MAX_METRIC_TEAMS} teams`)
+  .refine(teams => new Set(teams).size === teams.length, 'teams must be unique')
+
+/**
+ * The empty resolution every `team-metric-*` shape falls back to, so "nothing
+ * on record" reads identically whichever shape was asked for.
+ *
+ * `season` is the newest season the render depended on -- see
+ * `ChartResolution` -- which for a range is its end and for a single-season
+ * shape is that season.
+ */
+function noMetricData(
+  metric: MetricId,
+  teams: string[],
+  range: string,
+  season: number,
+  theme: ChartThemeName,
+): ChartResolution {
+  return {
+    spec: {
+      chart: 'empty',
+      title: `No ${METRICS[metric].label.toLowerCase()} on record`,
+      message: `Nothing charted for ${teams.join(', ')} in ${range}.`,
+    },
+    season,
+    theme,
+    hasData: false,
+  }
+}
+
+/**
+ * `annotations` is `<season>:<label>`, pipe-separated -- e.g.
+ * `2022:Venables hired`. Deliberately a flat string: a nested structure would
+ * need its own encoding inside a query param that also has to be signed, and
+ * the whole point of the URL shape is that it stays greppable in a log.
+ */
+const MAX_ANNOTATIONS = 3
+const MAX_ANNOTATION_LABEL = 40
+
+const trendAnnotationsParam = z
+  .string()
+  .max(240)
+  .transform(raw =>
+    raw
+      .split('|')
+      .map(entry => entry.trim())
+      .filter(Boolean)
+      .map(entry => {
+        const separator = entry.indexOf(':')
+        if (separator <= 0) return null
+        const season = Number(entry.slice(0, separator))
+        const label = entry.slice(separator + 1).trim()
+        if (!Number.isInteger(season) || !label) return null
+        return { season, label } satisfies TrendAnnotation
+      }),
+  )
+  .refine(entries => entries.every(entry => entry !== null), 'annotations look like "2022:Venables hired"')
+  .transform(entries => entries as TrendAnnotation[])
+  .refine(entries => entries.length <= MAX_ANNOTATIONS, `at most ${MAX_ANNOTATIONS} annotations`)
+  .refine(
+    entries => entries.every(entry => entry.label.length <= MAX_ANNOTATION_LABEL),
+    `annotation labels are at most ${MAX_ANNOTATION_LABEL} characters`,
+  )
+
+const teamMetricTrendParams = z
+  .object({
+    metric: metricParam,
+    teams: metricTeamsParam,
+    from: metricSeason,
+    to: metricSeason,
+    annotations: trendAnnotationsParam.optional(),
+    mode: modeParam,
+    sig: sigParam,
+  })
+  .strict()
+  .refine(input => input.to >= input.from, { message: 'to must be the same season as from or later', path: ['to'] })
+  .refine(input => input.to - input.from < MAX_TREND_SPAN, {
+    message: `season range is at most ${MAX_TREND_SPAN} seasons`,
+    path: ['to'],
+  })
+
+// ---------------------------------------------------------------------------
+// team-metric-bars
+// ---------------------------------------------------------------------------
+// Same metric, same teams, one `season` where the trend takes `from`/`to`. No
+// `annotations`: a dated event is a mark on a time axis, and this chart has
+// none. `.strict()` therefore rejects one rather than ignoring it -- a caller
+// that sent annotations here has misunderstood the chart, and a silently
+// dropped param would also break the "what was signed is what was rendered"
+// identity.
+
+const teamMetricBarsParams = z
+  .object({
+    metric: metricParam,
+    teams: metricTeamsParam,
+    season: metricSeason,
+    mode: modeParam,
+    sig: sigParam,
+  })
+  .strict()
+
+// ---------------------------------------------------------------------------
+// team-metric-scatter
+// ---------------------------------------------------------------------------
+// Two metrics instead of one, and `teams` becomes OPTIONAL -- this is the only
+// shape in the family that draws something worth looking at with no team named
+// at all, because its subject can be the season's field itself. When teams ARE
+// named they are highlighted against that field rather than being the whole
+// chart, which is what lets a #84 team appear on a top-25 card.
+//
+// `rankBy` chooses the field and defaults to `sp_rating`. Declared as a plain
+// optional-with-default exactly like `mode`: absent from the URL, absent from
+// the signed string, and filled in identically on both sides.
+
+const teamMetricScatterParams = z
+  .object({
+    x: metricParam,
+    y: metricParam,
+    season: metricSeason,
+    rankBy: metricParam.optional().default('sp_rating'),
+    teams: metricTeamsParam.optional(),
+    mode: modeParam,
+    sig: sigParam,
+  })
+  .strict()
+  .refine(input => input.x !== input.y, {
+    // Not pedantry: a metric against itself is the line y = x, which tells the
+    // reader nothing and would put every logo on one diagonal.
+    message: 'x and y must be different metrics',
+    path: ['y'],
+  })
+
 // Record<ChartId, ...> so adding an id to CHART_IDS without a route here is a
 // compile error rather than a runtime 404.
 const CHART_ROUTES: Record<ChartId, ChartRoute> = {
@@ -173,6 +370,112 @@ const CHART_ROUTES: Record<ChartId, ChartRoute> = {
 
     return {
       spec: { chart: 'team-playcalling', profile },
+      season: input.season,
+      theme: input.mode,
+      hasData: true,
+    }
+  }),
+
+  'team-metric-trend': defineChart(teamMetricTrendParams, async input => {
+    // Same reason as above: not wrapped in React `cache()` (see
+    // src/lib/queries/mcp.ts:18-24 -- a Route Handler is not a render pass).
+    const series = await getTeamMetricHistory(input.teams, input.metric, input.from, input.to)
+    const range = input.from === input.to ? `${input.from}` : `${input.from}–${input.to}`
+    const hasData = series.some(entry => entry.points.length > 0)
+
+    // The range's end is the newest season this render depends on, so a decade
+    // ending in a settled season can never change.
+    if (!hasData) return noMetricData(input.metric, input.teams, range, input.to, input.mode)
+
+    return {
+      spec: {
+        chart: 'team-metric-trend',
+        trend: {
+          metric: input.metric,
+          from: input.from,
+          to: input.to,
+          series,
+          annotations: input.annotations,
+        },
+      },
+      season: input.to,
+      theme: input.mode,
+      hasData: true,
+    }
+  }),
+
+  'team-metric-bars': defineChart(teamMetricBarsParams, async input => {
+    // Same reason as above: not wrapped in React `cache()`.
+    const series = await getTeamMetricSeason(input.teams, input.metric, input.season)
+    const hasData = series.some(entry => entry.value !== null)
+
+    // One season, so it is trivially the newest this render depends on -- a
+    // settled season is immutable and the current one gets the short TTL, on
+    // exactly the same rule as every other chart.
+    if (!hasData) {
+      return noMetricData(input.metric, input.teams, String(input.season), input.season, input.mode)
+    }
+
+    return {
+      spec: {
+        chart: 'team-metric-bars',
+        bars: { metric: input.metric, season: input.season, series },
+      },
+      season: input.season,
+      theme: input.mode,
+      hasData: true,
+    }
+  }),
+
+  'team-metric-scatter': defineChart(teamMetricScatterParams, async input => {
+    // Same reason as above: not wrapped in React `cache()`.
+    const highlight = input.teams ?? []
+    const field = await getTeamMetricField(
+      input.x,
+      input.y,
+      input.season,
+      input.rankBy,
+      highlight,
+      METRIC_FIELD_SIZE,
+    )
+
+    if (field.points.length === 0) {
+      return {
+        spec: {
+          chart: 'empty',
+          title: `No ${METRICS[input.y].label.toLowerCase()} vs ${METRICS[input.x].label.toLowerCase()} on record`,
+          message: `Nothing charted for ${input.season}.`,
+        },
+        season: input.season,
+        theme: input.mode,
+        hasData: false,
+      }
+    }
+
+    // THE fetch. It happens here, in the route, and never in the renderer:
+    // `renderChartSvg` is pure, and that purity is what makes the byte-hash
+    // tests, the SVG snapshots and the `immutable` Cache-Control below sound.
+    // The renderer receives already-inlined `data:` URIs as ordinary input.
+    //
+    // Unawaitable failure is not a failure: `getTeamLogoDataUris` never
+    // rejects and never throws, and a team absent from the map draws a rough
+    // fallback mark. A cold Lambda with a slow CDN renders a slightly plainer
+    // chart, not an error card.
+    const logos = await getTeamLogoDataUris(field.points.map(point => point.team))
+
+    return {
+      spec: {
+        chart: 'team-metric-scatter',
+        scatter: {
+          x: input.x,
+          y: input.y,
+          season: input.season,
+          rankBy: input.rankBy,
+          fieldSize: METRIC_FIELD_SIZE,
+          marks: field.points.map(point => ({ ...point, logo: logos.get(point.team) ?? null })),
+          highlight,
+        },
+      },
       season: input.season,
       theme: input.mode,
       hasData: true,

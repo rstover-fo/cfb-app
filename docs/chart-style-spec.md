@@ -289,6 +289,138 @@ width) and DownDistanceHeatmap (§2 hand-rolled 1px-border wrapper →
 a heat-level key is not a series legend and `ChartLegend` has no square-chip
 swatch.
 
+### Gate E note (2026-07-26) — the `team-metric-*` family
+
+Server-rendered charts (`src/lib/charts/server/`) now come in a *family*: one
+metric registry, one query, one card, and one shape per chart id. Rulings that
+apply to it, none of which change the sections above:
+
+- **Shape is an id, not a parameter.** `team-metric-trend` and
+  `team-metric-bars` are separate ids over shared plumbing. A signed chart URL
+  is permanent by design (Discord re-fetches on cache eviction, with no auth
+  header), so a chart id is a forever-API — cheap to add, expensive to
+  withdraw. The unification lives in `src/lib/charts/server/metricCard.tsx`,
+  `src/lib/charts/metricScale.ts`, `src/lib/charts/metrics.ts` and
+  `src/lib/queries/teamMetric.ts`; the renderers hold geometry only.
+- **§9 stroke tiers for peer series** are enforced in one place,
+  `seriesStrokeWeights()`: ≤2 peer series take PRIMARY, 3–4 drop to SECONDARY
+  as the Gate C density hatch. Bars use the §9 bar weights (`ROUGH_BAR` via
+  `pairedBarOptions`) and never the line tiers.
+- **The `--series-1..4` categorical ramp** (§6) is assigned by *request order*,
+  never by rank or placing: colour encodes identity, so a team keeps its ink
+  across shapes of the same request. `seriesInk()` is the only assigner.
+- **Direction is owed by every shape, discharged per shape.** A line inverts
+  its y-axis for a `lowerIsBetter` metric and says so. A bar cannot — its
+  encoding is length from a baseline, and both available inversions (rescaling
+  to `max - value`, or truncating the axis) would misstate the data — so bars
+  are **zero-anchored**, **ranked best-first**, and carry a note naming which
+  bar length is the good one. Both notes sit one step above footnote size, in
+  `--text-secondary`, because a PNG has no hover affordance to interrogate.
+- **In-SVG legends** stay legal on server-rendered cards (§4 retires them only
+  where an HTML legend is available). A shape whose marks are individually
+  captioned — the bars' row labels — omits the legend rather than repeating
+  those names.
+
+### Gate E, second pass (2026-07-26) — `team-metric-scatter`
+
+The family's third shape. Decisions taken by the product owner and implemented
+as stated; the design review adjudicates the aesthetic, not the rulings below.
+
+- **Top-right is always the good corner.** Universal across every scatter this
+  family draws, whatever the two metrics are: an axis whose metric is
+  `lowerIsBetter` (or is a rank) is *reversed*, which is the trend chart's
+  single-axis treatment applied per axis. Consistency across charts was chosen
+  deliberately over per-axis naturalness — a reader must never have to work out
+  which of four corners is good. Nothing in a scatter's encoding resists it:
+  position is not length, so unlike bars no quantity is misstated.
+  `axisIsReversed()` in `src/lib/charts/metrics.ts` is the one predicate.
+- **The reversal is stated twice**, because a PNG has no hover: on the axis
+  itself (`scatterAxisLabel`, which names *which* axis reversed and why, in the
+  metric's own terms — the thing a mixed pair makes unguessable), and in the
+  note below the plot (`scatterDirectionNote`, which names the good corner, in
+  the slot the trend and bars cards already use). This is the same reasoning
+  that puts those notes one step above footnote size.
+  > **Design review, Gate E second pass:** a third statement — a `best in both`
+  > caption on the corner — is **removed**. It restated the note's leading
+  > clause from a position that was not the plot's corner (the caption band
+  > above the frame), and two words of it do not parse until the note has been
+  > read, which makes it an echo rather than an independent statement. Two is
+  > the ceiling: each survivor must carry something the others cannot.
+  > Guarded by a `not.toContain` in `teamMetricScatter.test.tsx`.
+- **~25 teams, not the full FBS field.** Four named teams is a picture with no
+  context; ~130 rough marks is a texture. `rankBy` (default `sp_rating`) picks
+  the field, and any team the caller named is **unioned in**, never substituted
+  — a team asked about appears whether it placed 3rd or 90th, and prints its
+  placing when it fell outside.
+- **Team logos are the marks**, under the §7 raster exemption: never
+  roughified, never filtered. A team with no logo row — or whose logo did not
+  arrive — draws a rough mark at the same position and weight. Never a hole.
+- **The field is context, the named teams are the subject.** The field is
+  smaller, drawn at reduced opacity, and unlabelled; the named teams are larger,
+  full strength, ringed in their `--series-*` ink and the only marks that carry
+  a name. Muting is opacity and size, never a new colour (§6) — a logo carries
+  its school's own. Overlap is resolved by draw order (worst placing first,
+  highlights last), never by displacing a mark off its true position.
+- **The §7 accent ring takes `--series-*` ink here.** §7 specifies `--accent`
+  for the ring because it describes a hover/selection affordance on an
+  interactive surface. On a static card carrying up to four rings at once the
+  ring is identity, so it takes the team's ramp ink — `seriesInk()` remains the
+  only assigner, and the team keeps the colour it had on a trend or bars card of
+  the same request. *Ratified at design review.*
+- **A surface may sit UNDER a data mark, drawn plain.** §6 sanctions static
+  token-var fills for scaffold (row highlights, gutters) and bans them for data
+  marks; a knockout disc beneath a mark is neither, and §6 did not cover it. It
+  is legal on the same terms as the PlaycallingProfile row highlight: a single
+  `--bg-surface` fill, no rough drawing, no new colour, and only where the mark
+  above it would otherwise be read against another mark rather than against the
+  card. `teamMetricScatter.tsx` uses it so a highlighted crest clears whatever
+  cluster of field logos it lands on. *Ratified at design review; it was
+  commented in the renderer but unrecorded here until this pass.*
+- **Muting is for somebody else's artwork, never for our own ink.** A logo
+  arrives at an unknown contrast and opacity is the only lever §7 leaves; the
+  rough fallback mark is `--text-muted`, and `--text-muted` at 0.65 measures
+  2.6:1 on the dark card and 2.8:1 on the light one — under WCAG 1.4.11's 3:1
+  for a non-text mark, in **both** modes. Field opacity therefore reaches the
+  `<image>` and stops there (4.4:1 / 5.9:1 at full strength). The "this is
+  context" signal a muted mark gives up is already carried three other ways:
+  the smaller box, the absent ring, the absent label. Same class of finding as
+  the ruled `--color-pass` 2.46:1, and guarded the same way.
+
+  > **Design review, Gate E second pass — BLOCKING, outstanding: dark-mode
+  > crests need a paper backing.** ESPN crests are overwhelmingly drawn to sit
+  > on white, and against `--bg-surface` dark (#252019) a large minority of any
+  > top-25 field has no contrast to give: Penn State navy 1.02:1, Texas A&M
+  > maroon 1.03:1, Ole Miss navy 1.01:1, Iowa black 1.30:1, Alabama crimson
+  > 2.04:1, Ohio State scarlet 2.40:1, Utah red 2.75:1 — *measured at opacity
+  > 1.0*, so raising `FIELD_OPACITY` cannot fix it. At Discord's ~400px column
+  > the affected marks vanish outright and the card shows visibly fewer than
+  > the 25 teams its own subtitle claims.
+  >
+  > The remedy is a **paper disc under every mark, in dark mode only**, at the
+  > light theme's `--bg-surface`; a disc is 16:1 against the dark card and
+  > restores each crest to exactly its light-mode legibility. It applies to
+  > highlighted marks too — `ink.bgSurface` there is dark and knocks out
+  > neighbours without giving the crest anything to sit on.
+  >
+  > Per-mode divergence is the correct shape of the fix, not an inconsistency:
+  > the *inputs* are asymmetric, `--series-1..4` already carry different values
+  > per mode for the same reason, and a disc at the light theme's own
+  > `--bg-surface` is a token read, not a new colour. A backing in both modes
+  > is wrong — it buys nothing on a white card and turns the light render into
+  > a bubble chart. A halo or stroke is wrong — these crests are solid dark
+  > silhouettes, so outlining them outlines a blob.
+  >
+  > Note for the implementer: `teamMetricScatter.test.tsx`'s dark-ink test
+  > asserts `not.toContain('#FFFFFF')` as a "no light ink leaked" guard. That
+  > guard becomes a scoped exception for the backing disc — do not delete it.
+- **The renderer stays pure.** Logos are remote images, so the route resolves
+  them and passes already-inlined `data:` URIs into `renderChartSvg` as ordinary
+  input (`src/lib/queries/teamLogos.ts`: concurrent, per-request timeout,
+  module-scope cache by URL). resvg fetches nothing, so a remote `href` renders
+  as a hole rather than failing — `expectResvgSafe` now rejects any `<image>`
+  href that is not a `data:` URI. Failure degrades to the rough fallback; it
+  never fails the card.
+
 ---
 
 ## Proposed DESIGN.md Charts section

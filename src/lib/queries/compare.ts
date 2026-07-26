@@ -83,6 +83,8 @@ const TEAM_HISTORY_COLUMNS = `
   avg_margin,
   sp_rating,
   sp_rank,
+  sp_offense,
+  sp_defense,
   elo,
   fpi,
   epa_per_play,

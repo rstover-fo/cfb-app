@@ -16,6 +16,22 @@ vi.mock('@/lib/queries/playcalling', () => ({
   getPlaycallingProfile: vi.fn(),
 }))
 
+vi.mock('@/lib/queries/teamMetric', async importOriginal => {
+  // Constants (MAX_METRIC_TEAMS et al) stay real -- the route's schema is built
+  // from them, so faking them would test a schema that does not ship.
+  const actual = await importOriginal<typeof import('@/lib/queries/teamMetric')>()
+  return {
+    ...actual,
+    getTeamMetricHistory: vi.fn(),
+    getTeamMetricSeason: vi.fn(),
+    getTeamMetricField: vi.fn(),
+  }
+})
+
+// Mocked outright rather than left to fail: this is the one module in the app
+// that makes an outbound HTTP request, and no test may hit the network.
+vi.mock('@/lib/queries/teamLogos', () => ({ getTeamLogoDataUris: vi.fn() }))
+
 // Real renderer, wrapped in a spy so one test can force the "render throws"
 // branch without giving up real bytes everywhere else.
 vi.mock('@/lib/charts/server', async importOriginal => {
@@ -27,8 +43,19 @@ import { renderChartPng } from '@/lib/charts/server'
 import { resetChartRateLimit, CHART_RATE_LIMIT } from '@/lib/charts/server/rateLimit'
 import { signChartParams } from '@/lib/charts/server/signing'
 import { createPlaycallingProfileRow } from '@/lib/queries/__tests__/fixtures/playcalling'
+import {
+  CLEMSON_SP_DEFENSE,
+  FIXTURE_LOGO_A,
+  OKLAHOMA_SP_DEFENSE,
+  OUTSIDE_FIELD_2025,
+  SP_DEFENSE_2025,
+  SP_FIELD_2025,
+} from '@/lib/queries/__tests__/fixtures/teamMetric'
 import { CURRENT_SEASON } from '@/lib/queries/constants'
 import { getPlaycallingProfile } from '@/lib/queries/playcalling'
+import { getTeamLogoDataUris } from '@/lib/queries/teamLogos'
+import { getTeamMetricField, getTeamMetricHistory, getTeamMetricSeason } from '@/lib/queries/teamMetric'
+import { renderChartTool } from '@/lib/mcp/tools'
 import * as route from './route'
 
 const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
@@ -46,6 +73,15 @@ beforeEach(async () => {
   resetChartRateLimit()
   process.env.CHART_SIGNING_SECRET = SECRET
   vi.mocked(getPlaycallingProfile).mockResolvedValue(createPlaycallingProfileRow() as never)
+  vi.mocked(getTeamMetricHistory).mockResolvedValue([OKLAHOMA_SP_DEFENSE, CLEMSON_SP_DEFENSE])
+  vi.mocked(getTeamMetricSeason).mockResolvedValue(SP_DEFENSE_2025)
+  vi.mocked(getTeamMetricField).mockResolvedValue({
+    points: SP_FIELD_2025.map(({ team, x, y, placing }) => ({ team, x, y, placing })),
+    missing: [],
+  })
+  vi.mocked(getTeamLogoDataUris).mockResolvedValue(
+    new Map(SP_FIELD_2025.filter(mark => mark.logo).map(mark => [mark.team, FIXTURE_LOGO_A])),
+  )
   // clearAllMocks() resets call history but NOT an implementation installed by
   // mockResolvedValue, so a test that stubs the rasterizer would otherwise leak
   // that stub into every test after it. Re-point at the real one each time.
@@ -361,5 +397,650 @@ describe('Cache-Control branches', () => {
   it('gives the current season a short TTL plus stale-while-revalidate', async () => {
     const response = await get('team-playcalling', { team: 'Oklahoma', season: CURRENT_SEASON })
     expect(response.headers.get('cache-control')).toBe('public, s-maxage=3600, stale-while-revalidate=86400')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// team-metric-trend -- the generative chart
+// ---------------------------------------------------------------------------
+
+/** The request the primitive was built for. */
+const TREND = {
+  metric: 'sp_defense',
+  teams: 'Oklahoma,Clemson',
+  from: 2015,
+  to: SETTLED_SEASON,
+} as const
+
+const trend = (overrides: Params = {}) => get('team-metric-trend', { ...TREND, ...overrides })
+
+describe('team-metric-trend -- 200', () => {
+  it('renders a PNG and passes the spec straight through to the query', async () => {
+    const bytes = await expectPng(await trend())
+    expect(bytes.byteLength).toBeGreaterThan(2000)
+    expect(getTeamMetricHistory).toHaveBeenCalledWith(['Oklahoma', 'Clemson'], 'sp_defense', 2015, SETTLED_SEASON)
+  })
+
+  it('accepts a single team, and the full four', async () => {
+    await expectPng(await trend({ teams: 'Oklahoma' }))
+    await expectPng(await trend({ teams: 'Oklahoma,Clemson,Texas,Ohio State' }))
+  })
+
+  it('parses annotations into the rendered spec', async () => {
+    await trend({ annotations: '2022:Venables hired' })
+    expect(renderChartPng).toHaveBeenCalledWith(
+      expect.objectContaining({
+        chart: 'team-metric-trend',
+        trend: expect.objectContaining({ annotations: [{ season: 2022, label: 'Venables hired' }] }),
+      }),
+      expect.anything(),
+    )
+  })
+
+  it('renders the dark palette when mode=dark', async () => {
+    const light = await expectPng(await trend({ mode: 'light' }))
+    const dark = await expectPng(await trend({ mode: 'dark' }))
+    expect(dark.equals(light)).toBe(false)
+  })
+
+  it('is byte-identical across repeat requests, which is what makes caching safe', async () => {
+    const first = await expectPng(await trend())
+    const second = await expectPng(await trend())
+    expect(second.equals(first)).toBe(true)
+  })
+})
+
+describe('team-metric-trend -- 400 parameter validation', () => {
+  it('rejects an unknown metric -- the enum is what stops an invented column', async () => {
+    const response = await trend({ metric: 'vibes_per_drive' })
+    expect(response.status).toBe(400)
+    expect((await response.json()).error).toMatch(/metric/)
+    expect(getTeamMetricHistory).not.toHaveBeenCalled()
+  })
+
+  it('rejects a missing required param', async () => {
+    const response = await get('team-metric-trend', { metric: 'sp_defense', teams: 'Oklahoma', from: 2015 })
+    expect(response.status).toBe(400)
+    expect((await response.json()).error).toMatch(/to/)
+  })
+
+  it('.strict() rejects an unknown param even when it is correctly signed', async () => {
+    const response = await trend({ scale: 4 })
+    expect(response.status).toBe(400)
+    expect((await response.json()).error).toMatch(/Unrecognized key/)
+  })
+
+  it('rejects seasons outside the window the view can answer for', async () => {
+    expect((await trend({ from: 1869 })).status).toBe(400)
+    expect((await trend({ to: CURRENT_SEASON + 50 })).status).toBe(400)
+  })
+
+  it('rejects a backwards range', async () => {
+    const response = await trend({ from: 2025, to: 2015 })
+    expect(response.status).toBe(400)
+    expect((await response.json()).error).toMatch(/to must be the same season as from or later/)
+  })
+
+  it('rejects a range longer than one chart can carry', async () => {
+    const response = await trend({ from: 1960, to: 2020 })
+    expect(response.status).toBe(400)
+    expect((await response.json()).error).toMatch(/season range is at most/)
+  })
+
+  it('rejects a fifth team rather than silently dropping it', async () => {
+    const response = await trend({ teams: 'Oklahoma,Clemson,Texas,Ohio State,Alabama' })
+    expect(response.status).toBe(400)
+    expect((await response.json()).error).toMatch(/at most 4 teams/)
+  })
+
+  it('rejects a duplicated team', async () => {
+    expect((await trend({ teams: 'Oklahoma,Oklahoma' })).status).toBe(400)
+  })
+
+  it('rejects an empty team list', async () => {
+    expect((await trend({ teams: ',,' })).status).toBe(400)
+  })
+
+  it('rejects a malformed annotation', async () => {
+    const response = await trend({ annotations: 'Venables hired' })
+    expect(response.status).toBe(400)
+    expect((await response.json()).error).toMatch(/annotations/)
+  })
+
+  it('rejects more annotations than the layout reserves room for', async () => {
+    expect((await trend({ annotations: '2016:a|2017:b|2018:c|2019:d' })).status).toBe(400)
+  })
+})
+
+describe('team-metric-trend -- 403 signature', () => {
+  it('rejects a tampered teams list', async () => {
+    const request = signedRequest('team-metric-trend', { ...TREND })
+    const tampered = new Request(request.url.replace('Clemson', 'Texas'))
+    const response = await call('team-metric-trend.png', tampered)
+    expect(response.status).toBe(403)
+    expect((await response.json()).error).toMatch(/Invalid signature/)
+  })
+
+  it('rejects a tampered metric', async () => {
+    const request = signedRequest('team-metric-trend', { ...TREND })
+    const tampered = new Request(request.url.replace('sp_defense', 'sp_offense'))
+    expect((await call('team-metric-trend.png', tampered)).status).toBe(403)
+  })
+
+  it('accepts the same params in a different order', async () => {
+    const sig = signChartParams('team-metric-trend', { ...TREND, mode: 'dark' })
+    const reordered = new Request(
+      `https://charts.example.com/api/chart/team-metric-trend.png?sig=${sig}&to=${TREND.to}` +
+        `&mode=dark&teams=${encodeURIComponent(TREND.teams)}&from=${TREND.from}&metric=${TREND.metric}`,
+    )
+    await expectPng(await call('team-metric-trend.png', reordered))
+  })
+
+  it('serves a URL minted by the render_chart MCP tool -- the full producer/consumer round trip', async () => {
+    // The strongest guard there is: the tool's normalization, the signature,
+    // and this route's .strict() schema all have to agree, or the chart the
+    // model posts is a broken embed.
+    process.env.CHART_BASE_URL = 'https://charts.example.com'
+    const minted = JSON.parse(
+      await renderChartTool({
+        chart: 'team-metric-trend',
+        metric: 'sp_defense',
+        teams: ['Oklahoma', 'Clemson'],
+        from: 2015,
+        to: SETTLED_SEASON,
+        annotations: [{ season: 2022, label: 'Venables hired' }],
+      }),
+    )
+
+    const response = await call('team-metric-trend.png', new Request(minted.url))
+    await expectPng(response)
+    delete process.env.CHART_BASE_URL
+  })
+})
+
+describe('team-metric-trend -- empty and cache branches', () => {
+  it('serves the empty card, briefly cached, when no team has data', async () => {
+    vi.mocked(getTeamMetricHistory).mockResolvedValue([
+      { team: 'Nobody State', points: [] },
+      { team: 'Nowhere Tech', points: [] },
+    ])
+
+    const response = await trend({ teams: 'Nobody State,Nowhere Tech' })
+    await expectPng(response)
+    expect(response.headers.get('cache-control')).toBe('public, s-maxage=300, stale-while-revalidate=600')
+    expect(renderChartPng).toHaveBeenCalledWith(
+      expect.objectContaining({ chart: 'empty', message: expect.stringContaining('Nobody State') }),
+      expect.anything(),
+    )
+  })
+
+  it('still renders when only some teams have data', async () => {
+    vi.mocked(getTeamMetricHistory).mockResolvedValue([OKLAHOMA_SP_DEFENSE, { team: 'Nobody State', points: [] }])
+
+    const response = await trend({ teams: 'Oklahoma,Nobody State' })
+    await expectPng(response)
+    expect(renderChartPng).toHaveBeenCalledWith(
+      expect.objectContaining({ chart: 'team-metric-trend' }),
+      expect.anything(),
+    )
+  })
+
+  it('treats a range ENDING in a settled season as settled -- it can never change again', async () => {
+    const response = await trend({ from: 2015, to: SETTLED_SEASON })
+    expect(response.headers.get('cache-control')).toBe('public, max-age=31536000, s-maxage=31536000, immutable')
+  })
+
+  it('gives a range that touches the current season the short TTL', async () => {
+    const response = await trend({ from: 2015, to: CURRENT_SEASON })
+    expect(response.headers.get('cache-control')).toBe('public, s-maxage=3600, stale-while-revalidate=86400')
+  })
+
+  it('serves an error card when the query layer rejects', async () => {
+    vi.mocked(getTeamMetricHistory).mockRejectedValue(new Error('supabase is down'))
+
+    const response = await trend()
+    await expectPng(response)
+    expect(response.headers.get('cache-control')).toBe('no-store')
+    expect(renderChartPng).toHaveBeenLastCalledWith(
+      expect.objectContaining({ chart: 'empty', title: 'Chart unavailable' }),
+      expect.anything(),
+    )
+  })
+})
+
+// ---------------------------------------------------------------------------
+// team-metric-bars -- the second shape of the generative family
+// ---------------------------------------------------------------------------
+// The point of these is that the SHAPE is a separate id but the plumbing is
+// shared: same metric enum, same teams param, same signature scheme, same
+// empty/error/cache branches. So the coverage below mirrors the trend block
+// rather than inventing a new shape of test.
+
+const BARS = { metric: 'sp_defense', teams: 'Oklahoma,Texas,Ohio State,Clemson', season: SETTLED_SEASON } as const
+
+const bars = (overrides: Params = {}) => get('team-metric-bars', { ...BARS, ...overrides })
+
+describe('team-metric-bars -- 200', () => {
+  it('renders a PNG and passes the spec straight through to the query', async () => {
+    const bytes = await expectPng(await bars())
+    expect(bytes.byteLength).toBeGreaterThan(2000)
+    expect(getTeamMetricSeason).toHaveBeenCalledWith(
+      ['Oklahoma', 'Texas', 'Ohio State', 'Clemson'],
+      'sp_defense',
+      SETTLED_SEASON,
+    )
+  })
+
+  it('reads one season, never a range -- that is the whole shape difference', async () => {
+    await bars()
+    expect(getTeamMetricHistory).not.toHaveBeenCalled()
+  })
+
+  it('accepts a single team, and the full four', async () => {
+    await expectPng(await bars({ teams: 'Oklahoma' }))
+    await expectPng(await bars({ teams: 'Oklahoma,Clemson,Texas,Ohio State' }))
+  })
+
+  it('renders the dark palette when mode=dark', async () => {
+    const light = await expectPng(await bars({ mode: 'light' }))
+    const dark = await expectPng(await bars({ mode: 'dark' }))
+    expect(dark.equals(light)).toBe(false)
+  })
+
+  it('is byte-identical across repeat requests, which is what makes caching safe', async () => {
+    const first = await expectPng(await bars())
+    const second = await expectPng(await bars())
+    expect(second.equals(first)).toBe(true)
+  })
+
+  it('draws a different picture from the trend chart of the same metric', async () => {
+    // Same id would have made these the same URL. They are different shapes of
+    // the same question and each keeps its own permanent URL.
+    const asBars = await expectPng(await bars({ teams: 'Oklahoma,Clemson' }))
+    const asTrend = await expectPng(await trend())
+    expect(asBars.equals(asTrend)).toBe(false)
+  })
+})
+
+describe('team-metric-bars -- 400 parameter validation', () => {
+  it('shares the metric enum with the trend chart', async () => {
+    const response = await bars({ metric: 'vibes_per_drive' })
+    expect(response.status).toBe(400)
+    expect((await response.json()).error).toMatch(/metric/)
+    expect(getTeamMetricSeason).not.toHaveBeenCalled()
+  })
+
+  it('rejects a missing season', async () => {
+    const response = await get('team-metric-bars', { metric: 'sp_defense', teams: 'Oklahoma' })
+    expect(response.status).toBe(400)
+    expect((await response.json()).error).toMatch(/season/)
+  })
+
+  it('rejects a season outside the window the view can answer for', async () => {
+    expect((await bars({ season: 1869 })).status).toBe(400)
+    expect((await bars({ season: CURRENT_SEASON + 50 })).status).toBe(400)
+  })
+
+  it('.strict() rejects an unknown param even when it is correctly signed', async () => {
+    const response = await bars({ scale: 4 })
+    expect(response.status).toBe(400)
+    expect((await response.json()).error).toMatch(/Unrecognized key/)
+  })
+
+  it('rejects the trend-only params rather than silently ignoring them', async () => {
+    // `.strict()` is what keeps "what was signed" and "what was rendered"
+    // identical, so a param this shape has no use for has to be a 400 -- not a
+    // shrug. A caller sending `from`/`to` here has asked for the wrong chart.
+    expect((await bars({ from: 2015 })).status).toBe(400)
+    expect((await bars({ to: 2025 })).status).toBe(400)
+    expect((await bars({ annotations: '2022:Venables hired' })).status).toBe(400)
+  })
+
+  it('shares the team-list rules with the trend chart', async () => {
+    expect((await bars({ teams: 'Oklahoma,Clemson,Texas,Ohio State,Alabama' })).status).toBe(400)
+    expect((await bars({ teams: 'Oklahoma,Oklahoma' })).status).toBe(400)
+    expect((await bars({ teams: ',,' })).status).toBe(400)
+  })
+})
+
+describe('team-metric-bars -- 403 signature', () => {
+  it('rejects a tampered season', async () => {
+    const request = signedRequest('team-metric-bars', { ...BARS })
+    const tampered = new Request(request.url.replace(`season=${SETTLED_SEASON}`, `season=${CURRENT_SEASON}`))
+    const response = await call('team-metric-bars.png', tampered)
+    expect(response.status).toBe(403)
+    expect((await response.json()).error).toMatch(/Invalid signature/)
+  })
+
+  it('will not accept a trend signature for a bars URL -- the chart id is signed', async () => {
+    const sig = signChartParams('team-metric-trend', { ...BARS })
+    const query = new URLSearchParams({ ...BARS, season: String(BARS.season), sig })
+    const response = await call(
+      'team-metric-bars.png',
+      new Request(`https://charts.example.com/api/chart/team-metric-bars.png?${query}`),
+    )
+    expect(response.status).toBe(403)
+  })
+
+  it('serves a URL minted by the render_chart MCP tool -- the full producer/consumer round trip', async () => {
+    process.env.CHART_BASE_URL = 'https://charts.example.com'
+    const minted = JSON.parse(
+      await renderChartTool({
+        chart: 'team-metric-bars',
+        metric: 'sp_defense',
+        teams: ['Oklahoma', 'Texas', 'Ohio State', 'Clemson'],
+        season: SETTLED_SEASON,
+      }),
+    )
+
+    await expectPng(await call('team-metric-bars.png', new Request(minted.url)))
+    delete process.env.CHART_BASE_URL
+  })
+})
+
+describe('team-metric-bars -- empty and cache branches', () => {
+  it('serves the empty card, briefly cached, when no team has data', async () => {
+    vi.mocked(getTeamMetricSeason).mockResolvedValue([
+      { team: 'Nobody State', value: null },
+      { team: 'Nowhere Tech', value: null },
+    ])
+
+    const response = await bars({ teams: 'Nobody State,Nowhere Tech' })
+    await expectPng(response)
+    expect(response.headers.get('cache-control')).toBe('public, s-maxage=300, stale-while-revalidate=600')
+    expect(renderChartPng).toHaveBeenCalledWith(
+      expect.objectContaining({ chart: 'empty', message: expect.stringContaining('Nobody State') }),
+      expect.anything(),
+    )
+  })
+
+  it('still renders when only some teams have data', async () => {
+    vi.mocked(getTeamMetricSeason).mockResolvedValue([
+      { team: 'Oklahoma', value: 12.9 },
+      { team: 'Nobody State', value: null },
+    ])
+
+    await expectPng(await bars({ teams: 'Oklahoma,Nobody State' }))
+    expect(renderChartPng).toHaveBeenCalledWith(
+      expect.objectContaining({ chart: 'team-metric-bars' }),
+      expect.anything(),
+    )
+  })
+
+  it('passes its own season to the cache branch -- a settled season is immutable', async () => {
+    const response = await bars({ season: SETTLED_SEASON })
+    expect(response.headers.get('cache-control')).toBe('public, max-age=31536000, s-maxage=31536000, immutable')
+  })
+
+  it('gives the current season the short TTL', async () => {
+    const response = await bars({ season: CURRENT_SEASON })
+    expect(response.headers.get('cache-control')).toBe('public, s-maxage=3600, stale-while-revalidate=86400')
+  })
+
+  it('serves an error card when the query layer rejects', async () => {
+    vi.mocked(getTeamMetricSeason).mockRejectedValue(new Error('supabase is down'))
+
+    const response = await bars()
+    await expectPng(response)
+    expect(response.headers.get('cache-control')).toBe('no-store')
+    expect(renderChartPng).toHaveBeenLastCalledWith(
+      expect.objectContaining({ chart: 'empty', title: 'Chart unavailable' }),
+      expect.anything(),
+    )
+  })
+})
+
+// ---------------------------------------------------------------------------
+// team-metric-scatter -- the third shape
+// ---------------------------------------------------------------------------
+// Mirrors the two blocks above (same signature scheme, same empty/error/cache
+// branches) plus the two things only this shape has: two metrics rather than
+// one, and a logo resolution step that has to happen HERE rather than in the
+// renderer, and has to be survivable.
+
+const SCATTER = { x: 'sp_offense', y: 'sp_defense', season: SETTLED_SEASON } as const
+
+const scatter = (overrides: Params = {}) => get('team-metric-scatter', { ...SCATTER, ...overrides })
+
+describe('team-metric-scatter -- 200', () => {
+  it('renders a PNG and passes the spec straight through to the field query', async () => {
+    const bytes = await expectPng(await scatter({ teams: 'Oklahoma,Texas' }))
+    expect(bytes.byteLength).toBeGreaterThan(2000)
+    expect(getTeamMetricField).toHaveBeenCalledWith(
+      'sp_offense',
+      'sp_defense',
+      SETTLED_SEASON,
+      'sp_rating',
+      ['Oklahoma', 'Texas'],
+      25,
+    )
+  })
+
+  it('draws the field with no team named at all -- the only shape that can', async () => {
+    await expectPng(await scatter())
+    expect(getTeamMetricField).toHaveBeenCalledWith(
+      'sp_offense',
+      'sp_defense',
+      SETTLED_SEASON,
+      'sp_rating',
+      [],
+      25,
+    )
+  })
+
+  it('defaults rankBy to sp_rating, and forwards an explicit one', async () => {
+    await scatter()
+    expect(vi.mocked(getTeamMetricField).mock.calls[0][3]).toBe('sp_rating')
+
+    await scatter({ rankBy: 'elo' })
+    expect(vi.mocked(getTeamMetricField).mock.calls[1][3]).toBe('elo')
+  })
+
+  it('resolves logos in the ROUTE and hands the renderer data: URIs', async () => {
+    // The architectural point: `renderChartSvg` is pure, so it can neither
+    // fetch a logo nor be handed a URL it would render as a hole.
+    await scatter({ teams: 'Oklahoma' })
+
+    expect(getTeamLogoDataUris).toHaveBeenCalledWith(SP_FIELD_2025.map(mark => mark.team))
+    const spec = vi.mocked(renderChartPng).mock.calls[0][0] as {
+      chart: string
+      scatter: { marks: Array<{ team: string; logo: string | null }> }
+    }
+    expect(spec.chart).toBe('team-metric-scatter')
+    for (const mark of spec.scatter.marks) {
+      expect(mark.logo === null || mark.logo.startsWith('data:')).toBe(true)
+    }
+  })
+
+  it('still renders when every logo fetch fails -- a cold render degrades, it does not fail', async () => {
+    vi.mocked(getTeamLogoDataUris).mockResolvedValue(new Map())
+
+    const response = await scatter({ teams: 'Oklahoma' })
+    await expectPng(response)
+
+    const spec = vi.mocked(renderChartPng).mock.calls[0][0] as {
+      chart: string
+      scatter: { marks: Array<{ logo: string | null }> }
+    }
+    expect(spec.chart).toBe('team-metric-scatter')
+    expect(spec.scatter.marks.every(mark => mark.logo === null)).toBe(true)
+  })
+
+  it('renders the dark palette when mode=dark', async () => {
+    const light = await expectPng(await scatter({ mode: 'light' }))
+    const dark = await expectPng(await scatter({ mode: 'dark' }))
+    expect(dark.equals(light)).toBe(false)
+  })
+
+  it('is byte-identical across repeat requests, which is what makes caching safe', async () => {
+    const first = await expectPng(await scatter({ teams: 'Oklahoma' }))
+    const second = await expectPng(await scatter({ teams: 'Oklahoma' }))
+    expect(second.equals(first)).toBe(true)
+  })
+
+  it('draws a different picture from the other shapes of the same season', async () => {
+    const asScatter = await expectPng(await scatter({ teams: 'Oklahoma,Texas' }))
+    const asBars = await expectPng(await bars({ teams: 'Oklahoma,Texas' }))
+    expect(asScatter.equals(asBars)).toBe(false)
+  })
+})
+
+describe('team-metric-scatter -- 400 parameter validation', () => {
+  it('shares the metric enum with its siblings, on both axes', async () => {
+    expect((await scatter({ x: 'vibes_per_drive' })).status).toBe(400)
+    expect((await scatter({ y: 'vibes_per_drive' })).status).toBe(400)
+    expect((await scatter({ rankBy: 'vibes_per_drive' })).status).toBe(400)
+    expect(getTeamMetricField).not.toHaveBeenCalled()
+  })
+
+  it('rejects a metric plotted against itself -- that is a diagonal line', async () => {
+    const response = await scatter({ y: 'sp_offense' })
+    expect(response.status).toBe(400)
+    expect((await response.json()).error).toMatch(/different metrics/)
+  })
+
+  it('rejects a missing axis', async () => {
+    expect((await get('team-metric-scatter', { x: 'sp_offense', season: 2025 })).status).toBe(400)
+    expect((await get('team-metric-scatter', { y: 'sp_defense', season: 2025 })).status).toBe(400)
+  })
+
+  it('rejects a season outside the window the view can answer for', async () => {
+    expect((await scatter({ season: 1869 })).status).toBe(400)
+    expect((await scatter({ season: CURRENT_SEASON + 50 })).status).toBe(400)
+  })
+
+  it('.strict() rejects an unknown param even when it is correctly signed', async () => {
+    const response = await scatter({ scale: 4 })
+    expect(response.status).toBe(400)
+    expect((await response.json()).error).toMatch(/Unrecognized key/)
+  })
+
+  it('rejects the params belonging to the other shapes', async () => {
+    expect((await scatter({ metric: 'sp_rating' })).status).toBe(400)
+    expect((await scatter({ from: 2015 })).status).toBe(400)
+    expect((await scatter({ annotations: '2022:Venables hired' })).status).toBe(400)
+  })
+
+  it('shares the team-list rules, for the teams it highlights', async () => {
+    expect((await scatter({ teams: 'Oklahoma,Clemson,Texas,Ohio State,Alabama' })).status).toBe(400)
+    expect((await scatter({ teams: 'Oklahoma,Oklahoma' })).status).toBe(400)
+    expect((await scatter({ teams: ',,' })).status).toBe(400)
+  })
+})
+
+describe('team-metric-scatter -- 403 signature', () => {
+  it('rejects a tampered axis', async () => {
+    const request = signedRequest('team-metric-scatter', { ...SCATTER })
+    const tampered = new Request(request.url.replace('x=sp_offense', 'x=elo'))
+    const response = await call('team-metric-scatter.png', tampered)
+    expect(response.status).toBe(403)
+    expect((await response.json()).error).toMatch(/Invalid signature/)
+  })
+
+  it('will not accept a sibling shape\'s signature -- the chart id is signed', async () => {
+    const sig = signChartParams('team-metric-bars', { ...SCATTER })
+    const query = new URLSearchParams({ ...SCATTER, season: String(SCATTER.season), sig })
+    const response = await call(
+      'team-metric-scatter.png',
+      new Request(`https://charts.example.com/api/chart/team-metric-scatter.png?${query}`),
+    )
+    expect(response.status).toBe(403)
+  })
+
+  it('serves a URL minted by the render_chart MCP tool -- the full producer/consumer round trip', async () => {
+    process.env.CHART_BASE_URL = 'https://charts.example.com'
+    const minted = JSON.parse(
+      await renderChartTool({
+        chart: 'team-metric-scatter',
+        x: 'sp_offense',
+        y: 'sp_defense',
+        teams: ['Oklahoma', 'Texas'],
+        season: SETTLED_SEASON,
+      }),
+    )
+
+    await expectPng(await call('team-metric-scatter.png', new Request(minted.url)))
+    delete process.env.CHART_BASE_URL
+  })
+
+  it('round-trips the no-teams request too, which mints a shorter URL', async () => {
+    process.env.CHART_BASE_URL = 'https://charts.example.com'
+    const minted = JSON.parse(
+      await renderChartTool({
+        chart: 'team-metric-scatter',
+        x: 'ppg',
+        y: 'opp_ppg',
+        season: SETTLED_SEASON,
+      }),
+    )
+
+    expect(new URL(minted.url).searchParams.has('teams')).toBe(false)
+    await expectPng(await call('team-metric-scatter.png', new Request(minted.url)))
+    delete process.env.CHART_BASE_URL
+  })
+})
+
+describe('team-metric-scatter -- empty and cache branches', () => {
+  it('serves the empty card, briefly cached, when the season has nothing to plot', async () => {
+    vi.mocked(getTeamMetricField).mockResolvedValue({ points: [], missing: ['Nobody State'] })
+
+    const response = await scatter({ teams: 'Nobody State' })
+    await expectPng(response)
+    expect(response.headers.get('cache-control')).toBe('public, s-maxage=300, stale-while-revalidate=600')
+    expect(renderChartPng).toHaveBeenCalledWith(
+      expect.objectContaining({ chart: 'empty' }),
+      expect.anything(),
+    )
+    // No point fetching logos for a card that draws no marks.
+    expect(getTeamLogoDataUris).not.toHaveBeenCalled()
+  })
+
+  it('draws a named team that missed the field, alongside the field', async () => {
+    vi.mocked(getTeamMetricField).mockResolvedValue({
+      points: [...SP_FIELD_2025, OUTSIDE_FIELD_2025].map(({ team, x, y, placing }) => ({ team, x, y, placing })),
+      missing: [],
+    })
+
+    await expectPng(await scatter({ teams: 'Purdue' }))
+    const spec = vi.mocked(renderChartPng).mock.calls[0][0] as {
+      scatter: { marks: Array<{ team: string }>; highlight: string[] }
+    }
+    expect(spec.scatter.marks.map(mark => mark.team)).toContain('Purdue')
+    expect(spec.scatter.highlight).toEqual(['Purdue'])
+  })
+
+  it('passes its own season to the cache branch -- a settled season is immutable', async () => {
+    const response = await scatter({ season: SETTLED_SEASON })
+    expect(response.headers.get('cache-control')).toBe('public, max-age=31536000, s-maxage=31536000, immutable')
+  })
+
+  it('gives the current season the short TTL', async () => {
+    const response = await scatter({ season: CURRENT_SEASON })
+    expect(response.headers.get('cache-control')).toBe('public, s-maxage=3600, stale-while-revalidate=86400')
+  })
+
+  it('serves an error card when the query layer rejects', async () => {
+    vi.mocked(getTeamMetricField).mockRejectedValue(new Error('supabase is down'))
+
+    const response = await scatter()
+    await expectPng(response)
+    expect(response.headers.get('cache-control')).toBe('no-store')
+    expect(renderChartPng).toHaveBeenLastCalledWith(
+      expect.objectContaining({ chart: 'empty', title: 'Chart unavailable' }),
+      expect.anything(),
+    )
+  })
+
+  it('serves an error card when the logo resolver itself throws', async () => {
+    // It is documented never to reject; this is the belt-and-braces check that
+    // a broken one produces an apology card rather than a 500.
+    vi.mocked(getTeamLogoDataUris).mockRejectedValue(new Error('fetch exploded'))
+
+    const response = await scatter()
+    await expectPng(response)
+    expect(renderChartPng).toHaveBeenLastCalledWith(
+      expect.objectContaining({ chart: 'empty', title: 'Chart unavailable' }),
+      expect.anything(),
+    )
   })
 })
