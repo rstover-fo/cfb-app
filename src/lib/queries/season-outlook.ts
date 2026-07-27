@@ -3,29 +3,33 @@ import { fail, clamp, type McpResult } from './mcp'
 
 // ---------------------------------------------------------------------------
 // Query layer for the season-projection MCP tool (get_season_outlook in
-// src/lib/mcp/tools.ts), over one api-schema view:
+// src/lib/mcp/tools.ts), over two api-schema views:
 //
 //   api.season_outlook -- one row per (season, team, model_version), already
 //     DISTINCT ON that grain ordered by projection_date DESC, so it is the
 //     latest snapshot per team-season and needs no dedup here. Each row is
 //     the summary of n_sims Monte Carlo seasons in which every remaining
 //     game was drawn from the game-level model's prediction.
+//   api.model_backtest -- how wrong those projections usually are. One row per
+//     (model_version, scope, season window, strength_share), newest run first.
 //
-// Three things about this view are load-bearing and easy to get wrong:
+// Three things about the outlook view are load-bearing and easy to get wrong:
 //
-//   1. It is NOT FBS-only. The 2026 snapshot spans ~50 conferences including
-//      FCS, DII and DIII, many of whose teams have only one or two games
-//      loaded. An unfiltered "top projected win totals" ordering is therefore
-//      meaningless, which is why the tool layer requires a team or conference
-//      filter rather than offering an unfiltered mode.
+//   1. It is NOT FBS-only. The 2026 snapshot is 138 fbs / 128 fcs / 38 ii /
+//      33 iii / 13 with no classification at all, and the non-FBS rows include
+//      teams with one or two games loaded, so an unfiltered "top projected win
+//      totals" ordering compares teams playing different schedules. Filter on
+//      `classification`. NULL there means UNPLACEABLE, not FBS.
 //   2. Projected quantities are over `games_simulated`, never
 //      `games_scheduled`. A scheduled game the model could not score is
 //      EXCLUDED from the simulation, not counted as a loss -- so
 //      `projected_losses` understates a slate with `games_unscored > 0`.
 //   3. A season whose games are already played is still in this view, and its
 //      "projection" is just the final record with a collapsed percentile band.
-//      Callers must check `games_completed` before calling any of it a
-//      forecast; the tool layer derives its caveat strings from these columns.
+//      `is_projection` (games_simulated > games_completed) is the authoritative
+//      per-row answer -- check it before calling anything a forecast, and use
+//      "any row true" for a season-level verdict. Do not re-derive it from
+//      games_completed.
 //
 // MCP-only module: keeps mcp.ts's McpResult error-passthrough contract
 // (friendly "Error: ..." strings, never a throw) rather than the UI query
@@ -52,6 +56,18 @@ export interface SeasonOutlookRow {
   team: string
   /** Null for teams CFBD has not assigned a conference (13 of 350 rows in 2026). */
   conference: string | null
+  /**
+   * 'fbs' | 'fcs' | 'ii' | 'iii', derived season-accurately, so a team that
+   * changed division carries the right label per season. NULL means CFBD could
+   * not place the team -- it does NOT mean FBS.
+   */
+  classification: string | null
+  /**
+   * `games_simulated > games_completed`. False means every game is already
+   * played and the row is a final record, not a forecast. Authoritative -- do
+   * not re-derive from games_completed.
+   */
+  is_projection: boolean
   games_scheduled: number
   games_simulated: number
   /** Scheduled games the model could not score. These are excluded from the sim. */
@@ -88,6 +104,7 @@ export interface SeasonOutlookRow {
 // reports it once at the top level as a model-level constant.
 const SEASON_OUTLOOK_COLUMNS = `
   projection_date, computed_at, model_version, season, team, conference,
+  classification, is_projection,
   games_scheduled, games_simulated, games_unscored, games_completed,
   actual_wins, schedule_complete, projected_wins, projected_losses,
   median_wins, wins_p10, wins_p25, wins_p75, wins_p90, p_win_dist,
@@ -126,11 +143,13 @@ export interface SeasonOutlookFilter {
   season: number
   team?: string
   conference?: string
+  /** 'fbs' | 'fcs' | 'ii' | 'iii'. Omit to span every division. */
+  classification?: string
   limit?: number
 }
 
 /**
- * Rows for one season, narrowed by team and/or conference.
+ * Rows for one season, narrowed by team, conference and/or classification.
  *
  * Ordered by projected_wins descending -- for a conference that ordering IS
  * the projected standings, which is the question this view exists to answer.
@@ -150,6 +169,9 @@ export async function querySeasonOutlook(
 
   if (filter.team) query = query.eq('team', filter.team)
   if (filter.conference) query = query.eq('conference', filter.conference)
+  // An `.eq` on classification also drops the NULL-classification rows, which
+  // is correct: NULL is unplaceable, not a division.
+  if (filter.classification) query = query.eq('classification', filter.classification)
 
   const { data, error } = await query
     .order('projected_wins', { ascending: false })
@@ -158,4 +180,103 @@ export async function querySeasonOutlook(
 
   if (error) return { rows: [], error: fail('api.season_outlook', error) }
   return { rows: (data ?? []) as unknown as SeasonOutlookRow[], error: null }
+}
+
+/** The scope `api.model_backtest` measures FBS projections under. */
+export const MODEL_BACKTEST_SCOPE_FBS = 'fbs'
+
+export interface ModelBacktestRow {
+  model_version: string
+  scope: string
+  run_date: string
+  season_start: number
+  season_end: number
+  /** TEAM-SEASONS, not games. 921 on the current run. */
+  n: number
+  win_mae: number
+  rmse: number
+  bias: number
+  coverage: number
+  /** Low end of the 80% residual interval -- negative. */
+  resid_p10: number
+  /** High end of the 80% residual interval. Asymmetric against resid_p10. */
+  resid_p90: number
+  baseline_prior_mae: number | null
+  baseline_flat_mae: number | null
+  beats_prior_baseline: boolean | null
+}
+
+const MODEL_BACKTEST_COLUMNS = `
+  model_version, scope, run_date, season_start, season_end, n,
+  win_mae, rmse, bias, coverage, resid_p10, resid_p90,
+  baseline_prior_mae, baseline_flat_mae, beats_prior_baseline
+` as const
+
+/**
+ * Backtest runs for a model at a given scope, newest and most-recent-window
+ * first. The caller uses row 0; row 1 is fetched only to detect an ambiguous
+ * pick (see below).
+ *
+ * Replaces a block of figures this repo used to hardcode, which was correct
+ * only until cfb-database re-ran the backtest -- at which point the shipped
+ * numbers would have described a model that no longer existed and nothing
+ * anywhere would have failed.
+ *
+ * `scope` is pinned deliberately. cfb-database treats 'all_divisions' as a
+ * different measurement rather than a superset of 'fbs', and its bowl figures
+ * were computing P(6+ wins) for divisions that have no bowls until the
+ * 2026-07-27 release.
+ *
+ * Pinning model and scope is NOT enough to reach a single row. The view is
+ * DISTINCT ON (model_version, scope, season_start, season_end, strength_share),
+ * so one model+scope can hold several rows -- and it does: as of 2026-07-27
+ * `fitted_v1`/`fbs` has two, identical in every metric and in run_date, differing
+ * only in season_start (2018 vs 2019). Ordering by run_date alone therefore ties
+ * and Postgres may return either, which made the reported backtest window flap
+ * between runs. The season_start/season_end tiebreaks make the pick
+ * deterministic; fetching two rows lets the caller notice when a tie is
+ * material rather than cosmetic.
+ *
+ * Returns [] with no error when the model has never been backtested -- the
+ * caller must render that as UNMEASURED, never as zero error.
+ */
+export async function queryModelBacktest(
+  modelVersion: string = SEASON_OUTLOOK_MODEL,
+  scope: string = MODEL_BACKTEST_SCOPE_FBS
+): Promise<McpResult<ModelBacktestRow>> {
+  const supabase = await createClient()
+  const { data, error } = await supabase
+    .schema('api')
+    .from('model_backtest')
+    .select(MODEL_BACKTEST_COLUMNS)
+    .eq('model_version', modelVersion)
+    .eq('scope', scope)
+    .order('run_date', { ascending: false })
+    .order('season_start', { ascending: false })
+    .order('season_end', { ascending: false })
+    .limit(2)
+
+  if (error) return { rows: [], error: fail('api.model_backtest', error) }
+  return { rows: (data ?? []) as unknown as ModelBacktestRow[], error: null }
+}
+
+/**
+ * Do two candidate backtest rows disagree about anything this app reports?
+ *
+ * Duplicate rows per (model, scope) are expected -- different season windows
+ * are a legitimate grain. What matters is whether picking one over the other
+ * changes the answer. When the metrics match, the pick is cosmetic and needs no
+ * warning; when they diverge, the caller must say the source was ambiguous
+ * rather than silently reporting whichever row sorted first.
+ */
+export function backtestRowsDisagree(a: ModelBacktestRow, b: ModelBacktestRow): boolean {
+  return (
+    a.win_mae !== b.win_mae ||
+    a.rmse !== b.rmse ||
+    a.bias !== b.bias ||
+    a.coverage !== b.coverage ||
+    a.resid_p10 !== b.resid_p10 ||
+    a.resid_p90 !== b.resid_p90 ||
+    a.n !== b.n
+  )
 }

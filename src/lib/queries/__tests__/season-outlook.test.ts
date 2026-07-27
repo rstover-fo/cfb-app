@@ -16,8 +16,11 @@ import { DEFAULT_ROW_CAP } from '../mcp'
 import {
   SEASON_OUTLOOK_MODEL,
   SEASON_OUTLOOK_DEFAULT_LIMIT,
+  MODEL_BACKTEST_SCOPE_FBS,
   queryLatestOutlookSeason,
   querySeasonOutlook,
+  queryModelBacktest,
+  backtestRowsDisagree,
 } from '../season-outlook'
 
 function mockClient(config: SupabaseMockConfig) {
@@ -90,6 +93,17 @@ describe('querySeasonOutlook', () => {
     expect(chain.eq).not.toHaveBeenCalledWith('conference', expect.anything())
   })
 
+  it('filters on classification when given one, and omits the filter otherwise', async () => {
+    const mock = mockClient({ apiTables: { season_outlook: ok([]) } })
+    await querySeasonOutlook({ season: 2026, classification: 'fbs' })
+    expect(apiChain(mock).eq).toHaveBeenCalledWith('classification', 'fbs')
+
+    vi.clearAllMocks()
+    const mock2 = mockClient({ apiTables: { season_outlook: ok([]) } })
+    await querySeasonOutlook({ season: 2026, conference: 'SEC' })
+    expect(apiChain(mock2).eq).not.toHaveBeenCalledWith('classification', expect.anything())
+  })
+
   it('always pins model_version so the view stays on one row per team-season', async () => {
     const mock = mockClient({ apiTables: { season_outlook: ok([]) } })
     await querySeasonOutlook({ season: 2026, conference: 'SEC' })
@@ -120,5 +134,66 @@ describe('querySeasonOutlook', () => {
 
     expect(result.rows).toEqual([])
     expect(result.error).toMatch(/^Error: api\.season_outlook request failed: statement timeout$/)
+  })
+})
+
+describe('queryModelBacktest', () => {
+  it('pins model and scope and orders deterministically past a run_date tie', async () => {
+    const mock = mockClient({
+      apiTables: { model_backtest: ok([{ model_version: 'fitted_v1', scope: 'fbs', n: 921 }]) },
+    })
+    const result = await queryModelBacktest()
+
+    expect(result.error).toBeNull()
+    expect(result.rows[0].n).toBe(921)
+    const chain = apiChain(mock)
+    expect(chain.eq).toHaveBeenCalledWith('model_version', SEASON_OUTLOOK_MODEL)
+    // 'all_divisions' is a different measurement, not a superset.
+    expect(chain.eq).toHaveBeenCalledWith('scope', MODEL_BACKTEST_SCOPE_FBS)
+    expect(chain.order).toHaveBeenCalledWith('run_date', { ascending: false })
+    // Model+scope does NOT reach a single row: the view's grain also includes
+    // the season window, and fitted_v1/fbs really does hold two rows with the
+    // same run_date. Without these tiebreaks the pick is up to Postgres.
+    expect(chain.order).toHaveBeenCalledWith('season_start', { ascending: false })
+    expect(chain.order).toHaveBeenCalledWith('season_end', { ascending: false })
+    // Two rows so the caller can tell a material tie from a cosmetic one.
+    expect(chain.limit).toHaveBeenCalledWith(2)
+  })
+
+  it('backtestRowsDisagree only fires on metrics this app reports', () => {
+    const base = {
+      model_version: 'fitted_v1', scope: 'fbs', run_date: '2026-07-27',
+      season_start: 2019, season_end: 2025, n: 921, win_mae: 1.738, rmse: 2.167,
+      bias: -0.122, coverage: 0.8067, resid_p10: -2.646, resid_p90: 3.024,
+      baseline_prior_mae: 2.128, baseline_flat_mae: 2.14, beats_prior_baseline: true,
+    }
+    // The real duplicate: identical metrics, different declared window.
+    expect(backtestRowsDisagree(base, { ...base, season_start: 2018 })).toBe(false)
+    expect(backtestRowsDisagree(base, { ...base, win_mae: 1.9 })).toBe(true)
+    expect(backtestRowsDisagree(base, { ...base, resid_p90: 4.0 })).toBe(true)
+    expect(backtestRowsDisagree(base, { ...base, n: 800 })).toBe(true)
+  })
+
+  it('accepts an explicit model and scope', async () => {
+    const mock = mockClient({ apiTables: { model_backtest: ok([]) } })
+    await queryModelBacktest('elo_v1', 'all_divisions')
+
+    const chain = apiChain(mock)
+    expect(chain.eq).toHaveBeenCalledWith('model_version', 'elo_v1')
+    expect(chain.eq).toHaveBeenCalledWith('scope', 'all_divisions')
+  })
+
+  it('returns [] with no error when the model has never been backtested', async () => {
+    mockClient({ apiTables: { model_backtest: ok([]) } })
+    // The caller must render this as unmeasured, never as zero error.
+    expect(await queryModelBacktest()).toEqual({ rows: [], error: null })
+  })
+
+  it('returns a friendly "Error: ..." string (never throws) on PostgREST error', async () => {
+    mockClient({ apiTables: { model_backtest: dbError('relation does not exist') } })
+    const result = await queryModelBacktest()
+
+    expect(result.rows).toEqual([])
+    expect(result.error).toMatch(/^Error: api\.model_backtest request failed: relation does not exist$/)
   })
 })

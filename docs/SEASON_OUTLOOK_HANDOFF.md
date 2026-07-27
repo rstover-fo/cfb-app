@@ -19,8 +19,20 @@ after any model refresh rather than trusting these numbers.
 ## 1. `fitted_v1` is a full third model version, not just the projection model
 
 The handoff frames `fitted_v1` as "the better model … what scores upcoming games now", which
-undersold it. It is a fully populated third row in `api.game_predictions` **and**
-`api.scored_matchup_edges`, 23,453 rows spanning 2018–2026.
+undersold it. It is a fully populated third model version in **both**
+`api.game_predictions` and `api.scored_matchup_edges`:
+
+| surface | fitted_v1 rows | seasons |
+|---|---|---|
+| `api.game_predictions` | 23,453 | 2018–2026 |
+| `api.scored_matchup_edges` | 1,638 | 2026 only |
+
+> **Correction (2026-07-27).** An earlier revision of this section attached
+> "23,453 rows spanning 2018–2026" to both surfaces. That figure is
+> `api.game_predictions` alone. `scored_matchup_edges` holds upcoming games with a market
+> line, so it carries 1,638 rows per model version and is empty out of season **by design** —
+> not a failure state, and it should not render as an error. Thanks to cfb-database for
+> catching it.
 
 cfb-app had a two-element `PREDICTION_MODEL_VERSIONS` constant, so neither the bot nor the web
 UI could name or select it. Fixed — but a consumer reading only the handoff would have added a
@@ -218,3 +230,80 @@ Your framing — "here is the table, here is how wrong it usually is" — is wha
 does. The caveats ride in the payload rather than only in the prompt, on the theory that a
 warning next to the numbers survives longer than one in a system prompt read a thousand tokens
 earlier.
+
+---
+
+# Response and resolution (2026-07-27)
+
+cfb-database answered in PR #56 and shipped fixes for all eight items. Verified against the
+live warehouse before adopting:
+
+| Item | Shipped | Verified |
+|---|---|---|
+| §6 `classification` | new column, season-accurate | 2026: 138 fbs / 128 fcs / 38 ii / 33 iii / 13 NULL. 2025 fbs=136, so it really is per-season |
+| §5 `is_projection` | new column, `games_simulated > games_completed` | 2026: 350/350 true. 2025: **0**/699 — correctly marks the settled season |
+| §7 `schedule_complete` | now division-aware (modal `games_scheduled` among conference peers) | FCS 128/128 complete; the Ivy false alarm is gone |
+| §7 `p_bowl_eligible` | NULL outside FBS | non-NULL on 138/138 FBS, 0 on all 212 others |
+| §8 `api.model_backtest` | new view (migration 045) | see below |
+
+**The backtest table shipped empty.** `api.model_backtest` existed with the right columns but
+`predictions.model_backtest` had zero rows, so following "stop hardcoding, read it live"
+literally would have stripped the error band off every projection — the exact failure mode
+this whole exchange was about. cfb-database traced it to a deploy ordering error (the backtest
+ran before migration 045 created the table) and repopulated. Now one row: `fitted_v1` / `fbs`,
+2019–2025, n=921, `win_mae` 1.738, `resid_p10` −2.646, `resid_p90` +3.024, `run_date`
+2026-07-27.
+
+Worth recording as a pattern rather than a one-off: a view whose DDL deploys separately from
+its writer can present as live-and-correct while being empty, and a consumer that trusts the
+"deployed and verified" line without querying it inherits the gap silently.
+
+## New finding: duplicate backtest rows (for cfb-database)
+
+`api.model_backtest` holds **two** rows for `fitted_v1` / `fbs`, identical in `run_date`
+(2026-07-27), `strength_share` (0.150), `n` (921), `win_mae`, `rmse`, `bias`, `coverage` and
+both residual bounds — differing only in `season_start`:
+
+```sql
+SELECT season_start, season_end, run_date, n, win_mae
+FROM api.model_backtest WHERE model_version = 'fitted_v1' AND scope = 'fbs';
+-- 2018  2025  2026-07-27  921  1.738
+-- 2019  2025  2026-07-27  921  1.738
+```
+
+The view's grain is `DISTINCT ON (model_version, scope, season_start, season_end,
+strength_share)`, so both survive. Two consequences:
+
+- **The suggested query is non-deterministic.** `... WHERE model_version = 'fitted_v1' AND
+  scope = 'fbs' ORDER BY run_date DESC LIMIT 1` ties on `run_date`, so Postgres may return
+  either. We hit this: the tool reported the window as 2018–2025 on one run and 2019–2025 on
+  the next. Fixed our side by adding `season_start`/`season_end` tiebreaks, and by fetching
+  two rows so we can warn when a tie is *material* rather than cosmetic. Today the metrics are
+  identical, so the pick only changes the reported window — but if a future run makes them
+  diverge, the naive query silently picks one.
+- **One of the two rows is mislabeled.** Both claim n=921, but a 2018–2025 window covers a
+  season more than 2019–2025 and should not produce the same team-season count. Your handoff
+  documents the window as 2019–2025, so the 2018 row looks like a stale or misdated insert
+  worth deleting.
+
+Suggestion: a uniqueness constraint on `(model_version, scope, run_date)` — or documenting
+which of the grain columns a consumer is expected to pin — would make the "read the latest
+run" instruction safe to follow literally.
+
+## What cfb-app changed in response
+
+- **The hardcoded accuracy constant is gone.** `get_season_outlook` reads
+  `api.model_backtest` live, pinned to `scope='fbs'`, newest `run_date`. `n` is surfaced as
+  `n_team_seasons` and the interval as `interval_80_pct` from `resid_p10`/`resid_p90`, both
+  renamed against the misreads you flagged. No row, or a failed read, yields `accuracy: null`
+  plus a caveat saying the error is **unmeasured** — never zero, never a silently missing key.
+- **`is_projection` replaces the derived completed-season logic**, and `classification`
+  replaces the required team-or-conference argument: the tool now defaults to
+  `classification='fbs'` and can answer a national question safely.
+- **New caveats** for `p_bowl_eligible` being NULL outside FBS, for DII/DIII
+  `schedule_complete` being unconfirmed (your §7 open item — we surface it as unverified
+  rather than asserting those schedules are short), and for row-cap truncation.
+- **The bot no longer restates error figures.** It defers to the live `accuracy` block, since
+  a number in the prompt would silently contradict the payload after any re-run. It also
+  carries your §4 correction: the first-year effect is a penalty for an *unproven* hire, not
+  for changing coaches, and a proven hire projects roughly as though nothing happened.

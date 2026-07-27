@@ -924,6 +924,61 @@ export type ApiSchema = {
         n_sims: number | null
         residual_sigma: number | null
         strength_share: number | null
+        // Added 2026-07-27 (cfb-database PR #56). classification is derived
+        // season-accurately, so a team that changed division carries the right
+        // label per season; NULL means CFBD could not place the team and is NOT
+        // a synonym for fbs. is_projection is `games_simulated >
+        // games_completed` -- false marks a row that is a final record rather
+        // than a forecast, and it is the authoritative answer to that question.
+        classification: string | null
+        is_projection: boolean | null
+      }
+      Relationships: []
+    }
+    // Backtest accuracy per model. Confirmed by live introspection 2026-07-27.
+    // Grain is DISTINCT ON (model_version, scope, season_start, season_end,
+    // strength_share) ORDER BY ... run_date DESC -- so a query that does not pin
+    // `scope` returns one row PER SCOPE, not one row overall. `n` counts
+    // TEAM-SEASONS, not games. Use resid_p10/resid_p90 as the 80% interval; it
+    // is asymmetric, and +/- win_mae spans only ~58% of the error distribution.
+    model_backtest: {
+      Row: {
+        backtest_id: string | null
+        computed_at: string | null
+        run_date: string | null
+        model_version: string | null
+        feature_build_version: string | null
+        scope: string | null
+        season_start: number | null
+        season_end: number | null
+        seasons_covered: number[] | null
+        train_through_min: number | null
+        train_through_max: number | null
+        n_sims: number | null
+        seed: number | null
+        strength_share: number | null
+        max_games_played_to_date: number | null
+        games_dropped_outcome_dependent: number | null
+        n: number | null
+        win_mae: number | null
+        rmse: number | null
+        bias: number | null
+        coverage: number | null
+        baseline_prior_mae: number | null
+        baseline_flat_mae: number | null
+        beats_prior_baseline: boolean | null
+        beats_flat_baseline: boolean | null
+        resid_p05: number | null
+        resid_p10: number | null
+        resid_p25: number | null
+        resid_p50: number | null
+        resid_p75: number | null
+        resid_p90: number | null
+        resid_p95: number | null
+        bowl_brier: number | null
+        ten_plus_brier: number | null
+        calibration: Record<string, unknown> | null
+        respectable_win_mae: number | null
       }
       Relationships: []
     }

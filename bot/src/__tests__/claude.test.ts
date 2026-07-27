@@ -214,6 +214,31 @@ describe('askClaude request shape', () => {
     expect(text).toMatch(/grounded, not invented/)
   })
 
+  it('defers to the live accuracy block instead of restating error figures', async () => {
+    betaCreateMock.mockResolvedValueOnce(apiResponse('answer'))
+    await askClaude('anything')
+
+    const text = betaCreateMock.mock.calls[0]?.[0].system[0].text as string
+    // The block is read live from api.model_backtest, so a figure baked into
+    // the prompt would silently contradict the payload after any re-run.
+    expect(text).toMatch(/read live and the\n {2}numbers move/)
+    expect(text).toMatch(/never plus-or-minus the MAE/)
+    expect(text).toMatch(/say the typical error is unknown/)
+    expect(text).not.toMatch(/1\.7 wins on average/)
+  })
+
+  it('blocks the "new coach, therefore worse" reading of the first-year effect', async () => {
+    betaCreateMock.mockResolvedValueOnce(apiResponse('answer'))
+    await askClaude('anything')
+
+    const text = betaCreateMock.mock.calls[0]?.[0].system[0].text as string
+    // The effect is a penalty for an unproven hire, not for changing coaches:
+    // a proven hire is a measured null, not an absence of evidence.
+    expect(text).toMatch(/does NOT believe "new coach, therefore worse"/)
+    expect(text).toMatch(/UNPROVEN coach/)
+    expect(text).toMatch(/projects roughly as though nothing happened/)
+  })
+
   it('does not hardcode a season into the outlook rule', async () => {
     betaCreateMock.mockResolvedValueOnce(apiResponse('answer'))
     await askClaude('anything')
