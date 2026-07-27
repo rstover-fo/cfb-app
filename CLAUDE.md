@@ -96,7 +96,13 @@ traversal -- that flattening happens once, in the view definition, not in this a
 
 ### Key Tables/Views
 
-`teams_with_logos`, `games`, `team_epa_season`, `team_style_profile`, `defensive_havoc`, `team_tempo_metrics`, `records`, `team_special_teams_sos`, `roster` (`public`); `game_box_score`, `game_player_leaders`, `game_line_scores`, `game_drives`, `game_plays`, `game_win_probability`, `team_detail`, `matchup`, `poll_rankings` (`api`)
+`teams_with_logos`, `games`, `team_epa_season`, `team_style_profile`, `defensive_havoc`, `team_tempo_metrics`, `records`, `team_special_teams_sos`, `roster` (`public`); `game_box_score`, `game_player_leaders`, `game_line_scores`, `game_drives`, `game_plays`, `game_win_probability`, `team_detail`, `matchup`, `poll_rankings`, `season_outlook`, `model_backtest` (`api`)
+
+`api.season_outlook` (simulated season win totals) is not FBS-only -- filter on its
+`classification` column before ranking, and check `is_projection` before calling a row a
+forecast. `api.model_backtest` is how wrong those projections usually are; pin `scope = 'fbs'`
+and read the interval from `resid_p10`/`resid_p90`, never `± win_mae`. Both are served by
+`src/lib/queries/season-outlook.ts` and the `get_season_outlook` MCP tool.
 
 Full contracted surface: cfb-database's `docs/SCHEMA_CONTRACT.md`. Types are in `src/lib/types/database.ts`.
 
