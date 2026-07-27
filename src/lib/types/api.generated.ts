@@ -883,6 +883,105 @@ export type ApiSchema = {
       }
       Relationships: []
     }
+    // Unlike the rest of this file (hand-transcribed from cfb-database's
+    // CREATE VIEW SQL), these columns were confirmed by live introspection of
+    // information_schema.columns on 2026-07-26. Grain is
+    // DISTINCT ON (season, team, model_version) ORDER BY projection_date DESC
+    // -- i.e. already the latest snapshot per team-season; a query that does
+    // not pin model_version gets one row per version, not one row per team.
+    // projection_id is bigint, typed `string` per this file's int8-as-string
+    // convention (see game_win_probability below). playoff_prob is NULL on
+    // every row by design and is not a column to fill in.
+    season_outlook: {
+      Row: {
+        projection_id: string | null
+        computed_at: string | null
+        projection_date: string | null
+        model_version: string | null
+        season: number | null
+        team: string | null
+        conference: string | null
+        games_scheduled: number | null
+        games_simulated: number | null
+        games_unscored: number | null
+        games_completed: number | null
+        actual_wins: number | null
+        schedule_complete: boolean | null
+        projected_wins: number | null
+        projected_losses: number | null
+        median_wins: number | null
+        wins_p10: number | null
+        wins_p25: number | null
+        wins_p75: number | null
+        wins_p90: number | null
+        p_win_dist: Record<string, number> | null
+        p_bowl_eligible: number | null
+        p_ten_plus: number | null
+        sos_rating: number | null
+        sos_rank: number | null
+        conf_title_prob: number | null
+        playoff_prob: number | null
+        n_sims: number | null
+        residual_sigma: number | null
+        strength_share: number | null
+        // Added 2026-07-27 (cfb-database PR #56). classification is derived
+        // season-accurately, so a team that changed division carries the right
+        // label per season; NULL means CFBD could not place the team and is NOT
+        // a synonym for fbs. is_projection is `games_simulated >
+        // games_completed` -- false marks a row that is a final record rather
+        // than a forecast, and it is the authoritative answer to that question.
+        classification: string | null
+        is_projection: boolean | null
+      }
+      Relationships: []
+    }
+    // Backtest accuracy per model. Confirmed by live introspection 2026-07-27.
+    // Grain is DISTINCT ON (model_version, scope, season_start, season_end,
+    // strength_share) ORDER BY ... run_date DESC -- so a query that does not pin
+    // `scope` returns one row PER SCOPE, not one row overall. `n` counts
+    // TEAM-SEASONS, not games. Use resid_p10/resid_p90 as the 80% interval; it
+    // is asymmetric, and +/- win_mae spans only ~58% of the error distribution.
+    model_backtest: {
+      Row: {
+        backtest_id: string | null
+        computed_at: string | null
+        run_date: string | null
+        model_version: string | null
+        feature_build_version: string | null
+        scope: string | null
+        season_start: number | null
+        season_end: number | null
+        seasons_covered: number[] | null
+        train_through_min: number | null
+        train_through_max: number | null
+        n_sims: number | null
+        seed: number | null
+        strength_share: number | null
+        max_games_played_to_date: number | null
+        games_dropped_outcome_dependent: number | null
+        n: number | null
+        win_mae: number | null
+        rmse: number | null
+        bias: number | null
+        coverage: number | null
+        baseline_prior_mae: number | null
+        baseline_flat_mae: number | null
+        beats_prior_baseline: boolean | null
+        beats_flat_baseline: boolean | null
+        resid_p05: number | null
+        resid_p10: number | null
+        resid_p25: number | null
+        resid_p50: number | null
+        resid_p75: number | null
+        resid_p90: number | null
+        resid_p95: number | null
+        bowl_brier: number | null
+        ten_plus_brier: number | null
+        calibration: Record<string, unknown> | null
+        respectable_win_mae: number | null
+      }
+      Relationships: []
+    }
     // prediction_id's real PostgREST wire type (uuid vs bigint, stringified
     // per PostgREST's int8-as-string convention -- see the game_win_probability
     // Row below for the established pattern in this codebase) is UNCONFIRMED

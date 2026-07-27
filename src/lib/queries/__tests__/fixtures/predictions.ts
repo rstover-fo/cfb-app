@@ -68,6 +68,26 @@ export function createGamePredictionRow(overrides: Partial<GamePredictionRow> = 
   }
 }
 
+/**
+ * Same game, the 'fitted_v1' row -- the current house model
+ * (DEFAULT_PREDICTION_MODEL). Unlike the two Elo rows it carries its OWN
+ * home_win_prob rather than the shared Elo-derived one, and it leaves
+ * elo_margin/epa_margin null (the fitted ridge does not decompose its margin
+ * into those two components).
+ */
+export function createGamePredictionRowFitted(overrides: Partial<GamePredictionRow> = {}): GamePredictionRow {
+  return createGamePredictionRow({
+    model_version: 'fitted_v1',
+    elo_margin: null,
+    epa_margin: null,
+    expected_home_margin: 7.4,
+    home_win_prob: 0.71,
+    edge: 4.9, // 7.4 + (-2.5)
+    edge_pick: 'home',
+    ...overrides,
+  })
+}
+
 /** Same game, the 'elo_v1' (Elo-only) model row -- same home_win_prob, different margin/edge inputs. */
 export function createGamePredictionRowEloOnly(overrides: Partial<GamePredictionRow> = {}): GamePredictionRow {
   return createGamePredictionRow({
@@ -319,7 +339,15 @@ export function createPredictionAccuracyRow(overrides: Partial<PredictionAccurac
   }
 }
 
-/** One row per model_version at edge_threshold 0 and 6 (4 rows total). */
+/**
+ * One row per model_version at edge_threshold 0 and 6 (6 rows total).
+ *
+ * The fitted_v1 rows keep the shape of the real 2025 result: the best margin
+ * error of the three AND the worst ATS hit rate. That combination is the whole
+ * reason the models page refuses to call any one version "the best model", so
+ * a fixture that made the default model win on every metric would let that copy
+ * rot untested.
+ */
 export function createPredictionAccuracyRows(): PredictionAccuracyRow[] {
   return [
     createPredictionAccuracyRow({ model_version: 'elo_epa_blend_v1', edge_threshold: 0 }),
@@ -335,6 +363,15 @@ export function createPredictionAccuracyRows(): PredictionAccuracyRow[] {
     createPredictionAccuracyRow({
       model_version: 'elo_v1', edge_threshold: 6,
       n_games: 195, n_with_market: 190, ats_wins: 112, ats_losses: 81, ats_pushes: 2, ats_hit_rate: 0.5803,
+    }),
+    createPredictionAccuracyRow({
+      model_version: 'fitted_v1', edge_threshold: 0,
+      margin_mae: 10.1, margin_rmse: 13.0, ats_wins: 348, ats_losses: 382, ats_pushes: 12, ats_hit_rate: 0.4765,
+      brier: 0.202,
+    }),
+    createPredictionAccuracyRow({
+      model_version: 'fitted_v1', edge_threshold: 6,
+      n_games: 205, n_with_market: 200, ats_wins: 104, ats_losses: 94, ats_pushes: 2, ats_hit_rate: 0.5253,
     }),
   ]
 }

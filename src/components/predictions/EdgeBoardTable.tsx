@@ -32,6 +32,7 @@ import { cn } from '@/lib/utils'
 const MODEL_LABELS: Record<string, string> = {
   elo_v1: 'Elo (v1)',
   elo_epa_blend_v1: 'Elo + EPA blend (v1)',
+  fitted_v1: 'Fitted ridge (v1)',
 }
 
 const ALL_WEEKS_VALUE = '0'

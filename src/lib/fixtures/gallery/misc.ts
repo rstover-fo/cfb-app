@@ -52,7 +52,13 @@ export const MATCHUP_GAMES: MatchupGame[] = [
   { gameId: 63388, season: 2000, week: 7, seasonType: 'regular', startDate: '2000-10-07T00:00:00+00:00', neutralSite: false, teamAScore: 63, teamBScore: 14, teamAHome: true, winner: 'Oklahoma', result: 'W', venue: null },
 ]
 
-/** Hand-authored: 2 models x 5 seasons at edge_threshold 0 (10 rows). */
+/**
+ * Hand-authored: 3 models x 5 seasons at edge_threshold 0 (15 rows).
+ *
+ * fitted_v1 is shaped like its real result -- lowest margin_mae of the three,
+ * lowest ats_hit_rate of the three -- so the gallery renders the honest case
+ * rather than a default model that sweeps every column.
+ */
 export const PREDICTION_ACCURACY: PredictionAccuracyRow[] = [
   { model_version: 'elo_epa_blend_v1', season: 2021, edge_threshold: 0, n_games: 720, n_with_market: 668, margin_mae: 11.6, margin_rmse: 14.8, ats_wins: 328, ats_losses: 327, ats_pushes: 13, ats_hit_rate: 0.5008, brier: 0.214, cfbd_brier: 0.211, n_scored_win_prob: 720 },
   { model_version: 'elo_v1', season: 2021, edge_threshold: 0, n_games: 720, n_with_market: 668, margin_mae: 12.1, margin_rmse: 15.3, ats_wins: 320, ats_losses: 335, ats_pushes: 13, ats_hit_rate: 0.4885, brier: 0.221, cfbd_brier: 0.211, n_scored_win_prob: 720 },
@@ -64,6 +70,11 @@ export const PREDICTION_ACCURACY: PredictionAccuracyRow[] = [
   { model_version: 'elo_v1', season: 2024, edge_threshold: 0, n_games: 771, n_with_market: 733, margin_mae: 11.3, margin_rmse: 14.4, ats_wins: 362, ats_losses: 359, ats_pushes: 12, ats_hit_rate: 0.5017, brier: 0.210, cfbd_brier: 0.198, n_scored_win_prob: 771 },
   { model_version: 'elo_epa_blend_v1', season: 2025, edge_threshold: 0, n_games: 780, n_with_market: 742, margin_mae: 10.8, margin_rmse: 13.9, ats_wins: 380, ats_losses: 350, ats_pushes: 12, ats_hit_rate: 0.5205, brier: 0.201, cfbd_brier: 0.198, n_scored_win_prob: 780 },
   { model_version: 'elo_v1', season: 2025, edge_threshold: 0, n_games: 780, n_with_market: 742, margin_mae: 11.4, margin_rmse: 14.6, ats_wins: 365, ats_losses: 365, ats_pushes: 12, ats_hit_rate: 0.5, brier: 0.209, cfbd_brier: 0.198, n_scored_win_prob: 780 },
+  { model_version: 'fitted_v1', season: 2021, edge_threshold: 0, n_games: 720, n_with_market: 668, margin_mae: 11.0, margin_rmse: 14.1, ats_wins: 314, ats_losses: 341, ats_pushes: 13, ats_hit_rate: 0.4794, brier: 0.215, cfbd_brier: 0.211, n_scored_win_prob: 720 },
+  { model_version: 'fitted_v1', season: 2022, edge_threshold: 0, n_games: 748, n_with_market: 701, margin_mae: 10.6, margin_rmse: 13.6, ats_wins: 335, ats_losses: 353, ats_pushes: 13, ats_hit_rate: 0.4869, brier: 0.210, cfbd_brier: 0.206, n_scored_win_prob: 748 },
+  { model_version: 'fitted_v1', season: 2023, edge_threshold: 0, n_games: 762, n_with_market: 719, margin_mae: 10.3, margin_rmse: 13.1, ats_wins: 344, ats_losses: 363, ats_pushes: 12, ats_hit_rate: 0.4866, brier: 0.204, cfbd_brier: 0.201, n_scored_win_prob: 762 },
+  { model_version: 'fitted_v1', season: 2024, edge_threshold: 0, n_games: 771, n_with_market: 733, margin_mae: 10.0, margin_rmse: 12.8, ats_wins: 349, ats_losses: 371, ats_pushes: 13, ats_hit_rate: 0.4847, brier: 0.200, cfbd_brier: 0.198, n_scored_win_prob: 771 },
+  { model_version: 'fitted_v1', season: 2025, edge_threshold: 0, n_games: 780, n_with_market: 742, margin_mae: 10.1, margin_rmse: 13.0, ats_wins: 348, ats_losses: 382, ats_pushes: 12, ats_hit_rate: 0.4765, brier: 0.202, cfbd_brier: 0.198, n_scored_win_prob: 780 },
 ]
 
 // ---------------------------------------------------------------------------

@@ -12,7 +12,7 @@
  */
 import { cache } from 'react'
 import { createClient } from '@/lib/supabase/server'
-import { DEFAULT_PREDICTION_MODEL } from './constants'
+import { DEFAULT_PREDICTION_MODEL, PREDICTION_MODEL_VERSIONS } from './constants'
 import { quoteFilterValue } from './shared'
 // NOTE: the memo's module-header sketch (Section 2) imports `ApiSchema` here
 // for the `Pick<ApiSchema[...]>` pattern, but per that same section that
@@ -29,9 +29,11 @@ export type EdgePick = 'home' | 'away'
 // ---------------------------------------------------------------------------
 // api.game_predictions -- already latest-snapshot (DISTINCT ON game_id,
 // model_version ORDER BY prediction_date DESC), so a game_id + model_version
-// filter returns at most one row. Two model versions are written per game
-// ('elo_v1', 'elo_epa_blend_v1' -- see constants.ts); home_win_prob is
-// Elo-only in both, so callers must always filter model_version.
+// filter returns at most one row. Three model versions are written per game
+// ('elo_v1', 'elo_epa_blend_v1', 'fitted_v1' -- see constants.ts). The two Elo
+// rows share one Elo-derived home_win_prob; 'fitted_v1' has its own. Callers
+// must always filter model_version -- both margin AND win probability move
+// with it.
 //
 // See src/lib/types/api.generated.ts's `game_predictions` Row for the full
 // generated shape -- kept hand-typed here since this query's .select() pulls
@@ -86,6 +88,38 @@ export const getGamePrediction = cache(async (
   if (error || !data) return null
 
   return data as GamePrediction
+})
+
+// Model versions to try, in order, for a surface that needs SOME prediction for
+// a game rather than one specific model's. See getGamePredictionForDisplay.
+const DISPLAY_MODEL_FALLBACKS: readonly string[] = [
+  DEFAULT_PREDICTION_MODEL,
+  ...PREDICTION_MODEL_VERSIONS.filter(m => m !== DEFAULT_PREDICTION_MODEL),
+]
+
+/**
+ * The best available prediction for a game, whichever model produced it.
+ *
+ * The house model only covers 2018+, while the two Elo versions reach back to
+ * 2015 -- so a bare `getGamePrediction(gameId)` returns null for every game in
+ * 2015-2017 (4,638 of them), and any UI that renders conditionally on a
+ * non-null result silently drops its prediction on those pages. This walks the
+ * known versions in preference order instead.
+ *
+ * Callers that need a SPECIFIC model must keep using getGamePrediction: the
+ * MCP tool passes an explicit version precisely so "no fitted_v1 row" stays a
+ * reportable answer rather than being papered over with a different model's
+ * numbers. This function is for display surfaces, and the row it returns
+ * carries `model_version` so the UI can name what it is showing.
+ */
+export const getGamePredictionForDisplay = cache(async (
+  gameId: number
+): Promise<GamePrediction | null> => {
+  for (const modelVersion of DISPLAY_MODEL_FALLBACKS) {
+    const prediction = await getGamePrediction(gameId, modelVersion)
+    if (prediction) return prediction
+  }
+  return null
 })
 
 // ---------------------------------------------------------------------------
