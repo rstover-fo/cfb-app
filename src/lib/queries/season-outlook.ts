@@ -193,16 +193,20 @@ export const MODEL_BACKTEST_SCOPE_FBS = 'fbs'
  * rows with the same run_date whose metrics are byte-identical and whose only
  * difference is season_start (2018 vs 2019).
  *
- * Note an unresolved inconsistency on the cfb-database side. Both rows report
- * n=921 team-seasons; FBS runs ~136 teams a season, so 921 fits seven seasons
- * (2019-2025, ~131.6/season) and not eight (2018-2025 would be ~115/season,
- * well short of the field). Their handoff prose and their first message both
- * say 2019-2025, while the query they later specified pins 2018. A plausible
- * reading is that 2018 is the *configured* start and 2019 the first season with
- * evaluable rows, in which case both records are legitimate. Either way the
- * reported figures are identical, so this only affects the season range shown
- * next to them -- and cfb-database owns which label is canonical, so we follow
- * their query.
+ * These bounds are the CONFIGURED window, not the evaluated one. Counting FBS
+ * team-seasons settles it: api.leaderboard_teams gives 130/128/130/131/133/134/
+ * 136 FBS teams for 2019..2025, summing to 922 -- against a reported n of 921,
+ * one short, consistent with a single team dropped for want of a prior-season
+ * vector. The same count over 2018-2025 is 1052, nowhere near. So the run was
+ * evaluated over 2019-2025 while this row records a start of 2018, which is
+ * what you would expect when the model needs a prior season of features: 2018
+ * is the first season READ, 2019 the first season SCORED.
+ *
+ * The two rows are therefore one run recorded under two conventions, not a
+ * duplicate to be deduplicated, and the metrics being byte-identical follows
+ * from that. Consumers must not restate the window as a count of validated
+ * seasons -- report n instead, which is why the tool layer renames this field
+ * and ships a scale_note beside it.
  *
  * NOT treated as required: see queryModelBacktest's fallback. A hardcoded
  * window that silently returns nothing after the next re-run would make the

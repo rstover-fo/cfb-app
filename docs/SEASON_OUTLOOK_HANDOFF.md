@@ -280,26 +280,36 @@ may return either row. We hit it: the tool reported the window as 2018–2025 on
 2019–2025 on the next. cfb-database then supplied a revised query pinning `season_start = 2018
 AND season_end = 2025`, which resolves it — that is what cfb-app now uses.
 
-**Still open: which label is correct.** Both rows report `n = 921`. FBS runs ~136 teams a
-season (verified from `season_outlook`'s own `classification`: 136 for 2025, 138 for 2026), so
-921 fits **seven** seasons at ~131.6/season and not eight, which would need ~115/season —
-about 21 teams short of the field in any year. The prose in the original handoff and
-cfb-database's first message both say 2019–2025; only the revised query says 2018.
+**Resolved: the bounds are the configured window, not the evaluated one.** Counting FBS
+team-seasons settles it — `api.leaderboard_teams` carries a per-season `classification`:
 
-The reading that reconciles it: 2018 is the *configured* start and 2019 the first season with
-evaluable rows, because the model needs a prior-season feature vector. If that is right both
-records are legitimate and nothing needs deleting — but they then mean different things while
-carrying identical metrics, which is worth stating in the contract. If it is not right, one
-row is misdated. Either way the figures cfb-app displays are unaffected; only the season range
-shown beside them changes.
+```sql
+SELECT season, count(DISTINCT team) FILTER (WHERE classification = 'fbs') AS fbs
+FROM api.leaderboard_teams WHERE season BETWEEN 2018 AND 2025 GROUP BY 1 ORDER BY 1;
+-- 2018 130 | 2019 130 | 2020 128 | 2021 130
+-- 2022 131 | 2023 133 | 2024 134 | 2025 136
+```
 
-Two suggestions:
+2019–2025 sums to **922** against a reported **n = 921** — one short, exactly what a single
+team dropped for want of a prior-season feature vector looks like. 2018–2025 sums to **1052**,
+nowhere near. So the run was evaluated over 2019–2025 while the pinned row records a start of
+2018: 2018 is the first season *read*, 2019 the first season *scored*.
 
-- A uniqueness constraint on `(model_version, scope, run_date)`, or a documented statement of
-  which grain columns a consumer must pin, would make "read the latest run" safe to follow
-  literally.
-- Distinguishing configured window from evaluated window — even just
-  `eval_season_start` — would remove the ambiguity entirely.
+That makes the two rows one run recorded under two conventions rather than a duplicate to
+delete, and explains why their metrics are byte-identical. **No action needed on your side for
+correctness** — your revised query points at a real row and cfb-app follows it.
+
+The fix this exposed was ours: the payload was emitting the bounds under the key
+`backtest_seasons`, which asserts a validated span the sample size contradicts. A model reading
+that would have told a user the projections were validated over eight seasons. Renamed to
+`season_window_configured`, with a `scale_note` telling the reader that `n_team_seasons` is the
+defensible statement of scale and the window must not be multiplied out.
+
+One optional nicety, purely to save the next consumer the arithmetic: an `eval_season_start`
+column — or a documented note that `season_start` is configured rather than evaluated — would
+make the distinction readable without reverse-engineering it from `n`. A uniqueness constraint
+on `(model_version, scope, run_date)` would separately make "read the latest run" safe to
+follow literally. Neither blocks anything.
 
 **On our side the pin is deliberately not fatal.** A literal season window hardcoded in
 application code is correct today and wrong the day the backtest re-runs over a different span

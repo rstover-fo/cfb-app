@@ -208,6 +208,28 @@ describe('getSeasonOutlookTool', () => {
     expect(parsed.accuracy.scope).toBe('fbs')
   })
 
+  it('reports the season window as configured, never as a count of validated seasons', async () => {
+    vi.mocked(querySeasonOutlook).mockResolvedValue(okRows([row()]))
+    // The live row records 2018-2025, but n=921 matches 2019-2025 (922 FBS
+    // team-seasons, less one dropped). The bounds are the configured window --
+    // 2018 is the first season READ, 2019 the first season SCORED -- so the
+    // payload must not let a reader turn them into "validated over 8 seasons".
+    vi.mocked(resolveModelBacktest).mockResolvedValue({
+      rows: [backtestRow({ season_start: 2018, season_end: 2025 })],
+      error: null,
+      windowFallback: false,
+    })
+
+    const parsed = JSON.parse(await getSeasonOutlookTool({ conference: 'SEC' }))
+
+    expect(parsed.accuracy.season_window_configured).toBe('2018-2025')
+    expect(parsed.accuracy).not.toHaveProperty('backtest_seasons')
+    expect(parsed.accuracy.n_team_seasons).toBe(921)
+    expect(parsed.accuracy.scale_note).toMatch(/do not restate the window as the number of/)
+    // Nothing in the block may describe the window as seasons validated.
+    expect(JSON.stringify(parsed.accuracy)).not.toMatch(/backtest_seasons/)
+  })
+
   it('stays silent when a duplicate backtest row agrees, and warns when it does not', async () => {
     vi.mocked(querySeasonOutlook).mockResolvedValue(okRows([row()]))
 

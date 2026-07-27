@@ -1282,8 +1282,17 @@ function seasonOutlookAccuracy(row: ModelBacktestRow) {
     scope: row.scope,
     run_date: row.run_date,
     metric: 'final win total, preseason projection',
-    backtest_seasons: `${row.season_start}-${row.season_end}`,
+    // Verbatim from the row, and named for what it actually is. The bounds are
+    // the CONFIGURED window, which can start before the first season the model
+    // could evaluate -- calling this "backtest_seasons" made the payload assert
+    // a validated span that the sample size contradicts. See scale_note.
+    season_window_configured: `${row.season_start}-${row.season_end}`,
     n_team_seasons: row.n,
+    scale_note:
+      'n_team_seasons is the evaluated sample and is the defensible statement of scale. The ' +
+      'configured window can begin earlier than the first evaluable season, because the model ' +
+      'needs a prior-season feature vector -- do not restate the window as the number of ' +
+      'seasons validated, and do not multiply it out.',
     win_mae: row.win_mae,
     rmse: row.rmse,
     bias: row.bias,
