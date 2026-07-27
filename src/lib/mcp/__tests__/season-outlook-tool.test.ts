@@ -15,14 +15,14 @@ vi.mock('@/lib/queries/season-outlook', async importOriginal => {
     ...actual,
     queryLatestOutlookSeason: vi.fn(),
     querySeasonOutlook: vi.fn(),
-    queryModelBacktest: vi.fn(),
+    resolveModelBacktest: vi.fn(),
   }
 })
 
 import {
   queryLatestOutlookSeason,
   querySeasonOutlook,
-  queryModelBacktest,
+  resolveModelBacktest,
 } from '@/lib/queries/season-outlook'
 import type { SeasonOutlookRow, ModelBacktestRow } from '@/lib/queries/season-outlook'
 import { getSeasonOutlookTool } from '../tools'
@@ -93,7 +93,7 @@ function okRows(rows: SeasonOutlookRow[]) {
 beforeEach(() => {
   vi.clearAllMocks()
   vi.mocked(queryLatestOutlookSeason).mockResolvedValue({ rows: [{ season: 2026 }], error: null })
-  vi.mocked(queryModelBacktest).mockResolvedValue({ rows: [backtestRow()], error: null })
+  vi.mocked(resolveModelBacktest).mockResolvedValue({ rows: [backtestRow()], error: null, windowFallback: false })
 })
 
 describe('getSeasonOutlookTool', () => {
@@ -189,9 +189,10 @@ describe('getSeasonOutlookTool', () => {
   it('builds the accuracy block live from api.model_backtest, not a hardcoded constant', async () => {
     vi.mocked(querySeasonOutlook).mockResolvedValue(okRows([row()]))
     // Deliberately not the real figures: proves the block is read, not baked in.
-    vi.mocked(queryModelBacktest).mockResolvedValue({
+    vi.mocked(resolveModelBacktest).mockResolvedValue({
       rows: [backtestRow({ win_mae: 9.99, n: 4242, resid_p10: -7.5, resid_p90: 8.25 })],
       error: null,
+      windowFallback: false,
     })
 
     const parsed = JSON.parse(await getSeasonOutlookTool({ conference: 'SEC' }))
@@ -212,16 +213,18 @@ describe('getSeasonOutlookTool', () => {
 
     // The real 2026-07-27 duplicate: same metrics, different declared window.
     // Picking either is cosmetic, so it must not add noise to every answer.
-    vi.mocked(queryModelBacktest).mockResolvedValue({
+    vi.mocked(resolveModelBacktest).mockResolvedValue({
       rows: [backtestRow(), backtestRow({ season_start: 2018 })],
       error: null,
+      windowFallback: false,
     })
     let parsed = JSON.parse(await getSeasonOutlookTool({ conference: 'SEC' }))
     expect(parsed.caveats.some((c: string) => /do NOT agree/.test(c))).toBe(false)
 
-    vi.mocked(queryModelBacktest).mockResolvedValue({
+    vi.mocked(resolveModelBacktest).mockResolvedValue({
       rows: [backtestRow(), backtestRow({ season_start: 2018, win_mae: 2.9 })],
       error: null,
+      windowFallback: false,
     })
     parsed = JSON.parse(await getSeasonOutlookTool({ conference: 'SEC' }))
     expect(parsed.caveats.some((c: string) => /do NOT agree/.test(c))).toBe(true)
@@ -230,9 +233,27 @@ describe('getSeasonOutlookTool', () => {
     expect(parsed.accuracy.win_mae).toBe(1.738)
   })
 
+  it('says which window answered when the canonical one was missing', async () => {
+    vi.mocked(querySeasonOutlook).mockResolvedValue(okRows([row()]))
+    vi.mocked(resolveModelBacktest).mockResolvedValue({
+      rows: [backtestRow({ season_start: 2020, season_end: 2026 })],
+      error: null,
+      windowFallback: true,
+    })
+
+    const parsed = JSON.parse(await getSeasonOutlookTool({ conference: 'SEC' }))
+
+    // The error band survives -- the whole point of not hard-failing on a
+    // pinned window that a later backtest re-run no longer produces.
+    expect(parsed.accuracy.win_mae).toBe(1.738)
+    expect(parsed.caveats.some((c: string) => /canonical backtest window is missing/.test(c)))
+      .toBe(true)
+    expect(parsed.caveats.some((c: string) => /2020-2026/.test(c))).toBe(true)
+  })
+
   it('renders an unmeasured model as null accuracy plus a caveat -- never as zero error', async () => {
     vi.mocked(querySeasonOutlook).mockResolvedValue(okRows([row()]))
-    vi.mocked(queryModelBacktest).mockResolvedValue({ rows: [], error: null })
+    vi.mocked(resolveModelBacktest).mockResolvedValue({ rows: [], error: null, windowFallback: false })
 
     const parsed = JSON.parse(await getSeasonOutlookTool({ conference: 'SEC' }))
 
@@ -244,9 +265,10 @@ describe('getSeasonOutlookTool', () => {
 
   it('still returns the outlook when the backtest query errors, and says the error is unknown', async () => {
     vi.mocked(querySeasonOutlook).mockResolvedValue(okRows([row()]))
-    vi.mocked(queryModelBacktest).mockResolvedValue({
+    vi.mocked(resolveModelBacktest).mockResolvedValue({
       rows: [],
       error: 'Error: api.model_backtest request failed: statement timeout',
+      windowFallback: false,
     })
 
     const parsed = JSON.parse(await getSeasonOutlookTool({ conference: 'SEC' }))

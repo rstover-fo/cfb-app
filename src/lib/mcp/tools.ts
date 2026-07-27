@@ -52,7 +52,7 @@ import {
 import {
   queryLatestOutlookSeason,
   querySeasonOutlook,
-  queryModelBacktest,
+  resolveModelBacktest,
   backtestRowsDisagree,
   MODEL_BACKTEST_SCOPE_FBS,
   SEASON_OUTLOOK_DEFAULT_LIMIT,
@@ -1437,7 +1437,7 @@ export async function getSeasonOutlookTool(args: GetSeasonOutlookArgs): Promise<
       classification: classificationFilter,
       limit: args.limit,
     }),
-    queryModelBacktest(),
+    resolveModelBacktest(),
   ])
 
   if (result.error) return result.error
@@ -1480,13 +1480,23 @@ export async function getSeasonOutlookTool(args: GetSeasonOutlookArgs): Promise<
     ? // A second row for the same model+scope is a different season window, which
       // is a legitimate grain -- but if the two disagree on the numbers, the pick
       // stops being cosmetic and the reader has to know the source was ambiguous.
-      backtest.rows[1] && backtestRowsDisagree(backtestRow, backtest.rows[1])
-      ? [
-          'api.model_backtest holds more than one run for this model and scope and they do NOT ' +
-            'agree. The reported accuracy is the most recent run over the latest season window; ' +
-            'treat the error figures as approximate and say the backtest source was ambiguous.',
-        ]
-      : []
+      [
+        ...(backtest.rows[1] && backtestRowsDisagree(backtestRow, backtest.rows[1])
+          ? [
+              'api.model_backtest holds more than one run for this model and scope and they do ' +
+                'NOT agree. The reported accuracy is the most recent run over the latest season ' +
+                'window; treat the error figures as approximate and say the backtest source was ' +
+                'ambiguous.',
+            ]
+          : []),
+        ...(backtest.windowFallback
+          ? [
+              `The canonical backtest window is missing, so these accuracy figures come from the ` +
+                `newest run over ${backtestRow.season_start}-${backtestRow.season_end} instead. ` +
+                'The numbers are real but may describe a different evaluation span than usual.',
+            ]
+          : []),
+      ]
     : [
         backtest.error
           ? 'The backtest could not be read from api.model_backtest, so the accuracy of these ' +

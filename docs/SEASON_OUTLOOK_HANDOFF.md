@@ -272,23 +272,42 @@ FROM api.model_backtest WHERE model_version = 'fitted_v1' AND scope = 'fbs';
 ```
 
 The view's grain is `DISTINCT ON (model_version, scope, season_start, season_end,
-strength_share)`, so both survive. Two consequences:
+strength_share)`, so both survive.
 
-- **The suggested query is non-deterministic.** `... WHERE model_version = 'fitted_v1' AND
-  scope = 'fbs' ORDER BY run_date DESC LIMIT 1` ties on `run_date`, so Postgres may return
-  either. We hit this: the tool reported the window as 2018–2025 on one run and 2019–2025 on
-  the next. Fixed our side by adding `season_start`/`season_end` tiebreaks, and by fetching
-  two rows so we can warn when a tie is *material* rather than cosmetic. Today the metrics are
-  identical, so the pick only changes the reported window — but if a future run makes them
-  diverge, the naive query silently picks one.
-- **One of the two rows is mislabeled.** Both claim n=921, but a 2018–2025 window covers a
-  season more than 2019–2025 and should not produce the same team-season count. Your handoff
-  documents the window as 2019–2025, so the 2018 row looks like a stale or misdated insert
-  worth deleting.
+**The originally suggested query was non-deterministic.** `... WHERE model_version =
+'fitted_v1' AND scope = 'fbs' ORDER BY run_date DESC LIMIT 1` ties on `run_date`, so Postgres
+may return either row. We hit it: the tool reported the window as 2018–2025 on one run and
+2019–2025 on the next. cfb-database then supplied a revised query pinning `season_start = 2018
+AND season_end = 2025`, which resolves it — that is what cfb-app now uses.
 
-Suggestion: a uniqueness constraint on `(model_version, scope, run_date)` — or documenting
-which of the grain columns a consumer is expected to pin — would make the "read the latest
-run" instruction safe to follow literally.
+**Still open: which label is correct.** Both rows report `n = 921`. FBS runs ~136 teams a
+season (verified from `season_outlook`'s own `classification`: 136 for 2025, 138 for 2026), so
+921 fits **seven** seasons at ~131.6/season and not eight, which would need ~115/season —
+about 21 teams short of the field in any year. The prose in the original handoff and
+cfb-database's first message both say 2019–2025; only the revised query says 2018.
+
+The reading that reconciles it: 2018 is the *configured* start and 2019 the first season with
+evaluable rows, because the model needs a prior-season feature vector. If that is right both
+records are legitimate and nothing needs deleting — but they then mean different things while
+carrying identical metrics, which is worth stating in the contract. If it is not right, one
+row is misdated. Either way the figures cfb-app displays are unaffected; only the season range
+shown beside them changes.
+
+Two suggestions:
+
+- A uniqueness constraint on `(model_version, scope, run_date)`, or a documented statement of
+  which grain columns a consumer must pin, would make "read the latest run" safe to follow
+  literally.
+- Distinguishing configured window from evaluated window — even just
+  `eval_season_start` — would remove the ambiguity entirely.
+
+**On our side the pin is deliberately not fatal.** A literal season window hardcoded in
+application code is correct today and wrong the day the backtest re-runs over a different span
+— at which point a strict query returns nothing and the tool would report the model as
+unmeasured while a perfectly good backtest sat in the table. That is the same silent-staleness
+failure that reading the view live was meant to end. So cfb-app prefers the canonical window,
+falls back to the newest run over any window if it is absent, and says in its caveats which
+window actually answered.
 
 ## What cfb-app changed in response
 

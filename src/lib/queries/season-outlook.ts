@@ -185,6 +185,37 @@ export async function querySeasonOutlook(
 /** The scope `api.model_backtest` measures FBS projections under. */
 export const MODEL_BACKTEST_SCOPE_FBS = 'fbs'
 
+/**
+ * The backtest window cfb-database designates as canonical for `fitted_v1`.
+ *
+ * Pinning it is necessary because model + scope does NOT reach a single row:
+ * the view's grain includes the season window, and `fitted_v1`/`fbs` holds two
+ * rows with the same run_date whose metrics are byte-identical and whose only
+ * difference is season_start (2018 vs 2019).
+ *
+ * Note an unresolved inconsistency on the cfb-database side. Both rows report
+ * n=921 team-seasons; FBS runs ~136 teams a season, so 921 fits seven seasons
+ * (2019-2025, ~131.6/season) and not eight (2018-2025 would be ~115/season,
+ * well short of the field). Their handoff prose and their first message both
+ * say 2019-2025, while the query they later specified pins 2018. A plausible
+ * reading is that 2018 is the *configured* start and 2019 the first season with
+ * evaluable rows, in which case both records are legitimate. Either way the
+ * reported figures are identical, so this only affects the season range shown
+ * next to them -- and cfb-database owns which label is canonical, so we follow
+ * their query.
+ *
+ * NOT treated as required: see queryModelBacktest's fallback. A hardcoded
+ * window that silently returns nothing after the next re-run would make the
+ * tool claim the model is unmeasured while a fresh backtest sat in the table,
+ * which is the exact staleness failure reading the view live was meant to end.
+ */
+export const MODEL_BACKTEST_PREFERRED_WINDOW = { start: 2018, end: 2025 } as const
+
+export interface ModelBacktestWindow {
+  start: number
+  end: number
+}
+
 export interface ModelBacktestRow {
   model_version: string
   scope: string
@@ -242,15 +273,22 @@ const MODEL_BACKTEST_COLUMNS = `
  */
 export async function queryModelBacktest(
   modelVersion: string = SEASON_OUTLOOK_MODEL,
-  scope: string = MODEL_BACKTEST_SCOPE_FBS
+  scope: string = MODEL_BACKTEST_SCOPE_FBS,
+  window?: ModelBacktestWindow
 ): Promise<McpResult<ModelBacktestRow>> {
   const supabase = await createClient()
-  const { data, error } = await supabase
+  let query = supabase
     .schema('api')
     .from('model_backtest')
     .select(MODEL_BACKTEST_COLUMNS)
     .eq('model_version', modelVersion)
     .eq('scope', scope)
+
+  if (window) {
+    query = query.eq('season_start', window.start).eq('season_end', window.end)
+  }
+
+  const { data, error } = await query
     .order('run_date', { ascending: false })
     .order('season_start', { ascending: false })
     .order('season_end', { ascending: false })
@@ -258,6 +296,32 @@ export async function queryModelBacktest(
 
   if (error) return { rows: [], error: fail('api.model_backtest', error) }
   return { rows: (data ?? []) as unknown as ModelBacktestRow[], error: null }
+}
+
+export interface ResolvedBacktest extends McpResult<ModelBacktestRow> {
+  /** True when the canonical window was absent and any-window was used instead. */
+  windowFallback: boolean
+}
+
+/**
+ * The backtest to quote: the canonical window if present, otherwise the newest
+ * run over any window.
+ *
+ * The fallback is the point. Pinning a literal season window makes the query
+ * deterministic today and wrong the day cfb-database re-runs over a different
+ * span -- at which point a strict query returns nothing and the tool reports
+ * the model as unmeasured while a perfectly good backtest sits in the table.
+ * Falling back keeps the error band alive and flags which window answered.
+ */
+export async function resolveModelBacktest(
+  modelVersion: string = SEASON_OUTLOOK_MODEL,
+  scope: string = MODEL_BACKTEST_SCOPE_FBS
+): Promise<ResolvedBacktest> {
+  const pinned = await queryModelBacktest(modelVersion, scope, MODEL_BACKTEST_PREFERRED_WINDOW)
+  if (pinned.error || pinned.rows.length > 0) return { ...pinned, windowFallback: false }
+
+  const anyWindow = await queryModelBacktest(modelVersion, scope)
+  return { ...anyWindow, windowFallback: anyWindow.rows.length > 0 }
 }
 
 /**

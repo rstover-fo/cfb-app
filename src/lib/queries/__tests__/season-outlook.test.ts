@@ -20,6 +20,7 @@ import {
   queryLatestOutlookSeason,
   querySeasonOutlook,
   queryModelBacktest,
+  resolveModelBacktest,
   backtestRowsDisagree,
 } from '../season-outlook'
 
@@ -160,6 +161,15 @@ describe('queryModelBacktest', () => {
     expect(chain.limit).toHaveBeenCalledWith(2)
   })
 
+  it('pins the canonical season window when one is passed', async () => {
+    const mock = mockClient({ apiTables: { model_backtest: ok([]) } })
+    await queryModelBacktest(SEASON_OUTLOOK_MODEL, MODEL_BACKTEST_SCOPE_FBS, { start: 2018, end: 2025 })
+
+    const chain = apiChain(mock)
+    expect(chain.eq).toHaveBeenCalledWith('season_start', 2018)
+    expect(chain.eq).toHaveBeenCalledWith('season_end', 2025)
+  })
+
   it('backtestRowsDisagree only fires on metrics this app reports', () => {
     const base = {
       model_version: 'fitted_v1', scope: 'fbs', run_date: '2026-07-27',
@@ -195,5 +205,50 @@ describe('queryModelBacktest', () => {
 
     expect(result.rows).toEqual([])
     expect(result.error).toMatch(/^Error: api\.model_backtest request failed: relation does not exist$/)
+  })
+})
+
+describe('resolveModelBacktest', () => {
+  it('uses the canonical window when it is present, without a second query', async () => {
+    const mock = mockClient({
+      apiTables: { model_backtest: ok([{ model_version: 'fitted_v1', season_start: 2018 }]) },
+    })
+    const result = await resolveModelBacktest()
+
+    expect(result.windowFallback).toBe(false)
+    expect(result.rows).toHaveLength(1)
+    // One .from() call means one round trip: the pinned query answered.
+    expect(mock.schema.mock.results[0].value.from).toHaveBeenCalledTimes(1)
+  })
+
+  it('falls back to any window rather than reporting the model unmeasured', async () => {
+    // A backtest re-run over a different span would make the pinned query miss.
+    // Reporting "unmeasured" then would be a lie -- the measurement exists.
+    mockClient({
+      apiTables: {
+        model_backtest: [ok([]), ok([{ model_version: 'fitted_v1', season_start: 2020 }])],
+      },
+    })
+    const result = await resolveModelBacktest()
+
+    expect(result.windowFallback).toBe(true)
+    expect(result.rows).toHaveLength(1)
+  })
+
+  it('reports a genuinely unmeasured model without claiming a fallback happened', async () => {
+    mockClient({ apiTables: { model_backtest: [ok([]), ok([])] } })
+    const result = await resolveModelBacktest()
+
+    expect(result.rows).toEqual([])
+    expect(result.error).toBeNull()
+    expect(result.windowFallback).toBe(false)
+  })
+
+  it('does not retry after a query error', async () => {
+    mockClient({ apiTables: { model_backtest: dbError('statement timeout') } })
+    const result = await resolveModelBacktest()
+
+    expect(result.windowFallback).toBe(false)
+    expect(result.error).toMatch(/statement timeout/)
   })
 })
