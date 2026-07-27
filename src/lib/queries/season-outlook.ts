@@ -151,9 +151,16 @@ export interface SeasonOutlookFilter {
 /**
  * Rows for one season, narrowed by team, conference and/or classification.
  *
- * Ordered by projected_wins descending -- for a conference that ordering IS
- * the projected standings, which is the question this view exists to answer.
- * Team name breaks ties so repeated calls are stable.
+ * Ordered by projected_wins descending, team name breaking ties so repeated
+ * calls are stable.
+ *
+ * That ordering is TOTAL projected wins, which is not the same thing as a
+ * conference table: real standings are decided on conference record, and two
+ * teams with the same league form can separate on nonconference schedule
+ * alone. The view simulates conference records internally -- conf_title_prob is
+ * defined off conference win percentage -- but does not expose them, so no
+ * conference-record sort is available here. Callers must describe the result
+ * as a projected-wins ranking rather than as the standings.
  */
 export async function querySeasonOutlook(
   filter: SeasonOutlookFilter

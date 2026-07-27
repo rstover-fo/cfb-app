@@ -14,7 +14,7 @@ vi.mock('@/lib/supabase/server', () => ({
 
 import { createClient } from '@/lib/supabase/server'
 import {
-  getGamePrediction, getLineMovement, getTeamEloHistory,
+  getGamePrediction, getGamePredictionForDisplay, getLineMovement, getTeamEloHistory,
   getTeamElo, getTeamAts, getPredictionAccuracy, getScoredMatchupEdges,
 } from '../predictions'
 import { createSupabaseMock, dbError, ok, type SupabaseMockConfig } from './helpers'
@@ -65,6 +65,37 @@ describe('getGamePrediction', () => {
     // the two Elo rows -- callers must tolerate both being null.
     expect(result!.elo_margin).toBeNull()
     expect(result!.epa_margin).toBeNull()
+  })
+
+  it('getGamePredictionForDisplay falls back past the house model for pre-2018 games', async () => {
+    // 2015-2017 have elo rows and zero fitted_v1 rows (4,638 games). A
+    // version-pinned call returns null there, and games/[id] renders the
+    // PredictionCard only on a non-null result -- so without the fallback the
+    // card silently vanishes from every historical game page.
+    mockClient({
+      apiTables: {
+        game_predictions: [ok(null), ok(createGamePredictionRow())],
+      },
+    })
+
+    const result = await getGamePredictionForDisplay(401752873)
+
+    expect(result).not.toBeNull()
+    expect(result!.model_version).toBe('elo_epa_blend_v1')
+  })
+
+  it('getGamePredictionForDisplay prefers the house model when it has a row', async () => {
+    mockClient({ apiTables: { game_predictions: ok(createGamePredictionRowFitted()) } })
+
+    const result = await getGamePredictionForDisplay(401752874)
+
+    expect(result!.model_version).toBe(DEFAULT_PREDICTION_MODEL)
+  })
+
+  it('getGamePredictionForDisplay returns null when no version has a row', async () => {
+    mockClient({ apiTables: { game_predictions: [ok(null), ok(null), ok(null)] } })
+
+    expect(await getGamePredictionForDisplay(999999)).toBeNull()
   })
 
   it('returns the elo_v1 row when that model version is requested -- distinct margin/edge from the blend row', async () => {

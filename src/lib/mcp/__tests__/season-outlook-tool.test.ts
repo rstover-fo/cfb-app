@@ -383,6 +383,60 @@ describe('getSeasonOutlookTool', () => {
       .toBe(true)
   })
 
+  it('does not attach FBS backtest error to a non-FBS result', async () => {
+    vi.mocked(querySeasonOutlook).mockResolvedValue(
+      okRows([row({ team: 'Yale', conference: 'Ivy', classification: 'fcs' })])
+    )
+
+    const parsed = JSON.parse(await getSeasonOutlookTool({ conference: 'Ivy', classification: 'fcs' }))
+
+    // api.model_backtest measures FBS only. Quoting it over FCS teams would be
+    // one population's uncertainty applied to another's.
+    expect(resolveModelBacktest).not.toHaveBeenCalled()
+    expect(parsed.accuracy).toBeNull()
+    expect(parsed.caveats.some((c: string) => /measures FBS projections only/.test(c))).toBe(true)
+    expect(parsed.caveats.some((c: string) => /do not transfer/.test(c))).toBe(true)
+  })
+
+  it("treats 'all' as non-FBS for accuracy purposes, since the rows are mixed", async () => {
+    vi.mocked(querySeasonOutlook).mockResolvedValue(
+      okRows([row(), row({ team: 'Yale', classification: 'fcs' })])
+    )
+
+    const parsed = JSON.parse(await getSeasonOutlookTool({ classification: 'all' }))
+
+    expect(resolveModelBacktest).not.toHaveBeenCalled()
+    expect(parsed.accuracy).toBeNull()
+  })
+
+  it('still attaches accuracy on the FBS path', async () => {
+    vi.mocked(querySeasonOutlook).mockResolvedValue(okRows([row()]))
+
+    const parsed = JSON.parse(await getSeasonOutlookTool({ conference: 'SEC' }))
+
+    expect(resolveModelBacktest).toHaveBeenCalled()
+    expect(parsed.accuracy).not.toBeNull()
+  })
+
+  it('refuses to call a total-wins ordering the conference standings', async () => {
+    vi.mocked(querySeasonOutlook).mockResolvedValue(okRows([row(), row({ team: 'Ole Miss' })]))
+
+    const parsed = JSON.parse(await getSeasonOutlookTool({ conference: 'SEC' }))
+
+    // Standings are decided on conference record; this view has no such column,
+    // so two teams with identical league form can separate on nonconference play.
+    expect(parsed.caveats.some((c: string) => /not a conference table/.test(c))).toBe(true)
+    expect(parsed.caveats.some((c: string) => /nonconference schedule alone/.test(c))).toBe(true)
+  })
+
+  it('omits the standings caveat outside conference mode', async () => {
+    vi.mocked(querySeasonOutlook).mockResolvedValue(okRows([row()]))
+
+    const parsed = JSON.parse(await getSeasonOutlookTool({ team: 'Georgia' }))
+
+    expect(parsed.caveats.some((c: string) => /not a conference table/.test(c))).toBe(false)
+  })
+
   it('explains that p_bowl_eligible is null outside FBS by design', async () => {
     vi.mocked(querySeasonOutlook).mockResolvedValue(
       okRows([row({ team: 'Yale', conference: 'Ivy', classification: 'fcs', p_bowl_eligible: null })])

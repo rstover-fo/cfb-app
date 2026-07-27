@@ -1314,7 +1314,11 @@ function seasonOutlookAccuracy(row: ModelBacktestRow) {
  * the data: a static description cannot say "6 of these 16 teams have half a
  * schedule loaded", and that is exactly the sentence a reader needs.
  */
-function seasonOutlookCaveats(rows: SeasonOutlookRow[], season: number): string[] {
+function seasonOutlookCaveats(
+  rows: SeasonOutlookRow[],
+  season: number,
+  conferenceMode: boolean
+): string[] {
   const caveats: string[] = [
     'These are simulated projections, not results: each row summarizes n_sims Monte Carlo ' +
       "seasons drawn from the game-level model's per-game predictions. projected_wins is the " +
@@ -1392,6 +1396,16 @@ function seasonOutlookCaveats(rows: SeasonOutlookRow[], season: number): string[
     )
   }
 
+  if (conferenceMode) {
+    caveats.push(
+      'Rows are ordered by TOTAL projected wins, which is not a conference table. Real standings ' +
+        'are decided on conference record, and two teams with identical league form can separate ' +
+        'here on nonconference schedule alone. This view does not expose a projected conference ' +
+        'record, so present the order as "projected wins, best to worst" and not as the projected ' +
+        'standings.'
+    )
+  }
+
   const nonFbs = rows.filter(r => r.classification !== 'fbs')
   if (nonFbs.length > 0) {
     caveats.push(
@@ -1436,6 +1450,13 @@ export async function getSeasonOutlookTool(args: GetSeasonOutlookArgs): Promise<
   }
 
   const effectiveLimit = args.limit ?? SEASON_OUTLOOK_DEFAULT_LIMIT
+  // api.model_backtest only measures FBS. Attaching that error distribution to
+  // FCS/DII/DIII rows would be quoting one population's uncertainty over
+  // another's -- the same category error the code already avoids by refusing to
+  // treat 'all_divisions' as a superset of 'fbs'. Outside FBS there is nothing
+  // applicable to fetch, so don't: the request is skipped and the payload says
+  // the error is unmeasured for that division.
+  const accuracyApplies = classification === MODEL_BACKTEST_SCOPE_FBS
   // The backtest is model-level, not row-level, so it does not depend on the
   // outlook query and can go out in parallel with it.
   const [result, backtest] = await Promise.all([
@@ -1446,7 +1467,9 @@ export async function getSeasonOutlookTool(args: GetSeasonOutlookArgs): Promise<
       classification: classificationFilter,
       limit: args.limit,
     }),
-    resolveModelBacktest(),
+    accuracyApplies
+      ? resolveModelBacktest()
+      : Promise.resolve({ rows: [], error: null, windowFallback: false }),
   ])
 
   if (result.error) return result.error
@@ -1507,15 +1530,21 @@ export async function getSeasonOutlookTool(args: GetSeasonOutlookArgs): Promise<
           : []),
       ]
     : [
-        backtest.error
-          ? 'The backtest could not be read from api.model_backtest, so the accuracy of these ' +
-            'projections is UNKNOWN for this answer. Say that the typical error could not be ' +
-            'retrieved -- do not fall back to a remembered figure and do not imply the ' +
-            'projections are exact.'
-          : `No backtest has been recorded for '${SEASON_OUTLOOK_MODEL}' at scope ` +
-            `'${MODEL_BACKTEST_SCOPE_FBS}', so this model's error is UNMEASURED -- not zero. ` +
-            'Present the projections without an error band and say plainly that how wrong they ' +
-            'usually are has not been measured.',
+        !accuracyApplies
+          ? `api.model_backtest measures FBS projections only, and this result is scoped to ` +
+            `classification='${classification}'. There is therefore NO measured error for these ` +
+            'projections, and the FBS figures do not transfer -- those teams play different ' +
+            'schedules against a different population. Present these win totals without an error ' +
+            'band and say the model has not been validated for this division.'
+          : backtest.error
+            ? 'The backtest could not be read from api.model_backtest, so the accuracy of these ' +
+              'projections is UNKNOWN for this answer. Say that the typical error could not be ' +
+              'retrieved -- do not fall back to a remembered figure and do not imply the ' +
+              'projections are exact.'
+            : `No backtest has been recorded for '${SEASON_OUTLOOK_MODEL}' at scope ` +
+              `'${MODEL_BACKTEST_SCOPE_FBS}', so this model's error is UNMEASURED -- not zero. ` +
+              'Present the projections without an error band and say plainly that how wrong they ' +
+              'usually are has not been measured.',
       ]
 
   const truncated = result.rows.length >= effectiveLimit
@@ -1546,7 +1575,7 @@ export async function getSeasonOutlookTool(args: GetSeasonOutlookArgs): Promise<
       ...resolverCaveats,
       ...accuracyCaveats,
       ...truncationCaveats,
-      ...seasonOutlookCaveats(result.rows, season),
+      ...seasonOutlookCaveats(result.rows, season, Boolean(args.conference)),
     ],
     ...wrap('api.season_outlook', rows),
   })
@@ -2455,8 +2484,12 @@ export function registerMcpTools(server: McpServer): void {
         `one row per (season, team) at model_version '${DEFAULT_PREDICTION_MODEL}', already ` +
         'latest-snapshot per team-season, each row summarizing n_sims Monte Carlo seasons drawn from ' +
         'the same game-level model get_game_prediction serves. Pass `conference` for standings-style ' +
-        'questions (rows come back sorted by projected_wins descending -- that ordering IS the ' +
-        'projected standings), `team` for one team, or neither for a national ranking. Results are ' +
+        'questions, `team` for one team, or neither for a national ranking. Rows come back sorted by ' +
+        'projected_wins descending. NOTE that this is TOTAL wins, not a conference table: real ' +
+        'standings are decided on conference record, and two teams with identical league form can ' +
+        'separate here on nonconference schedule alone. The view does not expose a projected ' +
+        'conference record, so answer a "projected standings" question as a projected-wins ranking ' +
+        'and say which it is. Results are ' +
         "filtered to `classification` (default 'fbs') because this view is NOT FBS-only -- it also " +
         'carries FCS/DII/DIII teams playing different-length seasons, so an unfiltered ranking by ' +
         'projected wins compares teams that are not comparable.\n\n' +
@@ -2509,8 +2542,9 @@ export function registerMcpTools(server: McpServer): void {
           .optional()
           .describe(
             "Exact conference name, e.g. 'SEC', 'Big Ten', 'American Athletic'. Case-sensitive. " +
-              'Returns every team in it sorted by projected_wins descending, which is the projected ' +
-              "standings order. For an FCS conference (e.g. 'Ivy') also pass classification='fcs'."
+              'Returns every team in it sorted by TOTAL projected wins descending -- a win ranking, ' +
+              'not a conference table (standings go by conference record, which this view does not ' +
+              "expose). For an FCS conference (e.g. 'Ivy') also pass classification='fcs'."
           ),
         classification: z
           .enum(SEASON_OUTLOOK_CLASSIFICATIONS)

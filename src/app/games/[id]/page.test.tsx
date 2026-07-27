@@ -46,7 +46,7 @@ vi.mock('@/lib/queries/games', () => ({
 }))
 
 vi.mock('@/lib/queries/predictions', () => ({
-  getGamePrediction: vi.fn().mockResolvedValue(null),
+  getGamePredictionForDisplay: vi.fn().mockResolvedValue(null),
   getLineMovement: vi.fn().mockResolvedValue([]),
 }))
 

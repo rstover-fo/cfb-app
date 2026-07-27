@@ -1,7 +1,7 @@
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
 import { getGameById, getGameBoxScore, getGamePlayerLeaders, getGameLineScores, getGameDrives, getGamePlays, getGameWinProbability, getGameRecap } from '@/lib/queries/games'
-import { getGamePrediction, getLineMovement } from '@/lib/queries/predictions'
+import { getGamePredictionForDisplay, getLineMovement } from '@/lib/queries/predictions'
 import { GameScoreHeader } from '@/components/game/GameScoreHeader'
 import { GameRecap } from '@/components/game/GameRecap'
 import { PredictionCard } from '@/components/game/PredictionCard'
@@ -35,7 +35,9 @@ export default async function GamePage({ params }: GamePageProps) {
     getGamePlays(gameId),
     getGameWinProbability(gameId),
     getGameRecap(gameId),
-    getGamePrediction(gameId),
+    // ForDisplay, not getGamePrediction: the house model starts at 2018, so a
+    // version-pinned call renders no PredictionCard at all on 2015-2017 games.
+    getGamePredictionForDisplay(gameId),
     getLineMovement(gameId),
   ])
 

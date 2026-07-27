@@ -94,6 +94,16 @@ afterEach(() => {
   errorSpy.mockRestore()
 })
 
+/**
+ * The system prompt is a string[] joined with newlines, so any phrase can be
+ * split across an array element boundary. Assertions about WHAT the prompt says
+ * should survive a reflow -- match against this, not the raw text, unless the
+ * line structure itself is the thing under test.
+ */
+function flat(text: string): string {
+  return text.replace(/\s+/g, ' ')
+}
+
 describe('askClaude request shape', () => {
   it('includes the server-lore block only while /lore is on', async () => {
     betaCreateMock.mockResolvedValueOnce(apiResponse('answer'))
@@ -186,7 +196,7 @@ describe('askClaude request shape', () => {
     // that the engine scores one scheduled game at a time. api.season_outlook
     // makes that refusal wrong, so the prompt must send the model to the tool.
     expect(text).toMatch(/call get_season_outlook/)
-    expect(text).toMatch(/not a\n {2}question to refuse/)
+    expect(flat(text)).toMatch(/not a question to refuse/)
   })
 
   it('requires an error band on any projected win total, and forbids a playoff probability', async () => {
@@ -196,7 +206,7 @@ describe('askClaude request shape', () => {
     const text = betaCreateMock.mock.calls[0]?.[0].system[0].text as string
     // The whole point of enabling projections: numbers WITH their uncertainty.
     // A bare standings table is the same overconfidence as inventing one.
-    expect(text).toMatch(/pair a projected win total with/)
+    expect(flat(text)).toMatch(/pair a projected win total with/)
     expect(text).toMatch(/uncertainty/)
     expect(text).toMatch(/caveats/)
     expect(text).toMatch(/Never state a playoff probability/)
@@ -210,7 +220,7 @@ describe('askClaude request shape', () => {
     // Every 2026 game is unplayed and every one carries a model prediction, so
     // the old blanket claim actively suppressed a grounded answer.
     expect(text).not.toMatch(/no scores or predictions/)
-    expect(text).toMatch(/An unplayed game has no SCORE, but it usually does have a model prediction/)
+    expect(flat(text)).toMatch(/An unplayed game has no SCORE, but it usually does have a model prediction/)
     expect(text).toMatch(/grounded, not invented/)
   })
 
@@ -221,10 +231,21 @@ describe('askClaude request shape', () => {
     const text = betaCreateMock.mock.calls[0]?.[0].system[0].text as string
     // The block is read live from api.model_backtest, so a figure baked into
     // the prompt would silently contradict the payload after any re-run.
-    expect(text).toMatch(/read live and the\n {2}numbers move/)
+    expect(flat(text)).toMatch(/read live and the numbers move/)
     expect(text).toMatch(/never plus-or-minus the MAE/)
-    expect(text).toMatch(/say the typical error is unknown/)
+    expect(flat(text)).toMatch(/say the typical error is unknown/)
     expect(text).not.toMatch(/1\.7 wins on average/)
+  })
+
+  it('does not let a total-wins ranking be reported as conference standings', async () => {
+    betaCreateMock.mockResolvedValueOnce(apiResponse('answer'))
+    await askClaude('anything')
+
+    const text = betaCreateMock.mock.calls[0]?.[0].system[0].text as string
+    // Standings are decided on conference record, which the data does not
+    // carry -- so the ordering is a win ranking and must be named as one.
+    expect(flat(text)).toMatch(/not a conference table/)
+    expect(flat(text)).toMatch(/projected-wins order and say so/)
   })
 
   it('blocks the "new coach, therefore worse" reading of the first-year effect', async () => {
@@ -234,9 +255,9 @@ describe('askClaude request shape', () => {
     const text = betaCreateMock.mock.calls[0]?.[0].system[0].text as string
     // The effect is a penalty for an unproven hire, not for changing coaches:
     // a proven hire is a measured null, not an absence of evidence.
-    expect(text).toMatch(/does NOT believe "new coach, therefore worse"/)
+    expect(flat(text)).toMatch(/does NOT believe "new coach, therefore worse"/)
     expect(text).toMatch(/UNPROVEN coach/)
-    expect(text).toMatch(/projects roughly as though nothing happened/)
+    expect(flat(text)).toMatch(/projects roughly as though nothing happened/)
   })
 
   it('does not hardcode a season into the outlook rule', async () => {
@@ -247,8 +268,8 @@ describe('askClaude request shape', () => {
     // get_season_outlook resolves the newest projected season from the data.
     // A season baked into the prompt here would go stale every July and would
     // override the one part of the tool designed not to.
-    expect(text).toMatch(/Do NOT pass `season` unless the/)
-    expect(text).toMatch(/the tool resolves the newest projected season itself/)
+    expect(flat(text)).toMatch(/Do NOT pass `season` unless the/)
+    expect(flat(text)).toMatch(/the tool resolves the newest projected season itself/)
   })
 
   it('keeps the two lore variants byte-identical except for the lore block, and stable across calls', async () => {
