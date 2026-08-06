@@ -122,8 +122,17 @@ export async function handleMention(message: Message): Promise<void> {
 
     appendTurns(channelId, question, text)
     // Fire-and-forget: never awaited, never throws -- the answer is already
-    // delivered, so a memory hiccup must not surface to the user.
-    extractMemories({ userId, question, answer: text })
+    // delivered, so a memory hiccup must not surface to the user. The pick
+    // ack is a 📒 reaction on the user's own message: the leanest "heard
+    // you", zero channel noise (needs only Add Reactions permission).
+    extractMemories({
+      userId,
+      question,
+      answer: text,
+      onPicksRecorded: async () => {
+        await message.react('📒')
+      },
+    })
   } catch (err) {
     const friendly = err instanceof ClaudeUnavailableError ? err.message : GENERIC_ERROR_REPLY
     if (!(err instanceof ClaudeUnavailableError)) {

@@ -67,8 +67,22 @@ async function execute(interaction: ChatInputCommandInteraction): Promise<void> 
 
     appendTurns(channelId, question, text)
     // Fire-and-forget: never awaited, never throws -- the answer is already
-    // delivered, so a memory hiccup must not surface to the user.
-    extractMemories({ userId, question, answer: text })
+    // delivered, so a memory hiccup must not surface to the user. The pick
+    // ack rides the interaction token (15-min lifetime; extraction takes
+    // seconds), ephemeral so a misextraction can be voided without noise.
+    extractMemories({
+      userId,
+      question,
+      answer: text,
+      onPicksRecorded: async picks => {
+        const noun = picks.length === 1 ? 'pick' : 'picks'
+        const quoted = picks.map(pick => `"${pick.statement}"`).join(', ')
+        await interaction.followUp({
+          content: `📒 Logged your ${noun}: ${quoted} — see \`/picks me\`, undo with \`/picks void\`.`,
+          flags: MessageFlags.Ephemeral,
+        })
+      },
+    })
   } catch (err) {
     if (err instanceof ClaudeUnavailableError) {
       await interaction.editReply({ embeds: [errorEmbed('Stats brain unavailable', err.message)] })

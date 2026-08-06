@@ -13,8 +13,22 @@ beforeEach(async () => {
     profilesPath: path.join(tmpDir, 'profiles.json'),
     settingsPath: path.join(tmpDir, 'settings.json'),
     memoryPath: path.join(tmpDir, 'memory.json'),
+    picksPath: path.join(tmpDir, 'picks.json'),
   })
 })
+
+const NEW_PICK = {
+  userId: 'user-1',
+  kind: 'game_winner' as const,
+  team: 'Oklahoma',
+  opponent: 'Texas',
+  gameId: 401_000_001,
+  season: 2026,
+  week: 6,
+  direction: 'win' as const,
+  pickHome: false,
+  statement: 'we beat Texas',
+}
 
 afterEach(async () => {
   await fs.rm(tmpDir, { recursive: true, force: true })
@@ -114,6 +128,48 @@ describe('memory atoms', () => {
 
   it('returns 0 when nothing matches', async () => {
     await expect(backend.deleteAtoms('user-1', ['nope'])).resolves.toBe(0)
+  })
+})
+
+describe('picks', () => {
+  it('returns [] with no file', async () => {
+    await expect(backend.listPicks()).resolves.toEqual([])
+  })
+
+  it('inserts an open pick with a generated id and round-trips it', async () => {
+    await backend.insertPick(NEW_PICK)
+    const picks = await backend.listPicks()
+    expect(picks).toHaveLength(1)
+    expect(picks[0]).toMatchObject({ ...NEW_PICK, status: 'open' })
+    expect(typeof picks[0]!.id).toBe('string')
+    expect(typeof picks[0]!.createdAt).toBe('string')
+  })
+
+  it('filters by userId and status', async () => {
+    await backend.insertPick(NEW_PICK)
+    await backend.insertPick({ ...NEW_PICK, userId: 'user-2' })
+    const [mine] = await backend.listPicks({ userId: 'user-1' })
+    await backend.updatePick(mine!.id, { status: 'won', settledDetail: 'OU 34-24 Texas' })
+
+    await expect(backend.listPicks({ userId: 'user-1' })).resolves.toHaveLength(1)
+    await expect(backend.listPicks({ status: 'open' })).resolves.toHaveLength(1)
+    await expect(backend.listPicks({ userId: 'user-1', status: 'won' })).resolves.toHaveLength(1)
+    await expect(backend.listPicks({ userId: 'user-2', status: 'won' })).resolves.toEqual([])
+  })
+
+  it('updatePick patches settle fields and line backfill', async () => {
+    await backend.insertPick({ ...NEW_PICK, kind: 'ats', direction: 'cover', line: undefined })
+    const [pick] = await backend.listPicks()
+
+    await backend.updatePick(pick!.id, { line: -6.5 })
+    await backend.updatePick(pick!.id, { status: 'lost', settledDetail: 'missed by 2', settledAt: '2026-10-11T00:00:00.000Z' })
+
+    const [updated] = await backend.listPicks()
+    expect(updated).toMatchObject({ line: -6.5, status: 'lost', settledDetail: 'missed by 2' })
+  })
+
+  it('updatePick throws for an unknown id', async () => {
+    await expect(backend.updatePick('nope', { status: 'void' })).rejects.toThrow(/unknown pick id/)
   })
 })
 

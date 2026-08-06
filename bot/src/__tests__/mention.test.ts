@@ -386,13 +386,20 @@ describe('handleMention user-context injection', () => {
 })
 
 describe('handleMention memory extraction', () => {
-  it('fires extractMemories after a successful answer', async () => {
+  it('fires extractMemories after a successful answer, with a 📒-reaction pick-ack hook', async () => {
     askClaudeMock.mockResolvedValue(askResult('the answer'))
     const message = fakeMessage({ mentionsBot: true, content: `<@${BOT_ID}> how good is OU?`, authorId: 'author-9' })
+    message.react = vi.fn().mockResolvedValue(undefined)
 
     await handleMention(message)
 
-    expect(extractMemoriesMock).toHaveBeenCalledWith({ userId: 'author-9', question: 'how good is OU?', answer: 'the answer' })
+    expect(extractMemoriesMock).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: 'author-9', question: 'how good is OU?', answer: 'the answer', onPicksRecorded: expect.any(Function) })
+    )
+
+    const { onPicksRecorded } = extractMemoriesMock.mock.calls[0]![0] as { onPicksRecorded: (picks: unknown[]) => Promise<void> }
+    await onPicksRecorded([{ statement: 'we beat Texas' }])
+    expect(message.react).toHaveBeenCalledWith('📒')
   })
 
   it('does not fire extractMemories when askClaude fails', async () => {

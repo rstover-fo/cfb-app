@@ -15,6 +15,7 @@ const MODEL_ROUTER_FALLBACK = 'claude-haiku-4-5'
 const PROFILES_PATH_FALLBACK = 'data/profiles.json'
 const SETTINGS_PATH_FALLBACK = 'data/settings.json'
 const MEMORY_PATH_FALLBACK = 'data/memory.json'
+const PICKS_PATH_FALLBACK = 'data/picks.json'
 const COOLDOWN_SECONDS_FALLBACK = 20
 const USER_DAILY_LIMIT_FALLBACK = 10
 const DAILY_BUDGET_USD_FALLBACK = 10
@@ -71,6 +72,7 @@ const EnvSchema = z.object({
   PROFILES_PATH: optionalNonEmpty,
   SETTINGS_PATH: optionalNonEmpty,
   MEMORY_PATH: optionalNonEmpty,
+  PICKS_PATH: optionalNonEmpty,
   // Cost/rate guards for the conversational path (limits.ts). Router calls
   // (router.ts's Haiku triage) are cheap and not gated by these.
   COOLDOWN_SECONDS: optionalNumber(),
@@ -134,6 +136,8 @@ export interface BotConfig {
   settingsPath: string
   /** Where the JSON backend persists long-term memory atoms. */
   memoryPath: string
+  /** Where the JSON backend persists prediction-ledger picks. */
+  picksPath: string
   /** Minimum seconds between LLM-backed questions from the same user. */
   cooldownSeconds: number
   /** Max LLM-backed questions a single user can ask per day. */
@@ -196,6 +200,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): BotConfig {
     profilesPath: data.PROFILES_PATH ?? PROFILES_PATH_FALLBACK,
     settingsPath: data.SETTINGS_PATH ?? SETTINGS_PATH_FALLBACK,
     memoryPath: data.MEMORY_PATH ?? MEMORY_PATH_FALLBACK,
+    picksPath: data.PICKS_PATH ?? PICKS_PATH_FALLBACK,
     cooldownSeconds: data.COOLDOWN_SECONDS ?? COOLDOWN_SECONDS_FALLBACK,
     userDailyLimit: data.USER_DAILY_LIMIT ?? USER_DAILY_LIMIT_FALLBACK,
     dailyBudgetUsd: data.DAILY_BUDGET_USD ?? DAILY_BUDGET_USD_FALLBACK,

@@ -3,10 +3,13 @@ import { promises as fs } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
-const { createMock, betaCreateMock } = vi.hoisted(() => ({
+const { createMock, betaCreateMock, resolveAndRecordPicksMock } = vi.hoisted(() => ({
   createMock: vi.fn(),
   betaCreateMock: vi.fn(),
+  resolveAndRecordPicksMock: vi.fn(),
 }))
+
+vi.mock('../pick-resolve.js', () => ({ resolveAndRecordPicks: resolveAndRecordPicksMock }))
 
 vi.mock('@anthropic-ai/sdk', () => ({
   default: class {
@@ -48,6 +51,7 @@ beforeEach(async () => {
   })
   errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
   vi.spyOn(console, 'log').mockImplementation(() => {})
+  resolveAndRecordPicksMock.mockResolvedValue([])
 })
 
 afterEach(async () => {
@@ -128,6 +132,62 @@ describe('runExtraction', () => {
     await runExtraction({ userId: 'u1', question: 'q', answer: 'x'.repeat(10_000) })
     const prompt = (createMock.mock.calls[0]![0] as { messages: [{ content: string }] }).messages[0].content
     expect(prompt.length).toBeLessThan(2_500)
+  })
+})
+
+describe('pick extraction', () => {
+  const PICK_CANDIDATE = { type: 'season_total', team: 'OU', direction: 'over', threshold: 10, seasonRef: 'current', quote: 'OU wins 10 this year' }
+  const STORED_PICK = { id: 'p1', userId: 'u1', kind: 'season_total', team: 'Oklahoma', season: 2026, statement: 'OU wins 10 this year', status: 'open', createdAt: 'now' }
+
+  it('passes pick candidates to resolveAndRecordPicks alongside atoms', async () => {
+    createMock.mockResolvedValue(
+      jsonResponse({ atoms: [{ content: 'Hates Texas', kind: 'preference', replaces: null }], picks: [PICK_CANDIDATE] })
+    )
+
+    await runExtraction({ userId: 'u1', question: 'q', answer: 'a' })
+
+    expect(resolveAndRecordPicksMock).toHaveBeenCalledWith('u1', [PICK_CANDIDATE])
+    await expect(listAtoms('u1')).resolves.toHaveLength(1)
+  })
+
+  it('a response without a picks key still validates (backward-compatible default)', async () => {
+    createMock.mockResolvedValue(jsonResponse({ atoms: [] }))
+    await runExtraction({ userId: 'u1', question: 'q', answer: 'a' })
+    expect(resolveAndRecordPicksMock).toHaveBeenCalledWith('u1', [])
+  })
+
+  it('more than 2 picks fails zod and the whole extraction no-ops', async () => {
+    createMock.mockResolvedValue(jsonResponse({ atoms: [], picks: [PICK_CANDIDATE, PICK_CANDIDATE, PICK_CANDIDATE] }))
+    await runExtraction({ userId: 'u1', question: 'q', answer: 'a' })
+    expect(resolveAndRecordPicksMock).not.toHaveBeenCalled()
+  })
+
+  it('fires onPicksRecorded with stored picks and swallows its errors', async () => {
+    createMock.mockResolvedValue(jsonResponse({ atoms: [], picks: [PICK_CANDIDATE] }))
+    resolveAndRecordPicksMock.mockResolvedValue([STORED_PICK])
+    const onPicksRecorded = vi.fn().mockRejectedValue(new Error('discord hiccup'))
+
+    await expect(runExtraction({ userId: 'u1', question: 'q', answer: 'a', onPicksRecorded })).resolves.toBeUndefined()
+
+    expect(onPicksRecorded).toHaveBeenCalledWith([STORED_PICK])
+    expect(errorSpy).toHaveBeenCalled()
+  })
+
+  it('does not fire onPicksRecorded when nothing was stored', async () => {
+    createMock.mockResolvedValue(jsonResponse({ atoms: [], picks: [PICK_CANDIDATE] }))
+    resolveAndRecordPicksMock.mockResolvedValue([])
+    const onPicksRecorded = vi.fn()
+
+    await runExtraction({ userId: 'u1', question: 'q', answer: 'a', onPicksRecorded })
+
+    expect(onPicksRecorded).not.toHaveBeenCalled()
+  })
+
+  it('memory off skips pick capture too (no LLM call, no resolution)', async () => {
+    await setMemoryEnabled('u1', false)
+    await runExtraction({ userId: 'u1', question: 'q', answer: 'a' })
+    expect(createMock).not.toHaveBeenCalled()
+    expect(resolveAndRecordPicksMock).not.toHaveBeenCalled()
   })
 })
 

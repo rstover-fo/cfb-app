@@ -20,6 +20,7 @@ import { loadEnvFileIfPresent } from './env.js'
 import { commandsByName } from './commands/index.js'
 import { errorEmbed } from './format.js'
 import { handleMention } from './mention.js'
+import { startSettlementLoop } from './settlement.js'
 
 const HOME_SERVER_ONLY_MESSAGE = 'This bot is only available in its home server.'
 
@@ -109,6 +110,9 @@ async function main(): Promise<void> {
   const client = createClient()
   client.once(Events.ClientReady, readyClient => {
     console.log(`[bot] Logged in as ${readyClient.user.tag}`)
+    // Prediction-ledger settlement: hourly, self-catching, zero MCP calls
+    // when no picks are open. unref()'d, so it never holds the process.
+    startSettlementLoop()
   })
   client.on(Events.InteractionCreate, interaction => {
     void handleInteraction(interaction)

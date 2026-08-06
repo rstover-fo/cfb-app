@@ -10,6 +10,8 @@
  * or the calling command has already unwrapped the MCP envelope).
  */
 import { EmbedBuilder } from 'discord.js'
+import type { Pick } from './storage/backend.js'
+import type { PickRecordSummary } from './pick-store.js'
 
 // ---------------------------------------------------------------------------
 // Discord embed limits
@@ -496,6 +498,84 @@ export function buildPlayerEmbed(search: PlayerSearchRow[], detail: PlayerDetail
 // /help
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// /picks -- prediction ledger (bot.picks via pick-store.ts)
+// ---------------------------------------------------------------------------
+
+/** One human line for a pick: the bet itself, no status glyph. */
+function describePick(pick: Pick): string {
+  if (pick.kind === 'season_total') {
+    return `${pick.team} ${pick.direction} ${fmtNum(pick.line)} wins (${pick.season})`
+  }
+  const where = pick.week != null ? ` (wk ${pick.week})` : ''
+  if (pick.kind === 'game_winner') {
+    return `${pick.team} beats ${pick.opponent ?? '?'}${where}`
+  }
+  // ats: `line` is the HOME spread; show it from the picked side's view.
+  const teamSpread = pick.line === undefined ? undefined : pick.pickHome ? pick.line : -pick.line
+  const spreadText = teamSpread === undefined ? '(line TBD)' : teamSpread > 0 ? `+${fmtNum(teamSpread)}` : fmtNum(teamSpread)
+  return `${pick.team} ${spreadText} vs ${pick.opponent ?? '?'}${where}`
+}
+
+function recordText(record: PickRecordSummary): string {
+  const base = `${record.wins}-${record.losses}${record.pushes > 0 ? `-${record.pushes}` : ''}`
+  return record.streak ? `${base}, ${record.streak} streak` : base
+}
+
+const STATUS_GLYPH: Record<string, string> = { won: '✅', lost: '❌', push: '➖' }
+
+export interface PicksEmbedOptions {
+  displayName: string
+  record: PickRecordSummary
+}
+
+/** A user's ledger: record line, numbered open picks, recent settled results. */
+export function buildPicksEmbed(picks: Pick[], opts: PicksEmbedOptions): EmbedBuilder {
+  const embed = new EmbedBuilder().setColor(COLOR_INFO).setTitle(`${opts.displayName}'s picks — ${recordText(opts.record)}`)
+
+  const open = picks.filter(pick => pick.status === 'open')
+  const settled = picks
+    .filter(pick => pick.status === 'won' || pick.status === 'lost' || pick.status === 'push')
+    .sort((a, b) => (b.settledAt ?? '').localeCompare(a.settledAt ?? ''))
+    .slice(0, 5)
+
+  if (open.length === 0 && settled.length === 0) {
+    return embed.setDescription('No picks yet — call your shot in chat ("OU wins 10 this year") and the bot will hold you to it.')
+  }
+
+  const lines: string[] = []
+  if (open.length > 0) {
+    lines.push('**Open:**')
+    open.forEach((pick, i) => lines.push(`**${i + 1}.** ${describePick(pick)} — "${truncate(pick.statement, 80)}"`))
+  }
+  if (settled.length > 0) {
+    if (lines.length > 0) lines.push('')
+    lines.push('**Recent results:**')
+    for (const pick of settled) {
+      const detail = pick.settledDetail ? ` — ${pick.settledDetail}` : ''
+      lines.push(`${STATUS_GLYPH[pick.status] ?? ''} ${describePick(pick)}${detail}`)
+    }
+  }
+  lines.push('', '-# Bad auto-pick? `/picks void number:<n>` (numbers from the Open list).')
+
+  return embed.setDescription(truncate(lines.join('\n'), DESCRIPTION_MAX))
+}
+
+export interface PickBoardEntry {
+  name: string
+  record: PickRecordSummary
+}
+
+/** Server leaderboard; caller pre-filters (min settled picks) and pre-sorts. */
+export function buildPickBoardEmbed(entries: PickBoardEntry[]): EmbedBuilder {
+  const embed = new EmbedBuilder().setColor(COLOR_INFO).setTitle('Pick Leaderboard')
+  if (entries.length === 0) {
+    return embed.setDescription('Nobody qualifies yet — records show up after 3 settled picks. Call some shots.')
+  }
+  const lines = entries.map((entry, i) => `**${i + 1}.** ${entry.name} — ${recordText(entry.record)}`)
+  return embed.setDescription(truncate(lines.join('\n'), DESCRIPTION_MAX))
+}
+
 export function buildHelpEmbed(): EmbedBuilder {
   return new EmbedBuilder()
     .setColor(COLOR_INFO)
@@ -512,6 +592,7 @@ export function buildHelpEmbed(): EmbedBuilder {
         '**/ask** `<question>` — Ask the AI stats analyst anything (you can also @-mention the bot).',
         '**/myteam** `<team>` — Save your favorite team as chat context.',
         '**/memory** `<show|forget|on|off>` — See, delete, or disable what the bot remembers about you.',
+        '**/picks** `<me|user|board|void>` — The server prediction ledger: your record, anyone\'s picks, the leaderboard.',
         '**/lore** `<on|off>` — Toggle the server-lore jokes (off persists across restarts).',
       ].join('\n')
     )

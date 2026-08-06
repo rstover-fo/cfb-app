@@ -9,6 +9,8 @@ interface FakeOptions {
   integers?: Record<string, number>
   /** Subcommand name for subcommands-only commands (interaction.options.getSubcommand()). */
   subcommand?: string
+  /** User options by option name (interaction.options.getUser()), e.g. { who: { id, username } }. */
+  users?: Record<string, { id: string; username: string }>
   focused?: string
   guildId?: string | null
 }
@@ -23,6 +25,7 @@ export function fakeChatInputInteraction(options: FakeOptions = {}) {
         if (!options.subcommand) throw new Error('No subcommand configured on this fake interaction')
         return options.subcommand
       }),
+      getUser: vi.fn((name: string) => options.users?.[name] ?? null),
       getFocused: vi.fn(() => options.focused ?? ''),
     },
     user: { id: 'test-user' },

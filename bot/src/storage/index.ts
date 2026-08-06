@@ -23,7 +23,9 @@ export function getStorage(): StorageBackend {
   if (injected) return injected
   if (backend) return backend
 
-  const hasOverrides = Boolean(pathOverrides.profilesPath || pathOverrides.settingsPath || pathOverrides.memoryPath)
+  const hasOverrides = Boolean(
+    pathOverrides.profilesPath || pathOverrides.settingsPath || pathOverrides.memoryPath || pathOverrides.picksPath
+  )
   if (hasOverrides) {
     backend = new JsonFileBackend(pathOverrides)
     return backend

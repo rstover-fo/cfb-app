@@ -14,7 +14,7 @@ import { promises as fs } from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import path from 'node:path'
 import { loadConfig } from '../config.js'
-import type { BotSettings, MemoryAtom, StorageBackend, UserProfile } from './backend.js'
+import type { BotSettings, MemoryAtom, NewPick, Pick, PickFilter, PickPatch, StorageBackend, UserProfile } from './backend.js'
 
 /** Pre-existing on-disk shape (profiles.json), extended with memoryEnabled. */
 interface ProfileEntry {
@@ -32,10 +32,14 @@ interface SettingsFile {
 
 type MemoryFile = Record<string, MemoryAtom[]>
 
+/** Flat array, not per-user keyed: the /picks leaderboard reads cross-user. */
+type PicksFile = Pick[]
+
 export interface JsonBackendPaths {
   profilesPath?: string
   settingsPath?: string
   memoryPath?: string
+  picksPath?: string
 }
 
 const LORE_DEFAULT = true
@@ -47,6 +51,7 @@ export class JsonFileBackend implements StorageBackend {
   private profilesCache: ProfilesFile | null = null
   private settingsCache: SettingsFile | null = null
   private memoryCache: MemoryFile | null = null
+  private picksCache: PicksFile | null = null
 
   /** Paths omitted here resolve from config (PROFILES_PATH/SETTINGS_PATH/MEMORY_PATH) on first use. */
   constructor(paths: JsonBackendPaths = {}) {
@@ -123,6 +128,34 @@ export class JsonFileBackend implements StorageBackend {
     return atoms.length - remaining.length
   }
 
+  // --- picks ---
+
+  async listPicks(filter: PickFilter = {}): Promise<Pick[]> {
+    const data = await this.loadPicks()
+    return data
+      .filter(pick => (filter.userId === undefined || pick.userId === filter.userId))
+      .filter(pick => (filter.status === undefined || pick.status === filter.status))
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id))
+  }
+
+  async insertPick(pick: NewPick): Promise<void> {
+    const data = await this.loadPicks()
+    const full: Pick = { ...pick, id: randomUUID(), status: 'open', createdAt: new Date().toISOString() }
+    const next: PicksFile = [...data, full]
+    await this.persist(this.picksFile(), next)
+    this.picksCache = next
+  }
+
+  async updatePick(id: string, patch: PickPatch): Promise<void> {
+    const data = await this.loadPicks()
+    const index = data.findIndex(pick => pick.id === id)
+    if (index === -1) throw new Error(`pick update failed: unknown pick id ${id}`)
+    const next = [...data]
+    next[index] = { ...data[index]!, ...patch }
+    await this.persist(this.picksFile(), next)
+    this.picksCache = next
+  }
+
   // --- shared file plumbing ---
 
   private profilesFile(): string {
@@ -135,6 +168,10 @@ export class JsonFileBackend implements StorageBackend {
 
   private memoryFile(): string {
     return path.resolve(process.cwd(), this.paths.memoryPath ?? loadConfig().memoryPath)
+  }
+
+  private picksFile(): string {
+    return path.resolve(process.cwd(), this.paths.picksPath ?? loadConfig().picksPath)
   }
 
   private async loadProfiles(): Promise<ProfilesFile> {
@@ -153,6 +190,12 @@ export class JsonFileBackend implements StorageBackend {
     if (this.memoryCache) return this.memoryCache
     this.memoryCache = await this.readJson<MemoryFile>(this.memoryFile(), {})
     return this.memoryCache
+  }
+
+  private async loadPicks(): Promise<PicksFile> {
+    if (this.picksCache) return this.picksCache
+    this.picksCache = await this.readJson<PicksFile>(this.picksFile(), [])
+    return this.picksCache
   }
 
   /** ENOENT silently means "empty"; any other read/parse error is logged and treated as empty. */

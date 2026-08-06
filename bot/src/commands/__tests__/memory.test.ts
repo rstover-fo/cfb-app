@@ -141,6 +141,9 @@ describe('failure handling', () => {
       listAtoms: async () => [],
       insertAtom: async () => {},
       deleteAtoms: async () => 0,
+      listPicks: async () => [],
+      insertPick: async () => {},
+      updatePick: async () => {},
     }
     setStorageForTests(failing)
     const interaction = fakeChatInputInteraction({ subcommand: 'off' })

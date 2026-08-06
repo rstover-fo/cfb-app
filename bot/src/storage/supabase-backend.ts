@@ -29,7 +29,7 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 type AnySupabaseClient = SupabaseClient<any, any, any, any, any>
 
 import { loadConfig } from '../config.js'
-import type { BotSettings, MemoryAtom, StorageBackend, UserProfile } from './backend.js'
+import type { BotSettings, MemoryAtom, NewPick, Pick, PickFilter, PickPatch, StorageBackend, UserProfile } from './backend.js'
 
 const REQUEST_TIMEOUT_MS = 5_000
 const SETTINGS_KEY = 'global'
@@ -52,6 +52,47 @@ interface AtomRow {
   source: MemoryAtom['source']
   created_at: string
   updated_at: string
+}
+
+interface PickRow {
+  id: string
+  user_id: string
+  kind: Pick['kind']
+  team: string
+  opponent: string | null
+  game_id: number | null
+  season: number
+  week: number | null
+  direction: Pick['direction'] | null
+  line: number | string | null
+  pick_home: boolean | null
+  statement: string
+  status: Pick['status']
+  settled_detail: string | null
+  created_at: string
+  settled_at: string | null
+}
+
+/** PostgREST returns numeric columns as strings; normalize once here. */
+function rowToPick(row: PickRow): Pick {
+  return {
+    id: row.id,
+    userId: row.user_id,
+    kind: row.kind,
+    team: row.team,
+    opponent: row.opponent ?? undefined,
+    gameId: row.game_id ?? undefined,
+    season: row.season,
+    week: row.week ?? undefined,
+    direction: row.direction ?? undefined,
+    line: row.line === null ? undefined : Number(row.line),
+    pickHome: row.pick_home ?? undefined,
+    statement: row.statement,
+    status: row.status,
+    settledDetail: row.settled_detail ?? undefined,
+    createdAt: row.created_at,
+    settledAt: row.settled_at ?? undefined,
+  }
 }
 
 function timeoutFetch(input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]): Promise<Response> {
@@ -202,5 +243,51 @@ export class SupabaseBackend implements StorageBackend {
     const { data, error } = await query.select('id')
     if (error) throw new Error(`atom delete failed: ${error.message}`)
     return (data ?? []).length
+  }
+
+  // --- picks (no caching: read at most once per turn/settlement run) ---
+
+  async listPicks(filter: PickFilter = {}): Promise<Pick[]> {
+    try {
+      let query = this.client.from('picks').select('*')
+      if (filter.userId !== undefined) query = query.eq('user_id', filter.userId)
+      if (filter.status !== undefined) query = query.eq('status', filter.status)
+      const { data, error } = await query.order('created_at', { ascending: true }).order('id', { ascending: true })
+      if (error) throw new Error(error.message)
+      return ((data ?? []) as PickRow[]).map(rowToPick)
+    } catch (err) {
+      console.error('[storage] picks read failed:', err instanceof Error ? err.message : err)
+      return []
+    }
+  }
+
+  async insertPick(pick: NewPick): Promise<void> {
+    const { error } = await this.client.from('picks').insert({
+      user_id: pick.userId,
+      kind: pick.kind,
+      team: pick.team,
+      opponent: pick.opponent ?? null,
+      game_id: pick.gameId ?? null,
+      season: pick.season,
+      week: pick.week ?? null,
+      direction: pick.direction ?? null,
+      line: pick.line ?? null,
+      pick_home: pick.pickHome ?? null,
+      statement: pick.statement,
+    })
+    if (error) throw new Error(`pick insert failed: ${error.message}`)
+  }
+
+  async updatePick(id: string, patch: PickPatch): Promise<void> {
+    const row: Record<string, unknown> = {}
+    if (patch.status !== undefined) row.status = patch.status
+    if (patch.settledDetail !== undefined) row.settled_detail = patch.settledDetail
+    if (patch.settledAt !== undefined) row.settled_at = patch.settledAt
+    if (patch.line !== undefined) row.line = patch.line
+    // select() returns the patched rows: zero rows means the id didn't exist,
+    // which is a caller bug and must throw per the write contract.
+    const { data, error } = await this.client.from('picks').update(row).eq('id', id).select('id')
+    if (error) throw new Error(`pick update failed: ${error.message}`)
+    if ((data ?? []).length === 0) throw new Error(`pick update failed: unknown pick id ${id}`)
   }
 }

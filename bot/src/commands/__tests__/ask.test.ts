@@ -288,14 +288,23 @@ describe('askCommand user-context injection', () => {
 })
 
 describe('askCommand memory extraction', () => {
-  it('fires extractMemories after a successful answer', async () => {
+  it('fires extractMemories after a successful answer, with an ephemeral pick-ack hook', async () => {
     askClaudeMock.mockResolvedValue(askResult('the answer'))
     const interaction = fakeChatInputInteraction({ strings: { question: 'how good is OU?' } })
     interaction.user = { id: 'user-1' }
 
     await askCommand.execute(interaction)
 
-    expect(extractMemoriesMock).toHaveBeenCalledWith({ userId: 'user-1', question: 'how good is OU?', answer: 'the answer' })
+    expect(extractMemoriesMock).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: 'user-1', question: 'how good is OU?', answer: 'the answer', onPicksRecorded: expect.any(Function) })
+    )
+
+    // The ack hook posts an ephemeral followUp quoting the stored pick.
+    const { onPicksRecorded } = extractMemoriesMock.mock.calls[0]![0] as { onPicksRecorded: (picks: unknown[]) => Promise<void> }
+    await onPicksRecorded([{ statement: 'OU wins 10 this year' }])
+    const followUp = interaction.followUp.mock.calls.at(-1)![0] as { content: string; flags: number }
+    expect(followUp.content).toContain('📒 Logged your pick: "OU wins 10 this year"')
+    expect(followUp.flags).toBe(MessageFlags.Ephemeral)
   })
 
   it('does not fire extractMemories when askClaude fails', async () => {

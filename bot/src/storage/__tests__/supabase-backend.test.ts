@@ -29,7 +29,7 @@ function fakeClient(responses: QueuedResponse[]) {
       const response = responses[index++] ?? { data: null, error: null }
       const result = { data: response.data ?? null, error: response.error ?? null }
       const chain: Record<string, unknown> = {}
-      for (const method of ['select', 'eq', 'in', 'order', 'delete', 'upsert', 'insert']) {
+      for (const method of ['select', 'eq', 'in', 'order', 'delete', 'upsert', 'insert', 'update']) {
         chain[method] = (...args: unknown[]) => {
           record.ops.push([method, args])
           return chain
@@ -205,5 +205,76 @@ describe('memory atoms', () => {
 
     await expect(backend.deleteAtoms('u1')).resolves.toBe(0)
     expect(opNames(calls[0]!)).not.toContain('in')
+  })
+})
+
+describe('picks', () => {
+  const PICK_ROW = {
+    id: 'p1',
+    user_id: 'u1',
+    kind: 'ats',
+    team: 'Oklahoma',
+    opponent: 'Texas',
+    game_id: 401000001,
+    season: 2026,
+    week: 6,
+    direction: 'cover',
+    line: '-6.5', // PostgREST returns numerics as strings
+    pick_home: false,
+    statement: 'we cover easy',
+    status: 'open',
+    settled_detail: null,
+    created_at: 't1',
+    settled_at: null,
+  }
+
+  it('listPicks maps rows (numeric line coerced) and applies conditional filters', async () => {
+    const { calls, client } = fakeClient([{ data: [PICK_ROW] }])
+    const backend = new SupabaseBackend(client)
+
+    const picks = await backend.listPicks({ userId: 'u1', status: 'open' })
+    expect(picks[0]).toMatchObject({ id: 'p1', line: -6.5, pickHome: false, gameId: 401000001, opponent: 'Texas' })
+    expect(calls[0]!.table).toBe('picks')
+    expect(calls[0]!.ops).toContainEqual(['eq', ['user_id', 'u1']])
+    expect(calls[0]!.ops).toContainEqual(['eq', ['status', 'open']])
+  })
+
+  it('listPicks without filters sends no eq ops and read errors return []', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const { calls, client } = fakeClient([{ data: [] }])
+    const backend = new SupabaseBackend(client)
+    await backend.listPicks()
+    expect(opNames(calls[0]!)).not.toContain('eq')
+
+    const failing = new SupabaseBackend(fakeClient([{ error: { message: 'down' } }]).client)
+    await expect(failing.listPicks()).resolves.toEqual([])
+  })
+
+  it('insertPick writes the snake_case row and throws on error', async () => {
+    const { calls, client } = fakeClient([{}])
+    const backend = new SupabaseBackend(client)
+    await backend.insertPick({
+      userId: 'u1', kind: 'season_total', team: 'Oklahoma', season: 2026,
+      direction: 'over', line: 9.5, statement: 'OU wins 10 this year',
+    })
+    const [payload] = calls[0]!.ops.find(([name]) => name === 'insert')![1] as [Record<string, unknown>]
+    expect(payload).toMatchObject({ user_id: 'u1', kind: 'season_total', line: 9.5, game_id: null, opponent: null })
+
+    const failing = new SupabaseBackend(fakeClient([{ error: { message: 'bad' } }]).client)
+    await expect(
+      failing.insertPick({ userId: 'u1', kind: 'game_winner', team: 'Oklahoma', season: 2026, statement: 'x' })
+    ).rejects.toThrow(/bad/)
+  })
+
+  it('updatePick patches by id and throws when the id matches no row', async () => {
+    const { calls, client } = fakeClient([{ data: [{ id: 'p1' }] }])
+    const backend = new SupabaseBackend(client)
+    await backend.updatePick('p1', { status: 'won', settledDetail: 'OU 34-24', settledAt: 't2' })
+    const [payload] = calls[0]!.ops.find(([name]) => name === 'update')![1] as [Record<string, unknown>]
+    expect(payload).toEqual({ status: 'won', settled_detail: 'OU 34-24', settled_at: 't2' })
+    expect(calls[0]!.ops).toContainEqual(['eq', ['id', 'p1']])
+
+    const missing = new SupabaseBackend(fakeClient([{ data: [] }]).client)
+    await expect(missing.updatePick('ghost', { status: 'void' })).rejects.toThrow(/unknown pick id/)
   })
 })

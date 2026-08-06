@@ -20,6 +20,7 @@ Opus 4.8 (advisor, for gnarly analytical questions), with a Haiku classifier rou
 | `/ask` | `question` | Full conversational Q&A over all 19 MCP tools, tiered Sonnet 5 / Opus 4.8 | LLM |
 | `/myteam` | `team` (autocomplete) | Saves your favorite team so `/ask` and @-mentions can use it as context | Free |
 | `/memory` | `show` / `forget [number]` / `on` / `off` | See, delete, or disable the bot's long-term memory about you (see [Long-term memory](#long-term-memory)) | Free |
+| `/picks` | `me` / `user <who>` / `board` / `void <number>` | The public prediction ledger: records, receipts, leaderboard (see [Prediction ledger](#prediction-ledger)) | Free |
 | `/help` | *(none)* | Lists all commands | Free |
 
 @-mentioning the bot (`@CFB Bot how good is Ohio State's defense?`) runs the same conversational
@@ -108,6 +109,7 @@ All defaults and validation live in `src/config.ts`.
 | `PROFILES_PATH` | No | `data/profiles.json` | Where the JSON backend persists `/myteam` favorites (relative paths resolve against `process.cwd()`; ignored when Supabase is configured) |
 | `SETTINGS_PATH` | No | `data/settings.json` | Where the JSON backend persists server toggles like `/lore` (ignored when Supabase is configured) |
 | `MEMORY_PATH` | No | `data/memory.json` | Where the JSON backend persists long-term memory atoms (ignored when Supabase is configured) |
+| `PICKS_PATH` | No | `data/picks.json` | Where the JSON backend persists prediction-ledger picks (ignored when Supabase is configured) |
 | `COOLDOWN_SECONDS` | No | `20` | Minimum seconds between LLM-backed questions from the same user |
 | `USER_DAILY_LIMIT` | No | `10` | Max LLM-backed questions a single user can ask per day |
 | `DAILY_BUDGET_USD` | No | `10` | Global daily spend ceiling in USD for the LLM path |
@@ -184,6 +186,29 @@ Memory is on by default, with full user control via `/memory`:
 Extraction failures are silent no-ops -- the answer the user already received is never
 affected. Log lines carry counts and token usage only, never memory content, matching the
 no-user-text logging rule.
+
+## Prediction ledger
+
+The same extraction call also listens for committed predictions -- "OU wins 10 this year",
+"we beat Texas", "Texas covers Saturday" -- and logs them as public picks (game winner,
+season win total, or against-the-spread). Questions and hypotheticals are never logged, and
+the extractor is deliberately conservative: a false pick is worse than a missed one.
+
+- **Capture:** pick candidates are resolved deterministically (`src/pick-resolve.ts`) --
+  team names normalized against `src/data/teams.json` + an alias map, game picks matched to
+  a real scheduled game via `query_games`, ATS lines captured at pick time. Unresolvable
+  candidates are dropped. The bot acks a captured pick with a 📒 reaction (mentions) or an
+  ephemeral note (/ask).
+- **Settlement:** an hourly loop (`src/settlement.ts`, started on ClientReady) settles
+  finished games from final scores and season totals from `get_season_outlook` -- free MCP
+  calls only, and zero calls when no picks are open. ATS grades against the line at pick
+  time; season totals early-settle once the win count clears the line.
+- **Receipts:** `/picks me` / `/picks user` / `/picks board` (public, min 3 settled picks
+  for the board), `/picks void <n>` (ephemeral, own picks only -- the misextraction escape
+  hatch). The asker's record and open picks also ride the conversational context, so the
+  bot brings receipts unprompted.
+- `/memory off` stops pick *capture* along with memory extraction; already-logged picks
+  stay on the public ledger (`/picks void` removes bad ones).
 
 ## Cost controls
 

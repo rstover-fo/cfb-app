@@ -35,6 +35,48 @@ export interface MemoryAtom {
   updatedAt: string
 }
 
+export type PickKind = 'game_winner' | 'ats' | 'season_total'
+export type PickStatus = 'open' | 'won' | 'lost' | 'push' | 'void'
+export type PickDirection = 'win' | 'cover' | 'over' | 'under'
+
+/** One ledger entry: a prediction the user committed to in conversation. */
+export interface Pick {
+  id: string
+  userId: string
+  kind: PickKind
+  /** Exact school name; the side the user backed. */
+  team: string
+  opponent?: string
+  gameId?: number
+  season: number
+  week?: number
+  direction?: PickDirection
+  /** ats: home_spread at pick time (undefined = pending backfill); season_total: half-point win line. */
+  line?: number
+  /** Game picks: whether `team` is the home side of gameId (derived once at capture). */
+  pickHome?: boolean
+  /** The user's words, <=200 chars. */
+  statement: string
+  status: PickStatus
+  settledDetail?: string
+  createdAt: string
+  settledAt?: string
+}
+
+export interface PickFilter {
+  userId?: string
+  status?: PickStatus
+}
+
+export type NewPick = Omit<Pick, 'id' | 'status' | 'settledDetail' | 'createdAt' | 'settledAt'>
+
+export interface PickPatch {
+  status?: PickStatus
+  settledDetail?: string
+  settledAt?: string
+  line?: number
+}
+
 export interface StorageBackend {
   readonly name: 'supabase' | 'json'
 
@@ -58,4 +100,11 @@ export interface StorageBackend {
    * failure.
    */
   deleteAtoms(userId: string, atomIds?: string[]): Promise<number>
+
+  /** Picks matching the filter, oldest first (createdAt asc, id asc). Never throws (returns []). */
+  listPicks(filter?: PickFilter): Promise<Pick[]>
+  /** Inserts one open pick (id/createdAt/status assigned by the backend). Throws on write failure. */
+  insertPick(pick: NewPick): Promise<void>
+  /** Patches one pick by id (settle, void, or line backfill). Unknown id or write failure throws. */
+  updatePick(id: string, patch: PickPatch): Promise<void>
 }
