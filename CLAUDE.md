@@ -81,6 +81,7 @@ This app reads from two Supabase Postgres schemas (both populated by cfb-databas
 |--------|----------|---------|
 | `public` (default, no `.schema()` call) | Legacy convenience views + RPCs | `teams_with_logos`, `games`, `team_season_trajectory`, `roster`, `records` |
 | `api` (`.schema('api')`) | Contracted PostgREST views -- the primary/preferred surface for new queries | `game_box_score`, `game_player_leaders`, `game_line_scores`, `game_drives`, `game_plays`, `game_win_probability`, `team_detail`, `matchup`, `poll_rankings` |
+| `bot` (Discord bot only) | Bot-owned durable state -- owned by THIS repo (`bot/supabase/migrations/`), not part of cfb-database's SCHEMA_CONTRACT; the Next.js app never reads it | `user_profiles`, `app_settings`, `memory_atoms` |
 
 Direct access to the internal, dlt-loaded `core`/`core_staging` schemas is **banned**: every
 known instance was migrated to an `api.*` view (see cfb-database's `docs/SCHEMA_CONTRACT.md`

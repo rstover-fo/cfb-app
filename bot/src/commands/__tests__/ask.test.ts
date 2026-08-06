@@ -1,11 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { MessageFlags } from 'discord.js'
 
-const { askClaudeMock, checkAllowanceMock, recordUsageMock, getFavoriteTeamMock } = vi.hoisted(() => ({
+const { askClaudeMock, checkAllowanceMock, recordUsageMock, buildUserContextMock, extractMemoriesMock } = vi.hoisted(() => ({
   askClaudeMock: vi.fn(),
   checkAllowanceMock: vi.fn(),
   recordUsageMock: vi.fn(),
-  getFavoriteTeamMock: vi.fn(),
+  buildUserContextMock: vi.fn(),
+  extractMemoriesMock: vi.fn(),
 }))
 
 vi.mock('../../claude.js', () => {
@@ -23,7 +24,8 @@ vi.mock('../../limits.js', async () => {
   return { ...actual, checkAllowance: checkAllowanceMock, recordUsage: recordUsageMock }
 })
 
-vi.mock('../../profiles.js', () => ({ getFavoriteTeam: getFavoriteTeamMock, setFavoriteTeam: vi.fn() }))
+vi.mock('../../user-context.js', () => ({ buildUserContext: buildUserContextMock }))
+vi.mock('../../memory-extract.js', () => ({ extractMemories: extractMemoriesMock }))
 
 import { askCommand } from '../ask.js'
 import { ClaudeUnavailableError } from '../../claude.js'
@@ -49,7 +51,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   clearMemoryForTests()
   checkAllowanceMock.mockReturnValue({ ok: true })
-  getFavoriteTeamMock.mockResolvedValue(undefined)
+  buildUserContextMock.mockResolvedValue(undefined)
 })
 
 describe('askCommand allowance guard', () => {
@@ -258,29 +260,59 @@ describe('askCommand memory wiring', () => {
   })
 })
 
-describe('askCommand profile injection', () => {
-  it('passes userContext built from the saved favorite team', async () => {
-    getFavoriteTeamMock.mockResolvedValue('Oklahoma')
+describe('askCommand user-context injection', () => {
+  it('passes the shared builder\'s userContext through to askClaude', async () => {
+    buildUserContextMock.mockResolvedValue("this user's favorite team is Oklahoma")
     askClaudeMock.mockResolvedValue(askResult('answer'))
     const interaction = fakeChatInputInteraction({ strings: { question: 'how will we do?' } })
     interaction.user = { id: 'user-1' }
 
     await askCommand.execute(interaction)
 
-    expect(getFavoriteTeamMock).toHaveBeenCalledWith('user-1')
+    expect(buildUserContextMock).toHaveBeenCalledWith('user-1', 'test-guild')
     expect(askClaudeMock).toHaveBeenCalledWith('how will we do?', {
       history: [],
       userContext: "this user's favorite team is Oklahoma",
     })
   })
 
-  it('omits userContext when the user has no saved favorite team', async () => {
-    getFavoriteTeamMock.mockResolvedValue(undefined)
+  it('omits userContext when the builder has nothing to say', async () => {
+    buildUserContextMock.mockResolvedValue(undefined)
     askClaudeMock.mockResolvedValue(askResult('answer'))
     const interaction = fakeChatInputInteraction({ strings: { question: 'q' } })
 
     await askCommand.execute(interaction)
 
     expect(askClaudeMock).toHaveBeenCalledWith('q', { history: [], userContext: undefined })
+  })
+})
+
+describe('askCommand memory extraction', () => {
+  it('fires extractMemories after a successful answer, with an ephemeral pick-ack hook', async () => {
+    askClaudeMock.mockResolvedValue(askResult('the answer'))
+    const interaction = fakeChatInputInteraction({ strings: { question: 'how good is OU?' } })
+    interaction.user = { id: 'user-1' }
+
+    await askCommand.execute(interaction)
+
+    expect(extractMemoriesMock).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: 'user-1', question: 'how good is OU?', answer: 'the answer', onPicksRecorded: expect.any(Function) })
+    )
+
+    // The ack hook posts an ephemeral followUp quoting the stored pick.
+    const { onPicksRecorded } = extractMemoriesMock.mock.calls[0]![0] as { onPicksRecorded: (picks: unknown[]) => Promise<void> }
+    await onPicksRecorded([{ statement: 'OU wins 10 this year' }])
+    const followUp = interaction.followUp.mock.calls.at(-1)![0] as { content: string; flags: number }
+    expect(followUp.content).toContain('📒 Logged your pick: "OU wins 10 this year"')
+    expect(followUp.flags).toBe(MessageFlags.Ephemeral)
+  })
+
+  it('does not fire extractMemories when askClaude fails', async () => {
+    askClaudeMock.mockRejectedValue(new ClaudeUnavailableError())
+    const interaction = fakeChatInputInteraction({ strings: { question: 'q' } })
+
+    await askCommand.execute(interaction)
+
+    expect(extractMemoriesMock).not.toHaveBeenCalled()
   })
 })

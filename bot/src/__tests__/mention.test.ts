@@ -1,11 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { MessageFlags } from 'discord.js'
 
-const { askClaudeMock, checkAllowanceMock, recordUsageMock, getFavoriteTeamMock } = vi.hoisted(() => ({
+const { askClaudeMock, checkAllowanceMock, recordUsageMock, buildUserContextMock, extractMemoriesMock } = vi.hoisted(() => ({
   askClaudeMock: vi.fn(),
   checkAllowanceMock: vi.fn(),
   recordUsageMock: vi.fn(),
-  getFavoriteTeamMock: vi.fn(),
+  buildUserContextMock: vi.fn(),
+  extractMemoriesMock: vi.fn(),
 }))
 
 vi.mock('../claude.js', () => {
@@ -23,7 +24,8 @@ vi.mock('../limits.js', async () => {
   return { ...actual, checkAllowance: checkAllowanceMock, recordUsage: recordUsageMock }
 })
 
-vi.mock('../profiles.js', () => ({ getFavoriteTeam: getFavoriteTeamMock, setFavoriteTeam: vi.fn() }))
+vi.mock('../user-context.js', () => ({ buildUserContext: buildUserContextMock }))
+vi.mock('../memory-extract.js', () => ({ extractMemories: extractMemoriesMock }))
 
 import { loadConfig, resetConfigForTests } from '../config.js'
 import { handleMention } from '../mention.js'
@@ -88,7 +90,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   clearMemoryForTests()
   checkAllowanceMock.mockReturnValue({ ok: true })
-  getFavoriteTeamMock.mockResolvedValue(undefined)
+  buildUserContextMock.mockResolvedValue(undefined)
   resetConfigForTests()
   loadConfig(VALID_ENV)
 })
@@ -367,19 +369,46 @@ describe('handleMention limits wiring', () => {
   })
 })
 
-describe('handleMention profile injection', () => {
-  it('passes userContext built from the saved favorite team', async () => {
-    getFavoriteTeamMock.mockResolvedValue('Oklahoma')
+describe('handleMention user-context injection', () => {
+  it('passes the shared builder\'s userContext through to askClaude', async () => {
+    buildUserContextMock.mockResolvedValue("this user's favorite team is Oklahoma")
     askClaudeMock.mockResolvedValue(askResult('answer'))
     const message = fakeMessage({ mentionsBot: true, content: `<@${BOT_ID}> how will we do?`, authorId: 'author-9' })
 
     await handleMention(message)
 
-    expect(getFavoriteTeamMock).toHaveBeenCalledWith('author-9')
+    expect(buildUserContextMock).toHaveBeenCalledWith('author-9', 'allowed-guild')
     expect(askClaudeMock).toHaveBeenCalledWith('how will we do?', {
       history: [],
       userContext: "this user's favorite team is Oklahoma",
     })
+  })
+})
+
+describe('handleMention memory extraction', () => {
+  it('fires extractMemories after a successful answer, with a 📒-reaction pick-ack hook', async () => {
+    askClaudeMock.mockResolvedValue(askResult('the answer'))
+    const message = fakeMessage({ mentionsBot: true, content: `<@${BOT_ID}> how good is OU?`, authorId: 'author-9' })
+    message.react = vi.fn().mockResolvedValue(undefined)
+
+    await handleMention(message)
+
+    expect(extractMemoriesMock).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: 'author-9', question: 'how good is OU?', answer: 'the answer', onPicksRecorded: expect.any(Function) })
+    )
+
+    const { onPicksRecorded } = extractMemoriesMock.mock.calls[0]![0] as { onPicksRecorded: (picks: unknown[]) => Promise<void> }
+    await onPicksRecorded([{ statement: 'we beat Texas' }])
+    expect(message.react).toHaveBeenCalledWith('📒')
+  })
+
+  it('does not fire extractMemories when askClaude fails', async () => {
+    askClaudeMock.mockRejectedValue(new ClaudeUnavailableError())
+    const message = fakeMessage({ mentionsBot: true, content: `<@${BOT_ID}> anything` })
+
+    await handleMention(message)
+
+    expect(extractMemoriesMock).not.toHaveBeenCalled()
   })
 })
 
