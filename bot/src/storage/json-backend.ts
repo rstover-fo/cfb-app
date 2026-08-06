@@ -14,7 +14,7 @@ import { promises as fs } from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import path from 'node:path'
 import { loadConfig } from '../config.js'
-import type { BotSettings, MemoryAtom, NewPick, Pick, PickFilter, PickPatch, StorageBackend, UserProfile } from './backend.js'
+import type { BotSettings, MemoryAtom, NewPick, Pick, PickFilter, PickPatch, PickStatus, StorageBackend, UserProfile } from './backend.js'
 
 /** Pre-existing on-disk shape (profiles.json), extended with memoryEnabled. */
 interface ProfileEntry {
@@ -53,6 +53,20 @@ export class JsonFileBackend implements StorageBackend {
   private memoryCache: MemoryFile | null = null
   private picksCache: PicksFile | null = null
 
+  /**
+   * Serializes every mutation's read-modify-write sequence. Two concurrent
+   * fire-and-forget extractions would otherwise both snapshot the same cache
+   * before either persists, and the last rename would silently discard the
+   * other's write. One queue for all files: simple, and contention is tiny.
+   */
+  private writeQueue: Promise<unknown> = Promise.resolve()
+
+  private locked<T>(fn: () => Promise<T>): Promise<T> {
+    const run = this.writeQueue.then(fn, fn)
+    this.writeQueue = run.catch(() => {})
+    return run
+  }
+
   /** Paths omitted here resolve from config (PROFILES_PATH/SETTINGS_PATH/MEMORY_PATH) on first use. */
   constructor(paths: JsonBackendPaths = {}) {
     this.paths = paths
@@ -72,15 +86,17 @@ export class JsonFileBackend implements StorageBackend {
   }
 
   async upsertProfile(userId: string, patch: Partial<UserProfile>): Promise<void> {
-    const data = await this.loadProfiles()
-    const existing = data[userId] ?? {}
-    const entry: ProfileEntry = { ...existing }
-    if (patch.favoriteTeam !== undefined) entry.team = patch.favoriteTeam
-    if (patch.memoryEnabled !== undefined) entry.memoryEnabled = patch.memoryEnabled
-    if (patch.setAt !== undefined) entry.setAt = patch.setAt
-    const next: ProfilesFile = { ...data, [userId]: entry }
-    await this.persist(this.profilesFile(), next)
-    this.profilesCache = next
+    await this.locked(async () => {
+      const data = await this.loadProfiles()
+      const existing = data[userId] ?? {}
+      const entry: ProfileEntry = { ...existing }
+      if (patch.favoriteTeam !== undefined) entry.team = patch.favoriteTeam
+      if (patch.memoryEnabled !== undefined) entry.memoryEnabled = patch.memoryEnabled
+      if (patch.setAt !== undefined) entry.setAt = patch.setAt
+      const next: ProfilesFile = { ...data, [userId]: entry }
+      await this.persist(this.profilesFile(), next)
+      this.profilesCache = next
+    })
   }
 
   // --- settings ---
@@ -91,11 +107,13 @@ export class JsonFileBackend implements StorageBackend {
   }
 
   async saveSettings(patch: Partial<BotSettings>): Promise<void> {
-    const data = await this.loadSettings()
-    const next: SettingsFile = { ...data, updatedAt: new Date().toISOString() }
-    if (patch.loreEnabled !== undefined) next.loreEnabled = patch.loreEnabled
-    await this.persist(this.settingsFile(), next)
-    this.settingsCache = next
+    await this.locked(async () => {
+      const data = await this.loadSettings()
+      const next: SettingsFile = { ...data, updatedAt: new Date().toISOString() }
+      if (patch.loreEnabled !== undefined) next.loreEnabled = patch.loreEnabled
+      await this.persist(this.settingsFile(), next)
+      this.settingsCache = next
+    })
   }
 
   // --- memory atoms ---
@@ -109,23 +127,27 @@ export class JsonFileBackend implements StorageBackend {
   }
 
   async insertAtom(userId: string, atom: Omit<MemoryAtom, 'id' | 'createdAt' | 'updatedAt'>): Promise<void> {
-    const data = await this.loadMemory()
-    const now = new Date().toISOString()
-    const full: MemoryAtom = { ...atom, id: randomUUID(), createdAt: now, updatedAt: now }
-    const next: MemoryFile = { ...data, [userId]: [...(data[userId] ?? []), full] }
-    await this.persist(this.memoryFile(), next)
-    this.memoryCache = next
+    await this.locked(async () => {
+      const data = await this.loadMemory()
+      const now = new Date().toISOString()
+      const full: MemoryAtom = { ...atom, id: randomUUID(), createdAt: now, updatedAt: now }
+      const next: MemoryFile = { ...data, [userId]: [...(data[userId] ?? []), full] }
+      await this.persist(this.memoryFile(), next)
+      this.memoryCache = next
+    })
   }
 
   async deleteAtoms(userId: string, atomIds?: string[]): Promise<number> {
-    const data = await this.loadMemory()
-    const atoms = data[userId] ?? []
-    const remaining = atomIds ? atoms.filter(a => !atomIds.includes(a.id)) : []
-    if (remaining.length === atoms.length) return 0
-    const next: MemoryFile = { ...data, [userId]: remaining }
-    await this.persist(this.memoryFile(), next)
-    this.memoryCache = next
-    return atoms.length - remaining.length
+    return this.locked(async () => {
+      const data = await this.loadMemory()
+      const atoms = data[userId] ?? []
+      const remaining = atomIds ? atoms.filter(a => !atomIds.includes(a.id)) : []
+      if (remaining.length === atoms.length) return 0
+      const next: MemoryFile = { ...data, [userId]: remaining }
+      await this.persist(this.memoryFile(), next)
+      this.memoryCache = next
+      return atoms.length - remaining.length
+    })
   }
 
   // --- picks ---
@@ -134,26 +156,33 @@ export class JsonFileBackend implements StorageBackend {
     const data = await this.loadPicks()
     return data
       .filter(pick => (filter.userId === undefined || pick.userId === filter.userId))
+      .filter(pick => (filter.guildId === undefined || pick.guildId === filter.guildId))
       .filter(pick => (filter.status === undefined || pick.status === filter.status))
       .sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id))
   }
 
   async insertPick(pick: NewPick): Promise<void> {
-    const data = await this.loadPicks()
-    const full: Pick = { ...pick, id: randomUUID(), status: 'open', createdAt: new Date().toISOString() }
-    const next: PicksFile = [...data, full]
-    await this.persist(this.picksFile(), next)
-    this.picksCache = next
+    await this.locked(async () => {
+      const data = await this.loadPicks()
+      const full: Pick = { ...pick, id: randomUUID(), status: 'open', createdAt: new Date().toISOString() }
+      const next: PicksFile = [...data, full]
+      await this.persist(this.picksFile(), next)
+      this.picksCache = next
+    })
   }
 
-  async updatePick(id: string, patch: PickPatch): Promise<void> {
-    const data = await this.loadPicks()
-    const index = data.findIndex(pick => pick.id === id)
-    if (index === -1) throw new Error(`pick update failed: unknown pick id ${id}`)
-    const next = [...data]
-    next[index] = { ...data[index]!, ...patch }
-    await this.persist(this.picksFile(), next)
-    this.picksCache = next
+  async updatePick(id: string, patch: PickPatch, ifStatus?: PickStatus): Promise<boolean> {
+    return this.locked(async () => {
+      const data = await this.loadPicks()
+      const index = data.findIndex(pick => pick.id === id)
+      if (index === -1) return false
+      if (ifStatus !== undefined && data[index]!.status !== ifStatus) return false
+      const next = [...data]
+      next[index] = { ...data[index]!, ...patch }
+      await this.persist(this.picksFile(), next)
+      this.picksCache = next
+      return true
+    })
   }
 
   // --- shared file plumbing ---

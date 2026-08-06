@@ -52,13 +52,17 @@ function buildPicksBlock(picks: Pick[]): string | undefined {
   return block.length > PICKS_CONTEXT_MAX_CHARS ? block.slice(0, PICKS_CONTEXT_MAX_CHARS) : block
 }
 
-/** Builds the per-turn user context string, or undefined when there is nothing to say. */
-export async function buildUserContext(userId: string): Promise<string | undefined> {
+/**
+ * Builds the per-turn user context string, or undefined when there is
+ * nothing to say. `guildId` scopes the receipts block to the guild the
+ * question was asked in (matching the /picks views there).
+ */
+export async function buildUserContext(userId: string, guildId?: string): Promise<string | undefined> {
   const favoriteTeam = await getFavoriteTeam(userId)
   const parts: string[] = []
   if (favoriteTeam) parts.push(`this user's favorite team is ${favoriteTeam}`)
 
-  const picksBlock = buildPicksBlock(await listPicks(userId))
+  const picksBlock = buildPicksBlock(await listPicks(userId, guildId))
   if (picksBlock) parts.push(picksBlock)
 
   if (await getMemoryEnabled(userId)) {

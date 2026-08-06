@@ -91,32 +91,48 @@ describe('profiles', () => {
     expect(errorSpy).toHaveBeenCalled()
   })
 
-  it('upsert merges the patch with the existing profile and writes the full row', async () => {
+  it('upsert sends ONLY the patched columns -- a failed prior read can never clobber other fields', async () => {
+    const { calls, client } = fakeClient([{}])
+    const backend = new SupabaseBackend(client)
+
+    // e.g. /memory off: must not touch favorite_team or set_at.
+    await backend.upsertProfile('u1', { memoryEnabled: false })
+
+    expect(calls).toHaveLength(1) // no prerequisite read at all
+    const [payload] = calls[0]!.ops.find(([name]) => name === 'upsert')![1] as [Record<string, unknown>]
+    expect(payload).toMatchObject({ user_id: 'u1', memory_enabled: false })
+    expect(payload).not.toHaveProperty('favorite_team')
+    expect(payload).not.toHaveProperty('set_at')
+  })
+
+  it('a write merges into an existing cache entry (later reads skip the network)', async () => {
     const { calls, client } = fakeClient([
-      { data: { user_id: 'u1', favorite_team: 'Oklahoma', memory_enabled: false, set_at: null } },
+      { data: { user_id: 'u1', favorite_team: 'Oklahoma', memory_enabled: true, set_at: null } },
       {}, // upsert response
     ])
     const backend = new SupabaseBackend(client)
 
-    await backend.upsertProfile('u1', { favoriteTeam: 'Texas' })
+    await backend.getProfile('u1') // populate the cache
+    await backend.upsertProfile('u1', { memoryEnabled: false })
 
-    const upsertCall = calls[1]!
-    expect(upsertCall.table).toBe('user_profiles')
-    const [payload] = upsertCall.ops.find(([name]) => name === 'upsert')![1] as [Record<string, unknown>]
-    expect(payload).toMatchObject({ user_id: 'u1', favorite_team: 'Texas', memory_enabled: false })
+    await expect(backend.getProfile('u1')).resolves.toMatchObject({ favoriteTeam: 'Oklahoma', memoryEnabled: false })
+    expect(calls).toHaveLength(2) // read + upsert; final getProfile served from the merged cache
   })
 
-  it('a successful write updates the cache (later reads skip the network)', async () => {
-    const { calls, client } = fakeClient([{ data: null }, {}])
+  it('a write with no cached profile invalidates instead of guessing (next read refetches)', async () => {
+    const { calls, client } = fakeClient([
+      {}, // upsert
+      { data: { user_id: 'u1', favorite_team: 'Oklahoma', memory_enabled: false, set_at: null } },
+    ])
     const backend = new SupabaseBackend(client)
 
-    await backend.upsertProfile('u1', { favoriteTeam: 'Oklahoma' })
-    await expect(backend.getProfile('u1')).resolves.toMatchObject({ favoriteTeam: 'Oklahoma', memoryEnabled: true })
-    expect(calls).toHaveLength(2) // read + upsert only, the getProfile hit the cache
+    await backend.upsertProfile('u1', { memoryEnabled: false })
+    await expect(backend.getProfile('u1')).resolves.toMatchObject({ favoriteTeam: 'Oklahoma', memoryEnabled: false })
+    expect(calls).toHaveLength(2) // upsert + a real read (cache was not fabricated)
   })
 
   it('write errors throw', async () => {
-    const { client } = fakeClient([{ data: null }, { error: { message: 'permission denied' } }])
+    const { client } = fakeClient([{ error: { message: 'permission denied' } }])
     const backend = new SupabaseBackend(client)
 
     await expect(backend.upsertProfile('u1', { favoriteTeam: 'Oklahoma' })).rejects.toThrow(/permission denied/)
@@ -266,15 +282,32 @@ describe('picks', () => {
     ).rejects.toThrow(/bad/)
   })
 
-  it('updatePick patches by id and throws when the id matches no row', async () => {
+  it('updatePick patches by id, reporting whether a row matched', async () => {
     const { calls, client } = fakeClient([{ data: [{ id: 'p1' }] }])
     const backend = new SupabaseBackend(client)
-    await backend.updatePick('p1', { status: 'won', settledDetail: 'OU 34-24', settledAt: 't2' })
+    await expect(backend.updatePick('p1', { status: 'won', settledDetail: 'OU 34-24', settledAt: 't2' })).resolves.toBe(true)
     const [payload] = calls[0]!.ops.find(([name]) => name === 'update')![1] as [Record<string, unknown>]
     expect(payload).toEqual({ status: 'won', settled_detail: 'OU 34-24', settled_at: 't2' })
     expect(calls[0]!.ops).toContainEqual(['eq', ['id', 'p1']])
 
     const missing = new SupabaseBackend(fakeClient([{ data: [] }]).client)
-    await expect(missing.updatePick('ghost', { status: 'void' })).rejects.toThrow(/unknown pick id/)
+    await expect(missing.updatePick('ghost', { status: 'void' })).resolves.toBe(false)
+  })
+
+  it('updatePick puts the ifStatus guard in the WHERE clause (atomic conditional transition)', async () => {
+    const { calls, client } = fakeClient([{ data: [] }])
+    const backend = new SupabaseBackend(client)
+
+    await expect(backend.updatePick('p1', { status: 'won' }, 'open')).resolves.toBe(false)
+    expect(calls[0]!.ops).toContainEqual(['eq', ['id', 'p1']])
+    expect(calls[0]!.ops).toContainEqual(['eq', ['status', 'open']])
+  })
+
+  it('listPicks filters by guildId when given', async () => {
+    const { calls, client } = fakeClient([{ data: [] }])
+    const backend = new SupabaseBackend(client)
+
+    await backend.listPicks({ guildId: 'guild-a' })
+    expect(calls[0]!.ops).toContainEqual(['eq', ['guild_id', 'guild-a']])
   })
 })

@@ -269,7 +269,7 @@ describe('askCommand user-context injection', () => {
 
     await askCommand.execute(interaction)
 
-    expect(buildUserContextMock).toHaveBeenCalledWith('user-1')
+    expect(buildUserContextMock).toHaveBeenCalledWith('user-1', 'test-guild')
     expect(askClaudeMock).toHaveBeenCalledWith('how will we do?', {
       history: [],
       userContext: "this user's favorite team is Oklahoma",

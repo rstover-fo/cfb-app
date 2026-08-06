@@ -43,6 +43,8 @@ export type PickDirection = 'win' | 'cover' | 'over' | 'under'
 export interface Pick {
   id: string
   userId: string
+  /** Guild the pick was captured in; public ledger views filter on it. */
+  guildId?: string
   kind: PickKind
   /** Exact school name; the side the user backed. */
   team: string
@@ -65,6 +67,7 @@ export interface Pick {
 
 export interface PickFilter {
   userId?: string
+  guildId?: string
   status?: PickStatus
 }
 
@@ -105,6 +108,12 @@ export interface StorageBackend {
   listPicks(filter?: PickFilter): Promise<Pick[]>
   /** Inserts one open pick (id/createdAt/status assigned by the backend). Throws on write failure. */
   insertPick(pick: NewPick): Promise<void>
-  /** Patches one pick by id (settle, void, or line backfill). Unknown id or write failure throws. */
-  updatePick(id: string, patch: PickPatch): Promise<void>
+  /**
+   * Patches one pick by id (settle, void, or line backfill). With `ifStatus`,
+   * the patch applies only while the pick's current status matches -- the
+   * conditional open->settled transition that makes a stale settlement lose
+   * to a user's void instead of overwriting it. Returns whether a row was
+   * updated (false: unknown id or status mismatch). Throws on write failure.
+   */
+  updatePick(id: string, patch: PickPatch, ifStatus?: PickStatus): Promise<boolean>
 }

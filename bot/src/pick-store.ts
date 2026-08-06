@@ -10,9 +10,27 @@ import type { NewPick, Pick } from './storage/backend.js'
 
 export const MAX_OPEN_PICKS_PER_USER = 15
 
-/** All of the user's picks, every status, oldest first. */
-export async function listPicks(userId: string): Promise<Pick[]> {
-  return getStorage().listPicks({ userId })
+/**
+ * Serializes recordPick per user. The dedup/supersede/cap invariants rest on
+ * a read-then-write, so two overlapping captures for the same user (e.g. an
+ * /ask and a mention finishing together) must not interleave. An in-process
+ * lock is sufficient by design: the single bot process is the schema's only
+ * writer (a documented invariant of the whole storage layer) -- a database
+ * transaction would only add value if multiple bot processes ever wrote
+ * concurrently, which nothing here supports anyway.
+ */
+const userLocks = new Map<string, Promise<unknown>>()
+
+function withUserLock<T>(userId: string, fn: () => Promise<T>): Promise<T> {
+  const previous = userLocks.get(userId) ?? Promise.resolve()
+  const run = previous.then(fn, fn)
+  userLocks.set(userId, run.catch(() => {}))
+  return run
+}
+
+/** All of the user's picks, every status, oldest first. `guildId` scopes to one server's ledger. */
+export async function listPicks(userId: string, guildId?: string): Promise<Pick[]> {
+  return getStorage().listPicks({ userId, guildId })
 }
 
 /** Open picks, oldest first -- all users when userId is omitted (settlement). */
@@ -37,68 +55,79 @@ function pickKey(pick: { kind: Pick['kind']; gameId?: number; team: string; seas
  * for the capture acknowledgment. Throws on storage write failure.
  */
 export async function recordPick(userId: string, pick: NewPick): Promise<{ stored: Pick | null; superseded: number }> {
-  const storage = getStorage()
-  const open = await storage.listPicks({ userId, status: 'open' })
+  return withUserLock(userId, async () => {
+    const storage = getStorage()
+    const open = await storage.listPicks({ userId, status: 'open' })
 
-  let superseded = 0
-  const key = pickKey(pick)
-  for (const existing of open) {
-    if (pickKey(existing) !== key) continue
-    // Identical = same side backed, same direction, same line: a repeat of
-    // the take, not a new bet. Anything else on the same key (flipped side,
-    // moved number) supersedes.
-    if (existing.team === pick.team && existing.direction === pick.direction && (existing.line ?? null) === (pick.line ?? null)) {
-      return { stored: null, superseded: 0 }
+    let superseded = 0
+    const key = pickKey(pick)
+    for (const existing of open) {
+      if (pickKey(existing) !== key) continue
+      // Identical = same side backed, same direction, same line: a repeat of
+      // the take, not a new bet. Anything else on the same key (flipped side,
+      // moved number) supersedes.
+      if (existing.team === pick.team && existing.direction === pick.direction && (existing.line ?? null) === (pick.line ?? null)) {
+        return { stored: null, superseded: 0 }
+      }
+      await storage.updatePick(
+        existing.id,
+        { status: 'void', settledDetail: 'superseded by a newer pick', settledAt: new Date().toISOString() },
+        'open'
+      )
+      superseded++
     }
-    await storage.updatePick(existing.id, {
-      status: 'void',
-      settledDetail: 'superseded by a newer pick',
-      settledAt: new Date().toISOString(),
-    })
-    superseded++
-  }
 
-  await storage.insertPick(pick)
+    await storage.insertPick(pick)
 
-  // Enforce the open cap AFTER insert, voiding oldest first.
-  const openNow = await storage.listPicks({ userId, status: 'open' })
-  if (openNow.length > MAX_OPEN_PICKS_PER_USER) {
-    for (const overflow of openNow.slice(0, openNow.length - MAX_OPEN_PICKS_PER_USER)) {
-      await storage.updatePick(overflow.id, {
-        status: 'void',
-        settledDetail: 'voided: too many open picks',
-        settledAt: new Date().toISOString(),
-      })
+    // Enforce the open cap AFTER insert, voiding oldest first.
+    const openNow = await storage.listPicks({ userId, status: 'open' })
+    if (openNow.length > MAX_OPEN_PICKS_PER_USER) {
+      for (const overflow of openNow.slice(0, openNow.length - MAX_OPEN_PICKS_PER_USER)) {
+        await storage.updatePick(
+          overflow.id,
+          { status: 'void', settledDetail: 'voided: too many open picks', settledAt: new Date().toISOString() },
+          'open'
+        )
+      }
     }
-  }
 
-  // Re-read by key rather than trusting position: same-key open picks were
-  // just voided above, so the one open pick on this key is the insert.
-  const stored = (await storage.listPicks({ userId, status: 'open' })).find(p => pickKey(p) === key) ?? null
-  return { stored, superseded }
-}
-
-/** Settles (or voids) one pick. Throws on storage write failure. */
-export async function settlePick(id: string, status: 'won' | 'lost' | 'push' | 'void', detail: string): Promise<void> {
-  await getStorage().updatePick(id, { status, settledDetail: detail, settledAt: new Date().toISOString() })
-}
-
-/** Backfills a pending ATS line captured after pick time. Throws on write failure. */
-export async function backfillLine(id: string, line: number): Promise<void> {
-  await getStorage().updatePick(id, { line })
+    // Re-read by key rather than trusting position: same-key open picks were
+    // just voided above, so the one open pick on this key is the insert.
+    const stored = (await storage.listPicks({ userId, status: 'open' })).find(p => pickKey(p) === key) ?? null
+    return { stored, superseded }
+  })
 }
 
 /**
- * /picks void: `index` is 1-based over the user's OPEN picks, oldest first
- * (the same numbering /picks me displays and /memory forget uses). Returns
- * the voided pick's statement for the confirmation reply.
+ * Settles (or voids) one pick -- a conditional open->settled transition.
+ * Returns false without writing when the pick is no longer open (e.g. the
+ * user voided it while a settlement pass was in flight); a stale settlement
+ * must lose to a void, never overwrite it. Throws on storage write failure.
  */
-export async function voidPickByIndex(userId: string, index: number): Promise<{ voided: boolean; statement?: string }> {
-  const open = await listOpenPicks(userId)
+export async function settlePick(id: string, status: 'won' | 'lost' | 'push' | 'void', detail: string): Promise<boolean> {
+  return getStorage().updatePick(id, { status, settledDetail: detail, settledAt: new Date().toISOString() }, 'open')
+}
+
+/** Backfills a pending ATS line (only while the pick is still open). Throws on write failure. */
+export async function backfillLine(id: string, line: number): Promise<boolean> {
+  return getStorage().updatePick(id, { line }, 'open')
+}
+
+/**
+ * /picks void: `index` is 1-based over the user's OPEN picks in this guild,
+ * oldest first (the same numbering /picks me displays). Returns the voided
+ * pick's statement for the confirmation reply.
+ */
+export async function voidPickByIndex(
+  userId: string,
+  index: number,
+  guildId?: string
+): Promise<{ voided: boolean; statement?: string }> {
+  const open = await getStorage().listPicks({ userId, guildId, status: 'open' })
   const target = open[index - 1]
   if (!target) return { voided: false }
-  await settlePick(target.id, 'void', 'voided by the user')
-  return { voided: true, statement: target.statement }
+  const voided = await settlePick(target.id, 'void', 'voided by the user')
+  return voided ? { voided: true, statement: target.statement } : { voided: false }
 }
 
 export interface PickRecordSummary {

@@ -29,7 +29,7 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 type AnySupabaseClient = SupabaseClient<any, any, any, any, any>
 
 import { loadConfig } from '../config.js'
-import type { BotSettings, MemoryAtom, NewPick, Pick, PickFilter, PickPatch, StorageBackend, UserProfile } from './backend.js'
+import type { BotSettings, MemoryAtom, NewPick, Pick, PickFilter, PickPatch, PickStatus, StorageBackend, UserProfile } from './backend.js'
 
 const REQUEST_TIMEOUT_MS = 5_000
 const SETTINGS_KEY = 'global'
@@ -57,6 +57,7 @@ interface AtomRow {
 interface PickRow {
   id: string
   user_id: string
+  guild_id: string | null
   kind: Pick['kind']
   team: string
   opponent: string | null
@@ -78,6 +79,7 @@ function rowToPick(row: PickRow): Pick {
   return {
     id: row.id,
     userId: row.user_id,
+    guildId: row.guild_id ?? undefined,
     kind: row.kind,
     team: row.team,
     opponent: row.opponent ?? undefined,
@@ -154,20 +156,28 @@ export class SupabaseBackend implements StorageBackend {
   }
 
   async upsertProfile(userId: string, patch: Partial<UserProfile>): Promise<void> {
-    // Read-merge-write: a PostgREST upsert replaces unspecified columns with
-    // their defaults on conflict targets we send, so merge with the current
-    // profile first. Safe because this process is the schema's only writer.
-    const existing = (await this.getProfile(userId)) ?? { memoryEnabled: true }
-    const merged: UserProfile = { ...existing, ...patch }
-    const { error } = await this.client.from('user_profiles').upsert({
-      user_id: userId,
-      favorite_team: merged.favoriteTeam ?? null,
-      memory_enabled: merged.memoryEnabled,
-      set_at: merged.setAt ?? null,
-      updated_at: new Date().toISOString(),
-    })
+    // Patch-only upsert: send just the supplied columns. On conflict,
+    // PostgREST's ON CONFLICT DO UPDATE touches only the columns in the
+    // payload, so untouched fields (e.g. favorite_team during /memory off)
+    // survive even when a prior read failed -- no read-merge-write, and no
+    // way for a transient read failure to make us clobber a row with
+    // defaults. Fresh rows get the table defaults for absent columns.
+    const row: Record<string, unknown> = { user_id: userId, updated_at: new Date().toISOString() }
+    if (patch.favoriteTeam !== undefined) row.favorite_team = patch.favoriteTeam
+    if (patch.memoryEnabled !== undefined) row.memory_enabled = patch.memoryEnabled
+    if (patch.setAt !== undefined) row.set_at = patch.setAt
+
+    const { error } = await this.client.from('user_profiles').upsert(row)
     if (error) throw new Error(`profile write failed: ${error.message}`)
-    this.profileCache.set(userId, merged)
+
+    // Merge into the cache only when we actually know the current profile;
+    // otherwise drop the entry so the next read fetches the merged truth.
+    const cached = this.profileCache.get(userId)
+    if (cached) {
+      this.profileCache.set(userId, { ...cached, ...patch })
+    } else {
+      this.profileCache.delete(userId)
+    }
   }
 
   // --- settings ---
@@ -251,6 +261,7 @@ export class SupabaseBackend implements StorageBackend {
     try {
       let query = this.client.from('picks').select('*')
       if (filter.userId !== undefined) query = query.eq('user_id', filter.userId)
+      if (filter.guildId !== undefined) query = query.eq('guild_id', filter.guildId)
       if (filter.status !== undefined) query = query.eq('status', filter.status)
       const { data, error } = await query.order('created_at', { ascending: true }).order('id', { ascending: true })
       if (error) throw new Error(error.message)
@@ -264,6 +275,7 @@ export class SupabaseBackend implements StorageBackend {
   async insertPick(pick: NewPick): Promise<void> {
     const { error } = await this.client.from('picks').insert({
       user_id: pick.userId,
+      guild_id: pick.guildId ?? null,
       kind: pick.kind,
       team: pick.team,
       opponent: pick.opponent ?? null,
@@ -278,16 +290,21 @@ export class SupabaseBackend implements StorageBackend {
     if (error) throw new Error(`pick insert failed: ${error.message}`)
   }
 
-  async updatePick(id: string, patch: PickPatch): Promise<void> {
+  async updatePick(id: string, patch: PickPatch, ifStatus?: PickStatus): Promise<boolean> {
     const row: Record<string, unknown> = {}
     if (patch.status !== undefined) row.status = patch.status
     if (patch.settledDetail !== undefined) row.settled_detail = patch.settledDetail
     if (patch.settledAt !== undefined) row.settled_at = patch.settledAt
     if (patch.line !== undefined) row.line = patch.line
-    // select() returns the patched rows: zero rows means the id didn't exist,
-    // which is a caller bug and must throw per the write contract.
-    const { data, error } = await this.client.from('picks').update(row).eq('id', id).select('id')
+    let query = this.client.from('picks').update(row).eq('id', id)
+    // The status guard rides the UPDATE's WHERE clause, so the conditional
+    // transition is atomic on the database side -- a stale settlement can
+    // never overwrite a void that landed in between.
+    if (ifStatus !== undefined) query = query.eq('status', ifStatus)
+    // select() returns the patched rows: zero means unknown id or the guard
+    // didn't match -- either way, nothing was updated.
+    const { data, error } = await query.select('id')
     if (error) throw new Error(`pick update failed: ${error.message}`)
-    if ((data ?? []).length === 0) throw new Error(`pick update failed: unknown pick id ${id}`)
+    return (data ?? []).length > 0
   }
 }

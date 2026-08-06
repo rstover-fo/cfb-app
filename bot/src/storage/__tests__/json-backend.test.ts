@@ -168,8 +168,44 @@ describe('picks', () => {
     expect(updated).toMatchObject({ line: -6.5, status: 'lost', settledDetail: 'missed by 2' })
   })
 
-  it('updatePick throws for an unknown id', async () => {
-    await expect(backend.updatePick('nope', { status: 'void' })).rejects.toThrow(/unknown pick id/)
+  it('updatePick returns false for an unknown id', async () => {
+    await expect(backend.updatePick('nope', { status: 'void' })).resolves.toBe(false)
+  })
+
+  it('updatePick with an ifStatus guard refuses when the status moved', async () => {
+    await backend.insertPick(NEW_PICK)
+    const [pick] = await backend.listPicks()
+    await backend.updatePick(pick!.id, { status: 'void' }, 'open')
+
+    // A stale settlement guarded on 'open' must lose to the void.
+    await expect(backend.updatePick(pick!.id, { status: 'won' }, 'open')).resolves.toBe(false)
+    const [after] = await backend.listPicks()
+    expect(after!.status).toBe('void')
+  })
+
+  it('filters by guildId', async () => {
+    await backend.insertPick({ ...NEW_PICK, guildId: 'guild-a' })
+    await backend.insertPick({ ...NEW_PICK, userId: 'user-2', guildId: 'guild-b' })
+
+    const guildA = await backend.listPicks({ guildId: 'guild-a' })
+    expect(guildA).toHaveLength(1)
+    expect(guildA[0]!.guildId).toBe('guild-a')
+  })
+
+  it('serializes concurrent mutations (no lost writes)', async () => {
+    await Promise.all([
+      backend.insertAtom('user-1', { content: 'a', kind: 'fact', source: 'extraction' }),
+      backend.insertAtom('user-1', { content: 'b', kind: 'fact', source: 'extraction' }),
+      backend.insertPick(NEW_PICK),
+      backend.insertPick({ ...NEW_PICK, gameId: 2 }),
+      backend.upsertProfile('user-1', { favoriteTeam: 'Oklahoma' }),
+      backend.upsertProfile('user-2', { memoryEnabled: false }),
+    ])
+
+    await expect(backend.listAtoms('user-1')).resolves.toHaveLength(2)
+    await expect(backend.listPicks()).resolves.toHaveLength(2)
+    await expect(backend.getProfile('user-1')).resolves.toMatchObject({ favoriteTeam: 'Oklahoma' })
+    await expect(backend.getProfile('user-2')).resolves.toMatchObject({ memoryEnabled: false })
   })
 })
 

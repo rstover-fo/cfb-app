@@ -40,7 +40,7 @@ async function execute(interaction: ChatInputCommandInteraction): Promise<void> 
 
   try {
     const history = getHistory(channelId)
-    const userContext = await buildUserContext(userId)
+    const userContext = await buildUserContext(userId, interaction.guildId ?? undefined)
 
     const { text, usage, model, charts } = await askClaude(question, { history, userContext })
     recordUsage(userId, usage, model)
@@ -72,6 +72,7 @@ async function execute(interaction: ChatInputCommandInteraction): Promise<void> 
     // seconds), ephemeral so a misextraction can be voided without noise.
     extractMemories({
       userId,
+      guildId: interaction.guildId ?? undefined,
       question,
       answer: text,
       onPicksRecorded: async picks => {

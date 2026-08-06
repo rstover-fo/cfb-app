@@ -143,9 +143,36 @@ describe('summarizeRecord', () => {
 describe('settlePick', () => {
   it('stamps status, detail, and settledAt', async () => {
     const { stored } = await recordPick('u1', gamePick())
-    await settlePick(stored!.id, 'won', 'OU 34-24 Texas')
+    await expect(settlePick(stored!.id, 'won', 'OU 34-24 Texas')).resolves.toBe(true)
     const [pick] = await listPicks('u1')
     expect(pick).toMatchObject({ status: 'won', settledDetail: 'OU 34-24 Texas' })
     expect(typeof pick!.settledAt).toBe('string')
+  })
+
+  it('is a conditional transition: a stale settlement loses to a user void', async () => {
+    const { stored } = await recordPick('u1', gamePick())
+    await voidPickByIndex('u1', 1)
+
+    // The settlement pass grabbed this pick while it was open; by the time
+    // its result arrives the user has voided it -- the settle must no-op.
+    await expect(settlePick(stored!.id, 'won', 'OU 34-24 Texas')).resolves.toBe(false)
+    const [pick] = await listPicks('u1')
+    expect(pick).toMatchObject({ status: 'void', settledDetail: 'voided by the user' })
+  })
+
+  it('serializes concurrent recordPick calls so dedup/supersede invariants hold', async () => {
+    // Two overlapping captures of the same bet: without the per-user lock
+    // both would read "no matching open pick" and both insert.
+    await Promise.all([recordPick('u1', gamePick()), recordPick('u1', gamePick())])
+    expect(await listOpenPicks('u1')).toHaveLength(1)
+
+    // Overlapping contradictory captures on the same game: exactly one
+    // open pick survives (the later one supersedes).
+    await Promise.all([
+      recordPick('u1', gamePick({ gameId: 9, team: 'Oklahoma', opponent: 'Texas', pickHome: false })),
+      recordPick('u1', gamePick({ gameId: 9, team: 'Texas', opponent: 'Oklahoma', pickHome: true })),
+    ])
+    const openOnGame9 = (await listOpenPicks('u1')).filter(p => p.gameId === 9)
+    expect(openOnGame9).toHaveLength(1)
   })
 })

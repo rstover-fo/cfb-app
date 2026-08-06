@@ -144,16 +144,16 @@ describe('pick extraction', () => {
       jsonResponse({ atoms: [{ content: 'Hates Texas', kind: 'preference', replaces: null }], picks: [PICK_CANDIDATE] })
     )
 
-    await runExtraction({ userId: 'u1', question: 'q', answer: 'a' })
+    await runExtraction({ userId: 'u1', guildId: 'guild-1', question: 'q', answer: 'a' })
 
-    expect(resolveAndRecordPicksMock).toHaveBeenCalledWith('u1', [PICK_CANDIDATE])
+    expect(resolveAndRecordPicksMock).toHaveBeenCalledWith('u1', [PICK_CANDIDATE], 'guild-1')
     await expect(listAtoms('u1')).resolves.toHaveLength(1)
   })
 
   it('a response without a picks key still validates (backward-compatible default)', async () => {
     createMock.mockResolvedValue(jsonResponse({ atoms: [] }))
     await runExtraction({ userId: 'u1', question: 'q', answer: 'a' })
-    expect(resolveAndRecordPicksMock).toHaveBeenCalledWith('u1', [])
+    expect(resolveAndRecordPicksMock).toHaveBeenCalledWith('u1', [], undefined)
   })
 
   it('more than 2 picks fails zod and the whole extraction no-ops', async () => {

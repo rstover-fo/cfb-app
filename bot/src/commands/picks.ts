@@ -35,13 +35,15 @@ const definition = new SlashCommandBuilder()
   )
 
 async function showLedger(interaction: ChatInputCommandInteraction, user: { id: string; displayName: string }): Promise<void> {
-  const picks = await listPicks(user.id)
+  // Guild-scoped: this server's ledger only, so multi-guild deployments
+  // (test + real server share one DISCORD_GUILD_ID list) never cross streams.
+  const picks = await listPicks(user.id, interaction.guildId ?? undefined)
   const record = summarizeRecord(picks)
   await interaction.reply({ embeds: [buildPicksEmbed(picks, { displayName: user.displayName, record })] })
 }
 
 async function executeBoard(interaction: ChatInputCommandInteraction): Promise<void> {
-  const all = await getStorage().listPicks()
+  const all = await getStorage().listPicks({ guildId: interaction.guildId ?? undefined })
   const byUser = new Map<string, typeof all>()
   for (const pick of all) {
     byUser.set(pick.userId, [...(byUser.get(pick.userId) ?? []), pick])
@@ -70,7 +72,8 @@ async function executeBoard(interaction: ChatInputCommandInteraction): Promise<v
 
 async function executeVoid(interaction: ChatInputCommandInteraction): Promise<void> {
   const index = interaction.options.getInteger('number', true)
-  const { voided, statement } = await voidPickByIndex(interaction.user.id, index)
+  // Same guild scoping as /picks me, so the numbers line up with that view.
+  const { voided, statement } = await voidPickByIndex(interaction.user.id, index, interaction.guildId ?? undefined)
   if (!voided) {
     await interaction.reply({
       embeds: [errorEmbed('No such pick', `You have no open pick #${index} — check the numbers in \`/picks me\`.`)],

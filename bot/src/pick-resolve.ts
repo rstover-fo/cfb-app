@@ -123,15 +123,16 @@ function matchGame(rows: GameRow[], team: string, opponent: string | null): Game
 /**
  * Resolves candidates and records the survivors. Returns the stored picks
  * (deduped re-statements excluded) for the capture acknowledgment. Never
- * throws; drops count into the structured log only.
+ * throws; drops count into the structured log only. `guildId` stamps the
+ * capture guild so the public ledger views can stay per-server.
  */
-export async function resolveAndRecordPicks(userId: string, candidates: PickCandidate[]): Promise<Pick[]> {
+export async function resolveAndRecordPicks(userId: string, candidates: PickCandidate[], guildId?: string): Promise<Pick[]> {
   const stored: Pick[] = []
   let dropped = 0
 
   for (const candidate of candidates) {
     try {
-      const pick = await resolveOne(userId, candidate)
+      const pick = await resolveOne(userId, candidate, guildId)
       if (!pick) {
         dropped++
         continue
@@ -150,7 +151,7 @@ export async function resolveAndRecordPicks(userId: string, candidates: PickCand
   return stored
 }
 
-async function resolveOne(userId: string, candidate: PickCandidate): Promise<NewPick | null> {
+async function resolveOne(userId: string, candidate: PickCandidate, guildId?: string): Promise<NewPick | null> {
   const team = normalizeTeam(candidate.team)
   if (!team) return null
 
@@ -164,7 +165,7 @@ async function resolveOne(userId: string, candidate: PickCandidate): Promise<New
     // actual > 9.5; "doesn't get to 8" (under) wins iff actual < 7.5.
     const line = Number.isInteger(threshold) ? threshold - 0.5 : threshold
     const direction = candidate.direction === 'under' ? 'under' : 'over'
-    return { userId, kind: 'season_total', team, season, direction, line, statement }
+    return { userId, guildId, kind: 'season_total', team, season, direction, line, statement }
   }
 
   // Game picks need a real scheduled game.
@@ -178,6 +179,7 @@ async function resolveOne(userId: string, candidate: PickCandidate): Promise<New
 
   const base = {
     userId,
+    guildId,
     team,
     opponent: game.home_team === team ? game.away_team : game.home_team,
     gameId: game.game_id,

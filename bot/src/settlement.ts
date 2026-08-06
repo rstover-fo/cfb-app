@@ -74,10 +74,12 @@ async function settleGamePick(pick: Pick, row: GameRow, stats: RunStats): Promis
       ? `${row.home_team} ${row.home_points}–${row.away_points} ${row.away_team}`
       : `${row.home_team} vs ${row.away_team}`
 
+  // settlePick is a conditional open->settled transition: false means the
+  // pick stopped being open mid-run (user void/supersede) -- count nothing.
   if (pick.kind === 'game_winner') {
     if (row.winner === null) return // completed but winner not stamped yet: data lag, retry next tick
     const won = row.winner === pick.team
-    await settlePick(pick.id, won ? 'won' : 'lost', score)
+    if (!(await settlePick(pick.id, won ? 'won' : 'lost', score))) return
     stats.settled++
     won ? stats.won++ : stats.lost++
     return
@@ -88,13 +90,13 @@ async function settleGamePick(pick: Pick, row: GameRow, stats: RunStats): Promis
   if (line === undefined) {
     if (row.home_spread === null) {
       // Game is final and no market line ever existed: nothing to grade.
-      await settlePick(pick.id, 'void', 'no market line ever posted')
+      if (!(await settlePick(pick.id, 'void', 'no market line ever posted'))) return
       stats.settled++
       stats.voided++
       return
     }
     line = row.home_spread
-    await backfillLine(pick.id, line)
+    if (!(await backfillLine(pick.id, line))) return
     stats.lines_backfilled++
   }
   if (row.home_points === null || row.away_points === null) return
@@ -105,7 +107,7 @@ async function settleGamePick(pick: Pick, row: GameRow, stats: RunStats): Promis
   const detail = `${score} (${favorite} ${fmtLine(-Math.abs(line))})`
 
   if (adjusted === 0) {
-    await settlePick(pick.id, 'push', `${detail}: push`)
+    if (!(await settlePick(pick.id, 'push', `${detail}: push`))) return
     stats.settled++
     stats.push++
     return
@@ -113,7 +115,7 @@ async function settleGamePick(pick: Pick, row: GameRow, stats: RunStats): Promis
   const homeCovered = adjusted > 0
   const won = (pick.pickHome ?? false) === homeCovered
   const margin = Math.abs(adjusted)
-  await settlePick(pick.id, won ? 'won' : 'lost', `${detail}: ${won ? 'covered' : 'missed'} by ${margin}`)
+  if (!(await settlePick(pick.id, won ? 'won' : 'lost', `${detail}: ${won ? 'covered' : 'missed'} by ${margin}`))) return
   stats.settled++
   won ? stats.won++ : stats.lost++
 }
@@ -128,11 +130,7 @@ async function settleSeasonTotal(pick: Pick, row: OutlookRow, stats: RunStats): 
   // Early settlement, safe direction only: actual_wins is monotone.
   if (actual > pick.line) {
     const won = pick.direction === 'over'
-    await settlePick(
-      pick.id,
-      won ? 'won' : 'lost',
-      `${pick.team} reached ${actual} wins (line ${pick.line})`
-    )
+    if (!(await settlePick(pick.id, won ? 'won' : 'lost', `${pick.team} reached ${actual} wins (line ${pick.line})`))) return
     stats.settled++
     won ? stats.won++ : stats.lost++
     return
@@ -141,7 +139,7 @@ async function settleSeasonTotal(pick: Pick, row: OutlookRow, stats: RunStats): 
   if (!isFinal) return
   // Final record, and actual <= line means actual < line (half-point lines).
   const won = pick.direction === 'under'
-  await settlePick(pick.id, won ? 'won' : 'lost', `${pick.team} finished with ${actual} wins (line ${pick.line})`)
+  if (!(await settlePick(pick.id, won ? 'won' : 'lost', `${pick.team} finished with ${actual} wins (line ${pick.line})`))) return
   stats.settled++
   won ? stats.won++ : stats.lost++
 }

@@ -97,6 +97,8 @@ function stripFence(text: string): string {
 
 export interface ExtractParams {
   userId: string
+  /** Guild the turn happened in; stamped onto captured picks for per-server ledgers. */
+  guildId?: string
   question: string
   answer: string
   /**
@@ -121,7 +123,7 @@ export function extractMemories(params: ExtractParams): void {
 }
 
 /** Exported for tests only (deterministic awaiting); production code calls extractMemories(). */
-export async function runExtraction({ userId, question, answer, onPicksRecorded }: ExtractParams): Promise<void> {
+export async function runExtraction({ userId, guildId, question, answer, onPicksRecorded }: ExtractParams): Promise<void> {
   try {
     if (!(await getMemoryEnabled(userId))) return
 
@@ -163,7 +165,7 @@ export async function runExtraction({ userId, question, answer, onPicksRecorded 
     const atoms: ExtractedAtom[] = parsed.data.atoms
     const { inserted, replaced } = await applyExtraction(userId, atoms)
 
-    const storedPicks = await resolveAndRecordPicks(userId, parsed.data.picks)
+    const storedPicks = await resolveAndRecordPicks(userId, parsed.data.picks, guildId)
     if (storedPicks.length > 0 && onPicksRecorded) {
       try {
         await onPicksRecorded(storedPicks)

@@ -102,7 +102,7 @@ export async function handleMention(message: Message): Promise<void> {
       }
     }
 
-    const userContext = await buildUserContext(userId)
+    const userContext = await buildUserContext(userId, message.guildId ?? undefined)
 
     const { text, usage, model, charts } = await askClaude(question, { history, userContext })
     recordUsage(userId, usage, model)
@@ -127,6 +127,7 @@ export async function handleMention(message: Message): Promise<void> {
     // you", zero channel noise (needs only Add Reactions permission).
     extractMemories({
       userId,
+      guildId: message.guildId ?? undefined,
       question,
       answer: text,
       onPicksRecorded: async () => {

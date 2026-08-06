@@ -25,6 +25,9 @@ afterEach(async () => {
 function newPick(userId: string, overrides: Partial<NewPick> = {}): NewPick {
   return {
     userId,
+    // Matches fakeChatInputInteraction's default guildId, so the seeded
+    // picks appear in the guild-scoped views the command reads.
+    guildId: 'test-guild',
     kind: 'season_total',
     team: 'Oklahoma',
     season: 2026,
@@ -128,6 +131,18 @@ describe('/picks void', () => {
 
     expect(firstEmbedJson(interaction.reply).title).toBe('No such pick')
     await expect(listOpenPicks('other-user')).resolves.toHaveLength(1)
+  })
+})
+
+describe('guild scoping', () => {
+  it('excludes picks captured in another guild from the ledger and board', async () => {
+    await recordPick('test-user', newPick('test-user', { guildId: 'other-guild' }))
+    const me = fakeChatInputInteraction({ subcommand: 'me' })
+    me.user = { id: 'test-user', username: 'tester' }
+
+    await picksCommand.execute(me)
+
+    expect(firstEmbedJson(me.reply).description).toContain('No picks yet')
   })
 })
 

@@ -377,7 +377,7 @@ describe('handleMention user-context injection', () => {
 
     await handleMention(message)
 
-    expect(buildUserContextMock).toHaveBeenCalledWith('author-9')
+    expect(buildUserContextMock).toHaveBeenCalledWith('author-9', 'allowed-guild')
     expect(askClaudeMock).toHaveBeenCalledWith('how will we do?', {
       history: [],
       userContext: "this user's favorite team is Oklahoma",
