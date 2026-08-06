@@ -102,7 +102,11 @@ All defaults and validation live in `src/config.ts`.
 | `MODEL_DEFAULT` | No | `claude-sonnet-5` | Default conversational model (simple-tier questions) |
 | `MODEL_ADVISOR` | No | `claude-opus-4-8` | Advisor model for gnarly questions and `[ESCALATE]` re-runs |
 | `MODEL_ROUTER` | No | `claude-haiku-4-5` | Cheap classifier model for simple-vs-gnarly routing |
-| `PROFILES_PATH` | No | `data/profiles.json` | Where `/myteam` favorites are persisted (relative paths resolve against `process.cwd()`) |
+| `SUPABASE_URL` | No | -- | With `SUPABASE_SERVICE_ROLE_KEY`, switches storage to the Supabase `bot` schema (set both or neither -- see [Storage](#storage)) |
+| `SUPABASE_SERVICE_ROLE_KEY` | No | -- | Supabase service-role key (secret, server-side only) |
+| `PROFILES_PATH` | No | `data/profiles.json` | Where the JSON backend persists `/myteam` favorites (relative paths resolve against `process.cwd()`; ignored when Supabase is configured) |
+| `SETTINGS_PATH` | No | `data/settings.json` | Where the JSON backend persists server toggles like `/lore` (ignored when Supabase is configured) |
+| `MEMORY_PATH` | No | `data/memory.json` | Where the JSON backend persists long-term memory atoms (ignored when Supabase is configured) |
 | `COOLDOWN_SECONDS` | No | `20` | Minimum seconds between LLM-backed questions from the same user |
 | `USER_DAILY_LIMIT` | No | `10` | Max LLM-backed questions a single user can ask per day |
 | `DAILY_BUDGET_USD` | No | `10` | Global daily spend ceiling in USD for the LLM path |
@@ -136,9 +140,28 @@ Notes:
 
 - In-memory limits (`src/limits.ts`) and per-channel conversation memory (`src/memory.ts`) reset
   on every redeploy. This is accepted at this scale (~100 users, one process).
-- `data/profiles.json` (the `/myteam` favorites file) is ephemeral without a Railway volume --
-  a redeploy wipes it. Optional: attach a small volume mounted at `bot/data` and set
-  `PROFILES_PATH` accordingly to persist favorites across deploys.
+- With `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` set (see [Storage](#storage)), profiles,
+  settings, and memory atoms live in Postgres and survive redeploys with no volume needed.
+  Without them, the JSON files under `bot/data` are ephemeral -- a redeploy wipes them --
+  unless you attach a small Railway volume mounted at `bot/data`.
+
+## Storage
+
+Long-term state -- `/myteam` favorites, the `/lore` toggle, and per-user memory atoms -- goes
+through a storage layer (`src/storage/`) with two backends, chosen once at boot:
+
+- **Supabase** (when `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` are both set): tables in the
+  shared Supabase instance's **`bot` schema**. This schema is owned by this repo (cfb-app), not
+  by cfb-database -- its migrations live in `bot/supabase/migrations/` and it is outside
+  cfb-database's `SCHEMA_CONTRACT.md`. The schema must be listed under the Supabase project's
+  API "Exposed schemas" for supabase-js to reach it; RLS is enabled with no policies, so the
+  anon key can touch nothing -- only the service role (which bypasses RLS) has access.
+- **JSON files** (otherwise): the original `data/*.json` behavior -- fine for local dev and
+  the test suite, ephemeral on Railway without a volume.
+
+Reads never block an answer: a Supabase outage logs an error and falls back to cached values or
+defaults. Writes surface failures to the user ("could not save"). The boot log line
+`{"evt":"storage","backend":"supabase"}` confirms which backend was selected.
 
 ## Cost controls
 

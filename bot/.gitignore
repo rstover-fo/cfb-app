@@ -3,3 +3,5 @@ dist
 .env*
 !.env.example
 data/profiles.json
+data/settings.json
+data/memory.json

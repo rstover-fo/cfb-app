@@ -14,6 +14,7 @@ const MODEL_ADVISOR_FALLBACK = 'claude-opus-4-8'
 const MODEL_ROUTER_FALLBACK = 'claude-haiku-4-5'
 const PROFILES_PATH_FALLBACK = 'data/profiles.json'
 const SETTINGS_PATH_FALLBACK = 'data/settings.json'
+const MEMORY_PATH_FALLBACK = 'data/memory.json'
 const COOLDOWN_SECONDS_FALLBACK = 20
 const USER_DAILY_LIMIT_FALLBACK = 10
 const DAILY_BUDGET_USD_FALLBACK = 10
@@ -56,10 +57,20 @@ const EnvSchema = z.object({
   MODEL_DEFAULT: optionalNonEmpty,
   MODEL_ADVISOR: optionalNonEmpty,
   MODEL_ROUTER: optionalNonEmpty,
-  // Where profiles.ts persists per-user favorite teams. Relative paths
-  // resolve against process.cwd() (the bot/ workspace root in normal use).
+  // Supabase-backed durable storage (src/storage/). Optional as a pair:
+  // both set -> profiles/settings/memory persist to the `bot` schema and
+  // survive redeploys; neither set -> the original JSON-file behavior.
+  // Exactly one set is a config error (see the superRefine below) -- a
+  // typo'd variable name should fail the boot, not silently fall back.
+  SUPABASE_URL: optionalNonEmpty.pipe(z.string().url('SUPABASE_URL must be a valid URL').optional()),
+  SUPABASE_SERVICE_ROLE_KEY: optionalNonEmpty,
+  // Where the JSON storage backend persists per-user favorite teams,
+  // server settings, and memory atoms. Relative paths resolve against
+  // process.cwd() (the bot/ workspace root in normal use). Ignored when
+  // the Supabase pair is configured.
   PROFILES_PATH: optionalNonEmpty,
   SETTINGS_PATH: optionalNonEmpty,
+  MEMORY_PATH: optionalNonEmpty,
   // Cost/rate guards for the conversational path (limits.ts). Router calls
   // (router.ts's Haiku triage) are cheap and not gated by these.
   COOLDOWN_SECONDS: optionalNumber(),
@@ -72,6 +83,14 @@ const EnvSchema = z.object({
     .optional()
     .transform(v => (v && v.trim().length > 0 ? v : undefined))
     .pipe(z.coerce.number().int().optional()),
+}).superRefine((data, ctx) => {
+  if (Boolean(data.SUPABASE_URL) !== Boolean(data.SUPABASE_SERVICE_ROLE_KEY)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: [data.SUPABASE_URL ? 'SUPABASE_SERVICE_ROLE_KEY' : 'SUPABASE_URL'],
+      message: 'set both SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY, or neither',
+    })
+  }
 })
 
 export interface BotConfig {
@@ -105,10 +124,16 @@ export interface BotConfig {
   modelAdvisor: string
   /** Cheap classifier model for simple-vs-gnarly triage. */
   modelRouter: string
-  /** Where profiles.ts persists per-user favorite teams (relative to process.cwd() unless absolute). */
+  /** Supabase project URL -- with the service-role key, switches storage to the `bot` schema. */
+  supabaseUrl?: string
+  /** Supabase service-role key. Set both or neither (validated at boot). */
+  supabaseServiceRoleKey?: string
+  /** Where the JSON backend persists per-user favorite teams (relative to process.cwd() unless absolute). */
   profilesPath: string
-  /** Where settings.ts persists server-level toggles (e.g. the /lore flag). */
+  /** Where the JSON backend persists server-level toggles (e.g. the /lore flag). */
   settingsPath: string
+  /** Where the JSON backend persists long-term memory atoms. */
+  memoryPath: string
   /** Minimum seconds between LLM-backed questions from the same user. */
   cooldownSeconds: number
   /** Max LLM-backed questions a single user can ask per day. */
@@ -166,8 +191,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): BotConfig {
     modelDefault: data.MODEL_DEFAULT ?? MODEL_DEFAULT_FALLBACK,
     modelAdvisor: data.MODEL_ADVISOR ?? MODEL_ADVISOR_FALLBACK,
     modelRouter: data.MODEL_ROUTER ?? MODEL_ROUTER_FALLBACK,
+    supabaseUrl: data.SUPABASE_URL,
+    supabaseServiceRoleKey: data.SUPABASE_SERVICE_ROLE_KEY,
     profilesPath: data.PROFILES_PATH ?? PROFILES_PATH_FALLBACK,
     settingsPath: data.SETTINGS_PATH ?? SETTINGS_PATH_FALLBACK,
+    memoryPath: data.MEMORY_PATH ?? MEMORY_PATH_FALLBACK,
     cooldownSeconds: data.COOLDOWN_SECONDS ?? COOLDOWN_SECONDS_FALLBACK,
     userDailyLimit: data.USER_DAILY_LIMIT ?? USER_DAILY_LIMIT_FALLBACK,
     dailyBudgetUsd: data.DAILY_BUDGET_USD ?? DAILY_BUDGET_USD_FALLBACK,

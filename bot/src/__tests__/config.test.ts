@@ -127,6 +127,36 @@ describe('loadConfig', () => {
     expect(config.cooldownSeconds).toBe(20)
     expect(config.dailyBudgetUsd).toBe(10)
   })
+
+  it('accepts the Supabase pair when both are set', () => {
+    const config = loadConfig({
+      ...VALID_ENV,
+      SUPABASE_URL: 'https://project.supabase.co',
+      SUPABASE_SERVICE_ROLE_KEY: 'service-role-key',
+    })
+    expect(config.supabaseUrl).toBe('https://project.supabase.co')
+    expect(config.supabaseServiceRoleKey).toBe('service-role-key')
+  })
+
+  it('leaves the Supabase pair undefined when neither is set', () => {
+    const config = loadConfig(VALID_ENV)
+    expect(config.supabaseUrl).toBeUndefined()
+    expect(config.supabaseServiceRoleKey).toBeUndefined()
+    expect(config.memoryPath).toBe('data/memory.json')
+  })
+
+  it('rejects a half-configured Supabase pair', () => {
+    expect(() => loadConfig({ ...VALID_ENV, SUPABASE_URL: 'https://project.supabase.co' })).toThrowError(
+      /SUPABASE_SERVICE_ROLE_KEY/
+    )
+    expect(() => loadConfig({ ...VALID_ENV, SUPABASE_SERVICE_ROLE_KEY: 'key' })).toThrowError(/SUPABASE_URL/)
+  })
+
+  it('rejects a non-URL SUPABASE_URL', () => {
+    expect(() =>
+      loadConfig({ ...VALID_ENV, SUPABASE_URL: 'not-a-url', SUPABASE_SERVICE_ROLE_KEY: 'key' })
+    ).toThrowError(/SUPABASE_URL/)
+  })
 })
 
 describe('loadConfig allowedGuildIds', () => {
