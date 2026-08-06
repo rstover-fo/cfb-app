@@ -11,7 +11,8 @@ import type { Command } from './index.js'
 import { askClaude, ClaudeUnavailableError } from '../claude.js'
 import { COLOR_INFO, errorEmbed } from '../format.js'
 import { getHistory, appendTurns } from '../memory.js'
-import { getFavoriteTeam } from '../profiles.js'
+import { buildUserContext } from '../user-context.js'
+import { extractMemories } from '../memory-extract.js'
 import { checkAllowance, recordUsage, refusalMessage } from '../limits.js'
 import { buildAnswerPayloads } from '../render/answer.js'
 
@@ -39,8 +40,7 @@ async function execute(interaction: ChatInputCommandInteraction): Promise<void> 
 
   try {
     const history = getHistory(channelId)
-    const favoriteTeam = await getFavoriteTeam(userId)
-    const userContext = favoriteTeam ? `this user's favorite team is ${favoriteTeam}` : undefined
+    const userContext = await buildUserContext(userId)
 
     const { text, usage, model, charts } = await askClaude(question, { history, userContext })
     recordUsage(userId, usage, model)
@@ -66,6 +66,9 @@ async function execute(interaction: ChatInputCommandInteraction): Promise<void> 
     }
 
     appendTurns(channelId, question, text)
+    // Fire-and-forget: never awaited, never throws -- the answer is already
+    // delivered, so a memory hiccup must not surface to the user.
+    extractMemories({ userId, question, answer: text })
   } catch (err) {
     if (err instanceof ClaudeUnavailableError) {
       await interaction.editReply({ embeds: [errorEmbed('Stats brain unavailable', err.message)] })

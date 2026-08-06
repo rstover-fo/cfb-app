@@ -98,7 +98,9 @@ export class JsonFileBackend implements StorageBackend {
   async listAtoms(userId: string): Promise<MemoryAtom[]> {
     const data = await this.loadMemory()
     const atoms = data[userId] ?? []
-    return [...atoms].sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id))
+    // No id tiebreaker: Array.sort is stable, so same-millisecond createdAt
+    // ties keep their file (insertion) order -- "oldest first" stays true.
+    return [...atoms].sort((a, b) => a.createdAt.localeCompare(b.createdAt))
   }
 
   async insertAtom(userId: string, atom: Omit<MemoryAtom, 'id' | 'createdAt' | 'updatedAt'>): Promise<void> {

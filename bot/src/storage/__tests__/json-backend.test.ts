@@ -97,13 +97,11 @@ describe('memory atoms', () => {
   it('deletes specific atoms by id and reports the count', async () => {
     await backend.insertAtom('user-1', { content: 'a', kind: 'fact', source: 'extraction' })
     await backend.insertAtom('user-1', { content: 'b', kind: 'fact', source: 'extraction' })
-    // Same-millisecond inserts tie on createdAt and fall back to (random) id
-    // order, so delete whichever listed first and assert the other survived.
-    const [first, second] = await backend.listAtoms('user-1')
+    const [first] = await backend.listAtoms('user-1')
 
     await expect(backend.deleteAtoms('user-1', [first!.id])).resolves.toBe(1)
     const remaining = await backend.listAtoms('user-1')
-    expect(remaining.map(a => a.content)).toEqual([second!.content])
+    expect(remaining.map(a => a.content)).toEqual(['b'])
   })
 
   it('wipes all of a user\'s atoms when no ids are given', async () => {

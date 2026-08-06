@@ -19,6 +19,7 @@ Opus 4.8 (advisor, for gnarly analytical questions), with a Haiku classifier rou
 | `/player` | `name`, `team?` (autocomplete) | Search for a player and see season stats via `search_players` | Free |
 | `/ask` | `question` | Full conversational Q&A over all 19 MCP tools, tiered Sonnet 5 / Opus 4.8 | LLM |
 | `/myteam` | `team` (autocomplete) | Saves your favorite team so `/ask` and @-mentions can use it as context | Free |
+| `/memory` | `show` / `forget [number]` / `on` / `off` | See, delete, or disable the bot's long-term memory about you (see [Long-term memory](#long-term-memory)) | Free |
 | `/help` | *(none)* | Lists all commands | Free |
 
 @-mentioning the bot (`@CFB Bot how good is Ohio State's defense?`) runs the same conversational
@@ -163,6 +164,27 @@ Reads never block an answer: a Supabase outage logs an error and falls back to c
 defaults. Writes surface failures to the user ("could not save"). The boot log line
 `{"evt":"storage","backend":"supabase"}` confirms which backend was selected.
 
+## Long-term memory
+
+After each successful `/ask` or @-mention answer, a fire-and-forget Haiku call
+(`src/memory-extract.ts`, same cheap tier as the router and likewise not metered by the cost
+guards) checks whether the exchange revealed anything durable about the user -- a preference,
+a fact, a take -- and stores it as a "memory atom" (`src/memory-store.ts`, max 20 per user,
+oldest evicted). The next question injects those atoms, plus the `/myteam` favorite, into the
+per-turn user context (`src/user-context.ts`, capped at 600 characters) -- never into the
+cached system prompt.
+
+Memory is on by default, with full user control via `/memory`:
+
+- `show` -- everything stored about you (ephemeral, only you see it)
+- `forget [number]` -- delete one memory by its `show` number, or everything
+- `off` / `on` -- stop/resume both remembering and using memories (`off` keeps what's stored
+  but unused; `forget` wipes it)
+
+Extraction failures are silent no-ops -- the answer the user already received is never
+affected. Log lines carry counts and token usage only, never memory content, matching the
+no-user-text logging rule.
+
 ## Cost controls
 
 Every conversational call goes through `checkAllowance()` (`src/limits.ts`) before any Anthropic
@@ -206,6 +228,8 @@ Run through this in the private test server before promoting a change to the rea
 - [ ] `@`-mentioning the bot shows a typing indicator and replies
 - [ ] Replying to a message while `@`-mentioning the bot pulls that message in as context
 - [ ] `/myteam` saves a team, and a later `/ask` question uses it as context
+- [ ] After an `/ask` that mentions a personal preference, `/memory show` lists an extracted
+      memory, `/memory forget` clears it, and `/memory off` stops new ones appearing
 - [ ] Asking two questions back-to-back triggers the cooldown message
 - [ ] Temporarily setting a bad `ANTHROPIC_API_KEY` makes `/ask` reply with a friendly
       "unavailable" message instead of crashing, and the process stays up

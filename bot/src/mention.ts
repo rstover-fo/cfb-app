@@ -12,7 +12,8 @@ import { askClaude, ClaudeUnavailableError, type HistoryTurn } from './claude.js
 import { isAllowedGuild } from './config.js'
 import { COLOR_INFO } from './format.js'
 import { getHistory, appendTurns } from './memory.js'
-import { getFavoriteTeam } from './profiles.js'
+import { buildUserContext } from './user-context.js'
+import { extractMemories } from './memory-extract.js'
 import { checkAllowance, recordUsage, refusalMessage } from './limits.js'
 import { buildAnswerPayloads } from './render/answer.js'
 
@@ -101,8 +102,7 @@ export async function handleMention(message: Message): Promise<void> {
       }
     }
 
-    const favoriteTeam = await getFavoriteTeam(userId)
-    const userContext = favoriteTeam ? `this user's favorite team is ${favoriteTeam}` : undefined
+    const userContext = await buildUserContext(userId)
 
     const { text, usage, model, charts } = await askClaude(question, { history, userContext })
     recordUsage(userId, usage, model)
@@ -121,6 +121,9 @@ export async function handleMention(message: Message): Promise<void> {
     }
 
     appendTurns(channelId, question, text)
+    // Fire-and-forget: never awaited, never throws -- the answer is already
+    // delivered, so a memory hiccup must not surface to the user.
+    extractMemories({ userId, question, answer: text })
   } catch (err) {
     const friendly = err instanceof ClaudeUnavailableError ? err.message : GENERIC_ERROR_REPLY
     if (!(err instanceof ClaudeUnavailableError)) {
