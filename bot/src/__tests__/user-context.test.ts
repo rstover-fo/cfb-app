@@ -47,11 +47,22 @@ describe('buildUserContext', () => {
     )
   })
 
-  it('excludes atoms (but keeps the team) when memory is off', async () => {
+  it('excludes atoms when memory is off, and says so (keeps the team)', async () => {
     await setFavoriteTeam('u1', 'Oklahoma')
     await applyExtraction('u1', [{ content: 'Hates Texas', kind: 'preference' }])
     await setMemoryEnabled('u1', false)
-    await expect(buildUserContext('u1')).resolves.toBe("this user's favorite team is Oklahoma")
+
+    const context = await buildUserContext('u1')
+    expect(context).toContain("this user's favorite team is Oklahoma")
+    // The persona's "it will stick" promise branches on this marker -- a
+    // memory-off user must never get a false persistence promise.
+    expect(context).toContain('turned long-term memory OFF')
+    expect(context).not.toContain('Hates Texas')
+  })
+
+  it('surfaces the memory-off marker even when nothing else is known', async () => {
+    await setMemoryEnabled('u1', false)
+    await expect(buildUserContext('u1')).resolves.toContain('turned long-term memory OFF')
   })
 
   it('includes the pick record and open picks', async () => {

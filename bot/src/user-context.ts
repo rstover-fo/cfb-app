@@ -65,7 +65,11 @@ export async function buildUserContext(userId: string, guildId?: string): Promis
   const picksBlock = buildPicksBlock(await listPicks(userId, guildId))
   if (picksBlock) parts.push(picksBlock)
 
-  if (await getMemoryEnabled(userId)) {
+  if (!(await getMemoryEnabled(userId))) {
+    // The persona's memory rule branches on this: without it the model
+    // would promise "it will stick" to the very users who opted out.
+    parts.push('this user has turned long-term memory OFF via /memory off')
+  } else {
     const atoms = await listAtoms(userId)
     if (atoms.length > 0) {
       const budget = USER_CONTEXT_MAX_CHARS - parts.join('. ').length
