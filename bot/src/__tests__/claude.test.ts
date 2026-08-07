@@ -199,6 +199,22 @@ describe('askClaude request shape', () => {
     expect(flat(text)).toMatch(/not a question to refuse/)
   })
 
+  it('knows it has automatic long-term memory instead of denying it', async () => {
+    betaCreateMock.mockResolvedValueOnce(apiResponse('answer'))
+    await askClaude('anything')
+
+    const text = betaCreateMock.mock.calls[0]?.[0].system[0].text as string
+    // Launch-day regression: asked to remember something, the bot replied
+    // "I don't have a memory button I can push" while the extraction pipeline
+    // was writing an atom about that very exchange. The persona must know the
+    // memory system exists, where its controls live, and its one real limit
+    // (no secondhand memory about other users).
+    expect(flat(text)).toMatch(/You DO have long-term memory/)
+    expect(text).toMatch(/\/memory show/)
+    expect(flat(text)).toMatch(/take dictation about OTHER users/)
+    expect(flat(text)).toMatch(/Never claim you have no memory/)
+  })
+
   it('requires an error band on any projected win total, and forbids a playoff probability', async () => {
     betaCreateMock.mockResolvedValueOnce(apiResponse('answer'))
     await askClaude('anything')
