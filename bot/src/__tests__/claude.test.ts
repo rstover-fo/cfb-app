@@ -213,6 +213,12 @@ describe('askClaude request shape', () => {
     expect(text).toMatch(/\/memory show/)
     expect(flat(text)).toMatch(/take dictation about OTHER users/)
     expect(flat(text)).toMatch(/Never claim you have no memory/)
+    // Review finding (PR #47): the promise must branch on the /memory off
+    // marker buildUserContext injects, or opted-out users get a false
+    // "it will stick" -- exactly the people exercising the privacy control.
+    expect(flat(text)).toMatch(/turned long-term memory\s+OFF/)
+    expect(flat(text)).toMatch(/do not promise persistence/)
+    expect(text).toMatch(/\/memory on/)
   })
 
   it('requires an error band on any projected win total, and forbids a playoff probability', async () => {
