@@ -195,6 +195,46 @@ export type ApiSchema = {
       }
       Relationships: []
     }
+    // One row per game (2000+): blended pregame forecast, component model
+    // probabilities, market lines, actual result, and season context --
+    // columns transcribed from the live api.matchup_forecast view.
+    matchup_forecast: {
+      Row: {
+        game_id: number | null
+        season: number | null
+        week: number | null
+        season_type: string | null
+        start_date: string | null
+        completed: boolean | null
+        neutral_site: boolean | null
+        conference_game: boolean | null
+        home_team: string | null
+        away_team: string | null
+        market_spread: number | null
+        market_over_under: number | null
+        home_win_probability: number | null
+        away_win_probability: number | null
+        projected_winner: string | null
+        projected_margin: number | null
+        confidence_tier: string | null
+        cfbd_home_win_prob: number | null
+        market_home_win_prob: number | null
+        elo_home_win_prob: number | null
+        sp_home_win_prob: number | null
+        model_version: string | null
+        home_points: number | null
+        away_points: number | null
+        actual_winner: string | null
+        brier_loss: number | null
+        home_expected_wins: number | null
+        home_bowl_eligibility_prob: number | null
+        home_ten_plus_win_prob: number | null
+        away_expected_wins: number | null
+        away_bowl_eligibility_prob: number | null
+        away_ten_plus_win_prob: number | null
+      }
+      Relationships: []
+    }
     // classification landed 2026-07-22 alongside the FBS rank-scoping fix
     // (wins_rank/ppg_rank/defense_ppg_rank/epa_rank are now
     // PARTITION BY season, classification -- see SCHEMA_CONTRACT.md's
