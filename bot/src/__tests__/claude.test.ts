@@ -81,6 +81,22 @@ function pausedResponse(outputTokens = 500) {
   }
 }
 
+/** A paused response whose content carries the web searches it performed --
+ * those blocks get replayed in the continuation request's history. */
+function pausedSearchResponse(searches: number) {
+  return {
+    content: [
+      { type: 'server_tool_use', id: `s${searches}`, name: 'web_search', input: { query: 'injury news' } },
+      { type: 'web_search_tool_result', tool_use_id: `s${searches}`, content: [] },
+    ],
+    stop_reason: 'pause_turn',
+    usage: {
+      input_tokens: 100, output_tokens: 500, cache_creation_input_tokens: 0, cache_read_input_tokens: 0,
+      server_tool_use: { web_search_requests: searches, web_fetch_requests: 0 },
+    },
+  }
+}
+
 let logSpy: ReturnType<typeof vi.spyOn>
 let errorSpy: ReturnType<typeof vi.spyOn>
 
@@ -556,34 +572,38 @@ describe('askClaude web_search tool', () => {
     expect(result.usage.web_search_requests).toBe(3)
   })
 
-  it('passes the REMAINING search budget as max_uses on continuations, floored at 1 while search blocks are in history', async () => {
+  it('passes the REMAINING search budget as max_uses on continuations and omits the tool once spent', async () => {
     loadConfigMock.mockReturnValue({ ...VALID_CONFIG, webSearchMaxUses: 3 })
-    // A paused response whose content carries the searches it performed --
-    // those blocks get replayed in the continuation request's history.
-    const pausedSearch = (searches: number) => ({
-      content: [
-        { type: 'server_tool_use', id: `s${searches}`, name: 'web_search', input: { query: 'injury news' } },
-        { type: 'web_search_tool_result', tool_use_id: `s${searches}`, content: [] },
-      ],
-      stop_reason: 'pause_turn',
-      usage: {
-        input_tokens: 100, output_tokens: 500, cache_creation_input_tokens: 0, cache_read_input_tokens: 0,
-        server_tool_use: { web_search_requests: searches, web_fetch_requests: 0 },
-      },
-    })
     betaCreateMock
-      .mockResolvedValueOnce(pausedSearch(2)) // spends 2 of 3, pauses
-      .mockResolvedValueOnce(pausedSearch(1)) // spends the last one, pauses
+      .mockResolvedValueOnce(pausedSearchResponse(2)) // spends 2 of 3, pauses
+      .mockResolvedValueOnce(pausedSearchResponse(1)) // spends the last one, pauses
       .mockResolvedValueOnce(apiResponse('done'))
 
     await askClaude('deep news question')
 
-    const maxUses = betaCreateMock.mock.calls.map(call => call[0].tools[1].max_uses)
-    // Full budget first, remainder on the first resume, floor of 1 once
-    // spent: the replayed search blocks belong to this tool, so its
-    // declaration must survive -- but a continuation never again sees the
-    // full configured allowance.
-    expect(maxUses).toEqual([3, 1, 1])
+    // Full budget first, remainder on the first resume, and once spent the
+    // tool is dropped from the request entirely -- a continuation never
+    // again sees the full configured allowance.
+    expect(betaCreateMock.mock.calls[0]?.[0].tools[1].max_uses).toBe(3)
+    expect(betaCreateMock.mock.calls[1]?.[0].tools[1].max_uses).toBe(1)
+    expect(betaCreateMock.mock.calls[2]?.[0].tools).toEqual([{ type: 'mcp_toolset', mcp_server_name: 'cfb' }])
+  })
+
+  it('retries an exhausted continuation ONCE with a minimum declaration when omitting the tool is rejected', async () => {
+    loadConfigMock.mockReturnValue({ ...VALID_CONFIG, webSearchMaxUses: 1 })
+    betaCreateMock
+      .mockResolvedValueOnce(pausedSearchResponse(1)) // spends the whole budget, pauses
+      // The API rejecting the tool-less replay is the undocumented case the
+      // fallback exists for.
+      .mockRejectedValueOnce(Object.assign(new Error('web_search_tool_result blocks require the web_search tool'), { status: 400 }))
+      .mockResolvedValueOnce(apiResponse('done'))
+
+    const result = await askClaude('deep news question')
+
+    expect(result.text).toBe('done')
+    expect(betaCreateMock).toHaveBeenCalledTimes(3)
+    expect(betaCreateMock.mock.calls[1]?.[0].tools).toHaveLength(1) // omission attempted first
+    expect(betaCreateMock.mock.calls[2]?.[0].tools[1]).toEqual({ type: 'web_search_20260209', name: 'web_search', max_uses: 1 })
   })
 
   it('omits the tool on the [ESCALATE] re-run when the shared budget is spent (clean history)', async () => {
