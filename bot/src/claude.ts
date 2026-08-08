@@ -519,6 +519,19 @@ interface WebSearchBudget {
  * blocks -- i.e. this request replays earlier searches from the same
  * logical turn (a pause_turn continuation after a search happened).
  */
+/**
+ * Both search-free replay shapes for a spent-budget continuation were
+ * rejected by the API. The turn loop catches this to end the turn on the
+ * content already accumulated -- the one thing it must never do is buy the
+ * continuation with a fresh search authorization.
+ */
+class WebSearchReplayRejectedError extends Error {
+  constructor() {
+    super('spent-budget continuation rejected in every search-free replay shape')
+    this.name = 'WebSearchReplayRejectedError'
+  }
+}
+
 function isWebSearchBlock(block: unknown): boolean {
   const type = (block as { type?: string }).type
   return (
@@ -605,17 +618,18 @@ async function runConnectorCall(
 
   if (config.webSearchMaxUses > 0 && hasWebSearchBlocks(messages)) {
     // Budget spent, but this request replays search blocks from the same
-    // paused turn. A spent budget must not authorize another search, so the
-    // ladder is: (1) replay as-is with no search tool -- whether the API
+    // paused turn. A spent budget must NEVER authorize another search, so
+    // the ladder is: (1) replay as-is with no search tool -- whether the API
     // accepts replayed search blocks without their tool declared is
     // undocumented, and a rejected request bills nothing; (2) on a 400,
     // replay with the search blocks collapsed into text notes, still with no
     // tool -- removes what the rejection is about without re-arming the
-    // tool, so the configured cap holds strictly; (3) only if BOTH
-    // undocumented shapes are rejected, declare the minimum allowance rather
-    // than fail the whole answer (worst case: one extra fully-metered search
-    // for this call -- logged, and now a true corner case instead of the
-    // norm for spent-budget continuations).
+    // tool; (3) if BOTH search-free shapes are rejected, give up on this
+    // continuation with a typed error the turn loop catches to END THE TURN
+    // gracefully on the content already accumulated. Declaring even a
+    // minimum allowance here would let one logical ask exceed its configured
+    // search budget, so a degraded (possibly empty -> friendly-fallback)
+    // answer is preferred to an over-budget one.
     try {
       return await create(baseTools)
     } catch (err) {
@@ -625,11 +639,7 @@ async function runConnectorCall(
         return await create(baseTools, sanitizeWebSearchBlocks(messages))
       } catch (err2) {
         if ((err2 as { status?: number } | null)?.status !== 400) throw err2
-        console.warn(
-          '[claude] sanitized continuation also rejected; retrying with min declaration -- ' +
-            'this call may exceed the configured web-search budget by one search'
-        )
-        return create([...baseTools, { type: 'web_search_20260209', name: 'web_search', max_uses: 1 }])
+        throw new WebSearchReplayRejectedError()
       }
     }
   }
@@ -673,7 +683,21 @@ async function runConnectorTurn(
   while (response.stop_reason === 'pause_turn' && continuations < MAX_PAUSE_CONTINUATIONS) {
     continuations++
     turnMessages = [...turnMessages, { role: 'assistant', content: response.content }]
-    response = await runConnectorCall(client, model, systemText, turnMessages, webSearchBudget)
+    try {
+      response = await runConnectorCall(client, model, systemText, turnMessages, webSearchBudget)
+    } catch (err) {
+      if (err instanceof WebSearchReplayRejectedError) {
+        // The spent search budget cannot buy this continuation without a new
+        // search authorization, so the turn ends here on what it already
+        // has. Usually that is partial prose; when it is nothing, the
+        // empty-text path downstream shows the friendly fallback.
+        console.warn(
+          '[claude] ending turn early: web-search budget spent and continuation replay rejected in every search-free shape'
+        )
+        break
+      }
+      throw err
+    }
     const callUsage = summarizeUsage(response.usage)
     usage = addUsage(usage, callUsage)
     allContent = [...allContent, ...response.content]

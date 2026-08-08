@@ -647,7 +647,7 @@ describe('askClaude web_search tool', () => {
     ).toBe(true)
   })
 
-  it('declares the minimum allowance only as a last resort, after the sanitized replay is also rejected', async () => {
+  it('NEVER re-authorizes a search after exhaustion: both replays rejected ends the turn instead', async () => {
     loadConfigMock.mockReturnValue({ ...VALID_CONFIG, webSearchMaxUses: 1 })
     const rejected = () =>
       Object.assign(new Error('web_search_tool_result blocks require the web_search tool'), { status: 400 })
@@ -655,18 +655,19 @@ describe('askClaude web_search tool', () => {
       .mockResolvedValueOnce(pausedSearchResponse(1)) // spends the whole budget, pauses
       .mockRejectedValueOnce(rejected()) // plain replay rejected
       .mockRejectedValueOnce(rejected()) // sanitized replay rejected too
-      .mockResolvedValueOnce(apiResponse('done'))
 
     const result = await askClaude('deep news question')
 
-    expect(result.text).toBe('done')
-    expect(betaCreateMock).toHaveBeenCalledTimes(4)
-    expect(betaCreateMock.mock.calls[2]?.[0].tools).toHaveLength(1) // sanitized attempt, still tool-less
-    expect(betaCreateMock.mock.calls[3]?.[0].tools[1]).toEqual({
-      type: 'web_search_20260209',
-      name: 'web_search',
-      max_uses: 1,
-    })
+    // Exactly three requests: the paused call plus the two search-free replay
+    // shapes. No fourth call, and no call anywhere declared the search tool
+    // after the budget was spent -- the turn ends on its accumulated content
+    // (empty here, which downstream renders as the friendly fallback), and
+    // the total searches stay at the configured cap of 1.
+    expect(betaCreateMock).toHaveBeenCalledTimes(3)
+    expect(betaCreateMock.mock.calls[1]?.[0].tools).toHaveLength(1)
+    expect(betaCreateMock.mock.calls[2]?.[0].tools).toHaveLength(1)
+    expect(result.usage.web_search_requests).toBe(1)
+    expect(result.text).toBe('')
   })
 
   it('collapses a search-use/result pair into one replay note and keeps every other block', () => {
