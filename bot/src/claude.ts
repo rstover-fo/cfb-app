@@ -217,6 +217,28 @@ function getBaseSystemPrompt(loreEnabled: boolean): string {
     '  your answer. A standings table with no error band is the same overconfidence as making the',
     '  numbers up, just better dressed. Never state a playoff probability -- that column is empty by',
     '  design.',
+    '- For situation-value questions ("what is 1st-and-10 at midfield worth", "how much EP did that',
+    '  penalty cost", "was going for it right -- what was 4th-and-2 at the 40 worth", "how often',
+    '  does a drive from your own 5 score"), call get_expected_points. It values game STATES, not',
+    '  teams -- there is no "expected points for Ohio State" in it; that is query_team territory.',
+    '  Pass yards_to_goal as distance TO THE GOAL LINE (own 25 = 75, their 25 = 25), and pass',
+    '  distance (yards to go) with down -- the tool maps it to the right bucket. Omit both',
+    '  distance and distance_bucket when the question is not distance-specific: the spread across',
+    '  buckets IS the answer to "how much does distance matter". Say which basis you quote:',
+    '  ep_drive is what the possession is worth, ep_net is the net next-score number (the',
+    '  CFBD-PPA-comparable one, lower and sometimes negative -- never clamp it). Quote intervals,',
+    '  not verdicts: ep_drive plus-or-minus 2 se_boot, and if the caveats say ep_net or se_boot is',
+    '  NULL, say "not computed" / "interval unavailable" -- never zero.',
+    '  For "cost of a penalty in EP", subtract two states on the SAME basis.',
+    '  For "should they have gone for it / punted", pass down=4 with distance AND yards_to_goal:',
+    '  the response attaches a fourth_down_decision block (EP go vs EP punt on the ep_net basis,',
+    '  punt side from real post-punt field position). Quote its delta and relay its assumptions',
+    '  verbatim where they bear -- especially that the FG option is NOT modeled: inside plausible',
+    '  FG range say the comparison is incomplete rather than calling it the whole decision.',
+    '  down=4 rows assume the offense goes for it -- never quote them as the value of facing 4th',
+    '  down without saying so. Relay every string in the response\'s "caveats" array that bears on',
+    '  your answer, and treat a cell the caveats flag as sparse (tiny n_obs) as an anecdote, not a',
+    '  number to build a take on.',
     '- If you narrate a coaching change, the model does NOT believe "new coach, therefore worse".',
     '  The first-year penalty belongs entirely to hiring an UNPROVEN coach; a hire with a real track',
     '  record elsewhere projects roughly as though nothing happened. And for any season CFBD has not',
@@ -497,18 +519,65 @@ interface WebSearchBudget {
  * blocks -- i.e. this request replays earlier searches from the same
  * logical turn (a pause_turn continuation after a search happened).
  */
+/**
+ * Both search-free replay shapes for a spent-budget continuation were
+ * rejected by the API. The turn loop catches this to end the turn on the
+ * content already accumulated -- the one thing it must never do is buy the
+ * continuation with a fresh search authorization.
+ */
+class WebSearchReplayRejectedError extends Error {
+  constructor() {
+    super('spent-budget continuation rejected in every search-free replay shape')
+    this.name = 'WebSearchReplayRejectedError'
+  }
+}
+
+function isWebSearchBlock(block: unknown): boolean {
+  const type = (block as { type?: string }).type
+  return (
+    type === 'web_search_tool_result' ||
+    (type === 'server_tool_use' && (block as { name?: string }).name === 'web_search')
+  )
+}
+
 function hasWebSearchBlocks(messages: Anthropic.Beta.Messages.BetaMessageParam[]): boolean {
   return messages.some(
-    message =>
-      Array.isArray(message.content) &&
-      message.content.some(block => {
-        const type = (block as { type?: string }).type
-        return (
-          type === 'web_search_tool_result' ||
-          (type === 'server_tool_use' && (block as { name?: string }).name === 'web_search')
-        )
-      })
+    message => Array.isArray(message.content) && message.content.some(isWebSearchBlock)
   )
+}
+
+/**
+ * The replayed history with every web-search block collapsed into a short
+ * text note (consecutive search blocks collapse into ONE note, so a
+ * search+result pair doesn't leave two).
+ *
+ * This exists for the spent-budget continuation: the API may reject a replay
+ * whose history carries search blocks for an undeclared tool, and
+ * re-declaring the tool would authorize a fresh search past the configured
+ * budget. Textifying the blocks removes the thing the rejection is about
+ * without re-arming the tool. The searched-up facts the model already wrote
+ * into its visible text survive verbatim; only the raw search machinery is
+ * dropped.
+ */
+export function sanitizeWebSearchBlocks(
+  messages: Anthropic.Beta.Messages.BetaMessageParam[]
+): Anthropic.Beta.Messages.BetaMessageParam[] {
+  const NOTE = '[a web search ran here; its raw results are omitted from this replay]'
+  return messages.map(message => {
+    if (!Array.isArray(message.content) || !message.content.some(isWebSearchBlock)) return message
+    const content: typeof message.content = []
+    for (const block of message.content) {
+      if (!isWebSearchBlock(block)) {
+        content.push(block)
+        continue
+      }
+      const last = content[content.length - 1] as { type?: string; text?: string } | undefined
+      if (!(last?.type === 'text' && last.text === NOTE)) {
+        content.push({ type: 'text', text: NOTE })
+      }
+    }
+    return { ...message, content }
+  })
 }
 
 async function runConnectorCall(
@@ -520,7 +589,12 @@ async function runConnectorCall(
 ): Promise<Anthropic.Beta.Messages.BetaMessage> {
   const config = loadConfig()
   const baseTools: Anthropic.Beta.Messages.BetaToolUnion[] = [{ type: 'mcp_toolset', mcp_server_name: 'cfb' }]
-  const create = (tools: Anthropic.Beta.Messages.BetaToolUnion[]) =>
+  const create = (
+    tools: Anthropic.Beta.Messages.BetaToolUnion[],
+    // The sanitized-replay fallback substitutes a textified history; every
+    // other call sends the turn's messages as-is.
+    messagesOverride: Anthropic.Beta.Messages.BetaMessageParam[] = messages
+  ) =>
     client.beta.messages.create({
       model,
       max_tokens: MAX_TOKENS,
@@ -529,7 +603,7 @@ async function runConnectorCall(
       mcp_servers: [{ type: 'url', url: config.mcpUrl, name: 'cfb', authorization_token: config.mcpAuthToken }],
       tools,
       system: [{ type: 'text', text: systemText, cache_control: { type: 'ephemeral' } }],
-      messages,
+      messages: messagesOverride,
     })
 
   // Anthropic-native server tool: search runs on Anthropic's side inside the
@@ -544,21 +618,29 @@ async function runConnectorCall(
 
   if (config.webSearchMaxUses > 0 && hasWebSearchBlocks(messages)) {
     // Budget spent, but this request replays search blocks from the same
-    // paused turn. Preferred shape: no search tool at all -- a spent budget
-    // must not authorize another search. Whether the API accepts replayed
-    // search blocks without their tool declared is undocumented, though, so
-    // if exactly that request is rejected, retry once with the minimum
-    // declaration rather than fail the whole answer (worst case: one extra
-    // fully-metered search per continuation; a rejected request bills
-    // nothing).
+    // paused turn. A spent budget must NEVER authorize another search, so
+    // the ladder is: (1) replay as-is with no search tool -- whether the API
+    // accepts replayed search blocks without their tool declared is
+    // undocumented, and a rejected request bills nothing; (2) on a 400,
+    // replay with the search blocks collapsed into text notes, still with no
+    // tool -- removes what the rejection is about without re-arming the
+    // tool; (3) if BOTH search-free shapes are rejected, give up on this
+    // continuation with a typed error the turn loop catches to END THE TURN
+    // gracefully on the content already accumulated. Declaring even a
+    // minimum allowance here would let one logical ask exceed its configured
+    // search budget, so a degraded (possibly empty -> friendly-fallback)
+    // answer is preferred to an over-budget one.
     try {
       return await create(baseTools)
     } catch (err) {
-      if ((err as { status?: number } | null)?.status === 400) {
-        console.warn('[claude] continuation without web_search declaration rejected; retrying with min declaration')
-        return create([...baseTools, { type: 'web_search_20260209', name: 'web_search', max_uses: 1 }])
+      if ((err as { status?: number } | null)?.status !== 400) throw err
+      console.warn('[claude] continuation without web_search declaration rejected; retrying with sanitized history')
+      try {
+        return await create(baseTools, sanitizeWebSearchBlocks(messages))
+      } catch (err2) {
+        if ((err2 as { status?: number } | null)?.status !== 400) throw err2
+        throw new WebSearchReplayRejectedError()
       }
-      throw err
     }
   }
 
@@ -601,7 +683,21 @@ async function runConnectorTurn(
   while (response.stop_reason === 'pause_turn' && continuations < MAX_PAUSE_CONTINUATIONS) {
     continuations++
     turnMessages = [...turnMessages, { role: 'assistant', content: response.content }]
-    response = await runConnectorCall(client, model, systemText, turnMessages, webSearchBudget)
+    try {
+      response = await runConnectorCall(client, model, systemText, turnMessages, webSearchBudget)
+    } catch (err) {
+      if (err instanceof WebSearchReplayRejectedError) {
+        // The spent search budget cannot buy this continuation without a new
+        // search authorization, so the turn ends here on what it already
+        // has. Usually that is partial prose; when it is nothing, the
+        // empty-text path downstream shows the friendly fallback.
+        console.warn(
+          '[claude] ending turn early: web-search budget spent and continuation replay rejected in every search-free shape'
+        )
+        break
+      }
+      throw err
+    }
     const callUsage = summarizeUsage(response.usage)
     usage = addUsage(usage, callUsage)
     allContent = [...allContent, ...response.content]
