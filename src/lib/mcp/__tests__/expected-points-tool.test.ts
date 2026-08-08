@@ -1,0 +1,188 @@
+/**
+ * Unit tests for the get_expected_points MCP tool (tool 25 in
+ * src/lib/mcp/tools.ts). Mocks the query module, not Supabase: the query
+ * layer's own behavior is covered by
+ * src/lib/queries/__tests__/expected-points.test.ts, and mocking at the
+ * module seam keeps the real era/zone helpers and constants live.
+ */
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+
+vi.mock('@/lib/queries/expected-points', async importOriginal => {
+  const actual = await importOriginal<typeof import('@/lib/queries/expected-points')>()
+  return { ...actual, queryExpectedPoints: vi.fn() }
+})
+
+import { queryExpectedPoints, type ExpectedPointsRow } from '@/lib/queries/expected-points'
+import { getExpectedPointsTool } from '../tools'
+
+/**
+ * Row factory seeded with the real 2021+-era 1st-and-10-from-own-25 cell
+ * (d1|standard|z8), live-verified against api.expected_points on 2026-08-08 --
+ * the modal state of college football, 77,045 observed plays.
+ */
+function row(overrides: Partial<ExpectedPointsRow> = {}): ExpectedPointsRow {
+  return {
+    era: '2021+',
+    state: 'd1|standard|z8',
+    down: 1,
+    distance_bucket: 'standard',
+    field_zone: 8,
+    yards_to_goal_min: 71,
+    yards_to_goal_max: 80,
+    n_obs: 77045,
+    ep_drive: 1.7961,
+    ep_net: 0.8962,
+    p_td: 0.2379,
+    p_fg: 0.0761,
+    p_punt: 0.4149,
+    p_turnover: 0.1176,
+    se_boot: 0.01005,
+    computed_at: '2026-08-08T14:08:10.564225+00:00',
+    ...overrides,
+  }
+}
+
+/**
+ * The real 2021+-era 4th-and-short-from-own-25 cell (d4|short|z8), same
+ * live verification -- a go-for-it-conditional row with negative ep_net.
+ */
+function downFourRow(overrides: Partial<ExpectedPointsRow> = {}): ExpectedPointsRow {
+  return row({
+    state: 'd4|short|z8',
+    down: 4,
+    distance_bucket: 'short',
+    n_obs: 336,
+    ep_drive: 1.5303,
+    ep_net: -0.2175,
+    p_td: 0.2038,
+    p_fg: 0.0625,
+    p_punt: 0.2179,
+    p_turnover: 0.0885,
+    se_boot: 0.06439,
+    ...overrides,
+  })
+}
+
+function mockRows(rows: ExpectedPointsRow[]) {
+  vi.mocked(queryExpectedPoints).mockResolvedValue({ rows, error: null })
+}
+
+beforeEach(() => {
+  vi.clearAllMocks()
+})
+
+describe('getExpectedPointsTool', () => {
+  it('defaults to the current era and says so via era_source', async () => {
+    mockRows([row()])
+    const payload = JSON.parse(await getExpectedPointsTool({}))
+
+    expect(payload.era).toBe('2021+')
+    expect(payload.era_source).toBe('current_era')
+    expect(payload).not.toHaveProperty('season')
+    expect(vi.mocked(queryExpectedPoints)).toHaveBeenCalledWith(
+      expect.objectContaining({ era: '2021+' })
+    )
+  })
+
+  it('resolves the era from a requested season and echoes both back', async () => {
+    mockRows([row({ era: '2014-2020' })])
+    const payload = JSON.parse(await getExpectedPointsTool({ season: 2015 }))
+
+    expect(payload.era).toBe('2014-2020')
+    expect(payload.era_source).toBe('requested_season')
+    expect(payload.season).toBe(2015)
+    expect(vi.mocked(queryExpectedPoints)).toHaveBeenCalledWith(
+      expect.objectContaining({ era: '2014-2020' })
+    )
+  })
+
+  it('rejects a pre-coverage season with the valid range, without querying', async () => {
+    const result = await getExpectedPointsTool({ season: 1999 })
+
+    expect(result).toMatch(/No expected-points model covers season 1999/)
+    expect(result).toMatch(/2004/)
+    expect(vi.mocked(queryExpectedPoints)).not.toHaveBeenCalled()
+  })
+
+  it('maps yards_to_goal onto the field-position decile and reports the resolved zone', async () => {
+    mockRows([row()])
+    const payload = JSON.parse(await getExpectedPointsTool({ down: 1, yards_to_goal: 75 }))
+
+    expect(payload.yards_to_goal).toBe(75)
+    expect(payload.field_zone).toBe(8)
+    expect(vi.mocked(queryExpectedPoints)).toHaveBeenCalledWith(
+      expect.objectContaining({ down: 1, fieldZone: 8 })
+    )
+  })
+
+  it('carries the basis block so answers can define ep_drive vs ep_net', async () => {
+    mockRows([row()])
+    const payload = JSON.parse(await getExpectedPointsTool({}))
+
+    expect(payload.basis.ep_drive).toMatch(/TD 6\.97/)
+    expect(payload.basis.ep_net).toMatch(/net next-score/i)
+    expect(payload.basis.se_boot).toMatch(/bootstrap/i)
+  })
+
+  it('wraps rows in the standard envelope with the view as _source', async () => {
+    mockRows([row()])
+    const payload = JSON.parse(await getExpectedPointsTool({}))
+
+    expect(payload._source).toBe('api.expected_points')
+    expect(payload.count).toBe(1)
+    expect(payload.rows[0].state).toBe('d1|standard|z8')
+    expect(payload.rows[0].ep_drive).toBe(1.7961)
+  })
+
+  it('flags down=4 rows as go-for-it-conditional -- and only when present', async () => {
+    mockRows([row(), downFourRow()])
+    const withFourth = JSON.parse(await getExpectedPointsTool({}))
+    expect(withFourth.caveats.join(' ')).toMatch(/GO-FOR-IT-CONDITIONAL/)
+
+    mockRows([row()])
+    const withoutFourth = JSON.parse(await getExpectedPointsTool({}))
+    expect(withoutFourth.caveats.join(' ')).not.toMatch(/GO-FOR-IT-CONDITIONAL/)
+  })
+
+  it('flags sparse cells with the observed floor, never a well-observed result', async () => {
+    // Real sparse cell shape: 1st-and-goal from the 31-40 decile exists in the
+    // view with a single observed play.
+    mockRows([row(), row({ state: 'd1|goal|z4', distance_bucket: 'goal', field_zone: 4, n_obs: 1 })])
+    const sparse = JSON.parse(await getExpectedPointsTool({}))
+    const sparseCaveat = sparse.caveats.join(' ')
+    expect(sparseCaveat).toMatch(/fewer than 100/)
+    expect(sparseCaveat).toMatch(/as few as 1\b/)
+
+    mockRows([row(), downFourRow()])
+    const dense = JSON.parse(await getExpectedPointsTool({}))
+    expect(dense.caveats.join(' ')).not.toMatch(/fewer than 100/)
+  })
+
+  it('warns when the result fills the row limit exactly', async () => {
+    mockRows([row(), downFourRow()])
+    const payload = JSON.parse(await getExpectedPointsTool({ limit: 2 }))
+
+    expect(payload.caveats.join(' ')).toMatch(/row limit/)
+  })
+
+  it('explains the per-down bucket vocabulary on an empty match instead of an empty envelope', async () => {
+    mockRows([])
+    const result = await getExpectedPointsTool({ down: 1, distance_bucket: 'med' })
+
+    expect(typeof result).toBe('string')
+    expect(result).toMatch(/No expected-points cell matches/)
+    expect(result).toMatch(/down 1/)
+    expect(result).toMatch(/'standard'/)
+    expect(result).toMatch(/short\/med\/long\/xlong/)
+  })
+
+  it('passes the query error string through untouched (never throws)', async () => {
+    vi.mocked(queryExpectedPoints).mockResolvedValue({
+      rows: [],
+      error: 'Error: api.expected_points request failed: connection refused',
+    })
+    const result = await getExpectedPointsTool({})
+
+    expect(result).toBe('Error: api.expected_points request failed: connection refused')
+  })
+})

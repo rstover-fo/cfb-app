@@ -102,7 +102,7 @@ bearer token as `MCP_AUTH_TOKEN`). See `bot/README.md` for the full setup.
 
 ## Tool catalog
 
-All twenty-four tools are read-only, non-destructive, idempotent, and return a compact JSON string
+All twenty-five tools are read-only, non-destructive, idempotent, and return a compact JSON string
 (never throw). Every successful result includes a `_source` field naming the exact `api.*`
 view or `public` RPC the data came from, plus a `count` and a `rows` array -- or a plain
 `"No ... found"` string when a query matches nothing. Rows are capped at 100 per call
@@ -126,20 +126,30 @@ row caps) are ported faithfully from the Python reference server -- see
 rationale behind each one, and the per-tool `description`/argument docs registered in
 `src/lib/mcp/tools.ts` for the exact wording exposed to MCP clients.
 
-The table above documents the original 8 tools ported from the Python reference server. 16
+The table above documents the original 8 tools ported from the Python reference server. 17
 further app-native tools (predictions, Elo, matchup edges, playcalling profiles, adjusted EPA,
 live scoreboard, model accuracy, player leaders, player comparison, conference comparison, coach
-history, `run_sql`, penalty profile, penalty log, `render_chart`, and season outlook) have been
-added since -- see `src/lib/mcp/tools.ts` for the full current set.
+history, `run_sql`, penalty profile, penalty log, `render_chart`, season outlook, and expected
+points) have been added since -- see `src/lib/mcp/tools.ts` for the full current set.
 
-`get_season_outlook` is the one tool whose payload carries honesty metadata structurally rather
-than only in its description. It attaches a hardcoded `accuracy` block (the preseason backtest
-lives in cfb-database's `scripts/backtest_preseason.py` and is not exposed through any `api.*`
-view) plus a `caveats` array computed from the rows actually returned -- a static description
-cannot say "this season is already played" or "6 of these 16 teams have half a schedule loaded",
-and those facts decide whether the numbers may be presented as a forecast at all. It also
-resolves a missing `season` from `MAX(season)` in the view rather than from `CURRENT_SEASON`,
-which trails the calendar in the offseason and trails it to a *completed* season.
+`get_season_outlook` is the first tool whose payload carries honesty metadata structurally rather
+than only in its description. It attaches an `accuracy` block read live from `api.model_backtest`
+(exposed by cfb-database since 2026-07-27; it was hardcoded for exactly one day before that) plus
+a `caveats` array computed from the rows actually returned -- a static description cannot say
+"this season is already played" or "6 of these 16 teams have half a schedule loaded", and those
+facts decide whether the numbers may be presented as a forecast at all. It also resolves a
+missing `season` from `MAX(season)` in the view rather than from `CURRENT_SEASON`, which trails
+the calendar in the offseason and trails it to a *completed* season.
+
+`get_expected_points` follows the same structural-honesty pattern over `api.expected_points`
+(the house EP model: the solved play-by-play Markov chain, one row per era x down x
+distance-bucket x field-zone state). Its payload carries a `basis` block defining `ep_drive`
+(drive-scoring basis) vs `ep_net` (net next-score basis, the CFBD-PPA-comparable one) and a
+computed `caveats` array flagging go-for-it-conditional down-4 rows, sparse cells (`n_obs` can
+be 1), and truncation. It is a *state* lookup -- "what is 1st-and-10 at midfield worth" -- never
+a team stat; the tool maps a `yards_to_goal` spot onto the view's field-position decile and,
+when no `distance_bucket` is given, returns every bucket for the state so the spread itself is
+reportable.
 
 `run_sql` executes one read-only SELECT over the `api` schema through the guarded
 `public.run_analyst_query` RPC (SELECT-only role, statement timeout, row cap); the RPC's

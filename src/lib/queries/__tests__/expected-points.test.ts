@@ -1,0 +1,139 @@
+/**
+ * Unit tests for the expected-points query layer
+ * (src/lib/queries/expected-points.ts). These functions back the
+ * get_expected_points MCP tool and keep mcp.ts's contract: raw view rows,
+ * friendly "Error: ..." strings on failure (never a throw), and hard row caps.
+ */
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+
+vi.mock('@/lib/supabase/server', () => ({
+  createClient: vi.fn(),
+}))
+
+import { createClient } from '@/lib/supabase/server'
+import { createSupabaseMock, dbError, ok, type SupabaseMockConfig } from './helpers'
+import { DEFAULT_ROW_CAP } from '../mcp'
+import {
+  EXPECTED_POINTS_DEFAULT_LIMIT,
+  EXPECTED_POINTS_FIRST_SEASON,
+  eraForSeason,
+  fieldZoneForYardsToGoal,
+  queryExpectedPoints,
+} from '../expected-points'
+
+function mockClient(config: SupabaseMockConfig) {
+  const mock = createSupabaseMock(config)
+  vi.mocked(createClient).mockResolvedValue(mock as unknown as Awaited<ReturnType<typeof createClient>>)
+  return mock
+}
+
+function apiChain(mock: ReturnType<typeof mockClient>) {
+  return mock.schema.mock.results[0].value.from.mock.results[0].value
+}
+
+beforeEach(() => {
+  vi.clearAllMocks()
+})
+
+describe('eraForSeason', () => {
+  it('maps each documented era boundary onto the right era', () => {
+    expect(eraForSeason(2004)).toBe('2004-2013')
+    expect(eraForSeason(2013)).toBe('2004-2013')
+    expect(eraForSeason(2014)).toBe('2014-2020')
+    expect(eraForSeason(2020)).toBe('2014-2020')
+    expect(eraForSeason(2021)).toBe('2021+')
+  })
+
+  it('is open-ended on the right: future seasons stay in the current era', () => {
+    expect(eraForSeason(2026)).toBe('2021+')
+    expect(eraForSeason(2099)).toBe('2021+')
+  })
+
+  it('returns null before the model coverage starts, not the oldest era', () => {
+    expect(eraForSeason(EXPECTED_POINTS_FIRST_SEASON - 1)).toBeNull()
+    expect(eraForSeason(1998)).toBeNull()
+  })
+})
+
+describe('fieldZoneForYardsToGoal', () => {
+  it('maps yards-to-goal deciles onto zones counted from the goal line', () => {
+    // Zone 1 is 1-10 yards out (nearly scoring), zone 10 is 91-99 (backed up),
+    // matching the view's yards_to_goal_min/max decoding.
+    expect(fieldZoneForYardsToGoal(1)).toBe(1)
+    expect(fieldZoneForYardsToGoal(10)).toBe(1)
+    expect(fieldZoneForYardsToGoal(11)).toBe(2)
+    expect(fieldZoneForYardsToGoal(50)).toBe(5)
+    expect(fieldZoneForYardsToGoal(75)).toBe(8)
+    expect(fieldZoneForYardsToGoal(91)).toBe(10)
+    expect(fieldZoneForYardsToGoal(99)).toBe(10)
+  })
+
+  it('clamps out-of-range spots into the valid 1-10 zone range', () => {
+    expect(fieldZoneForYardsToGoal(0)).toBe(1)
+    expect(fieldZoneForYardsToGoal(120)).toBe(10)
+  })
+})
+
+describe('queryExpectedPoints', () => {
+  it('always pins the era and orders as a stable walk down the field', async () => {
+    const rows = [{ era: '2021+', state: 'd1|standard|z8', ep_drive: 1.7961 }]
+    const mock = mockClient({ apiTables: { expected_points: ok(rows) } })
+    const result = await queryExpectedPoints({ era: '2021+' })
+
+    expect(result.error).toBeNull()
+    expect(result.rows).toEqual(rows)
+    const chain = apiChain(mock)
+    expect(mock.schema).toHaveBeenCalledWith('api')
+    expect(chain.eq).toHaveBeenCalledWith('era', '2021+')
+    expect(chain.order).toHaveBeenCalledWith('down', { ascending: true })
+    expect(chain.order).toHaveBeenCalledWith('field_zone', { ascending: true })
+    expect(chain.order).toHaveBeenCalledWith('distance_bucket', { ascending: true })
+  })
+
+  it('applies down, field-zone and bucket filters only when given', async () => {
+    const mock = mockClient({ apiTables: { expected_points: ok([]) } })
+    await queryExpectedPoints({ era: '2021+', down: 1, fieldZone: 8 })
+
+    const chain = apiChain(mock)
+    expect(chain.eq).toHaveBeenCalledWith('down', 1)
+    expect(chain.eq).toHaveBeenCalledWith('field_zone', 8)
+    expect(chain.eq).not.toHaveBeenCalledWith('distance_bucket', expect.anything())
+
+    vi.clearAllMocks()
+    const mock2 = mockClient({ apiTables: { expected_points: ok([]) } })
+    await queryExpectedPoints({ era: '2014-2020', distanceBucket: 'short' })
+    const chain2 = apiChain(mock2)
+    expect(chain2.eq).toHaveBeenCalledWith('distance_bucket', 'short')
+    expect(chain2.eq).not.toHaveBeenCalledWith('down', expect.anything())
+    expect(chain2.eq).not.toHaveBeenCalledWith('field_zone', expect.anything())
+  })
+
+  it('defaults the limit and clamps a caller-supplied one to DEFAULT_ROW_CAP', async () => {
+    const mock = mockClient({ apiTables: { expected_points: ok([]) } })
+    await queryExpectedPoints({ era: '2021+' })
+    expect(apiChain(mock).limit).toHaveBeenCalledWith(EXPECTED_POINTS_DEFAULT_LIMIT)
+
+    vi.clearAllMocks()
+    const mock2 = mockClient({ apiTables: { expected_points: ok([]) } })
+    await queryExpectedPoints({ era: '2021+', limit: 5000 })
+    expect(apiChain(mock2).limit).toHaveBeenCalledWith(DEFAULT_ROW_CAP)
+  })
+
+  it('returns [] with no error for a bucket the down does not have', async () => {
+    // down=1 + 'med' matches nothing in the view; that is a real empty
+    // outcome, not a failure, and the tool layer owns explaining it.
+    mockClient({ apiTables: { expected_points: ok([]) } })
+    expect(await queryExpectedPoints({ era: '2021+', down: 1, distanceBucket: 'med' })).toEqual({
+      rows: [],
+      error: null,
+    })
+  })
+
+  it('returns a friendly "Error: ..." string (never throws) on PostgREST error', async () => {
+    mockClient({ apiTables: { expected_points: dbError('connection refused') } })
+    const result = await queryExpectedPoints({ era: '2021+' })
+
+    expect(result.rows).toEqual([])
+    expect(result.error).toMatch(/^Error: api\.expected_points request failed: connection refused$/)
+  })
+})

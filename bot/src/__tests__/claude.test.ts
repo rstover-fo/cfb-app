@@ -220,6 +220,23 @@ describe('askClaude request shape', () => {
     expect(flat(text)).toMatch(/not a question to refuse/)
   })
 
+  it('routes situation-value questions to get_expected_points and names its traps', async () => {
+    betaCreateMock.mockResolvedValueOnce(apiResponse('answer'))
+    await askClaude('anything')
+
+    const text = betaCreateMock.mock.calls[0]?.[0].system[0].text as string
+    // api.expected_points values game STATES, not teams. The prompt must send
+    // "what is this situation worth" questions to the tool, keep "how good is
+    // this team" questions away from it, and carry the two traps that turn a
+    // grounded answer wrong: quoting a down-4 row as unconditional, and mixing
+    // the ep_drive/ep_net bases in one subtraction.
+    expect(text).toMatch(/call get_expected_points/)
+    expect(flat(text)).toMatch(/values game STATES, not teams/)
+    expect(flat(text)).toMatch(/distance TO THE GOAL LINE/)
+    expect(flat(text)).toMatch(/subtract two states on the SAME basis/)
+    expect(flat(text)).toMatch(/down=4 rows assume the offense goes for it/)
+  })
+
   it('knows it has automatic long-term memory instead of denying it', async () => {
     betaCreateMock.mockResolvedValueOnce(apiResponse('answer'))
     await askClaude('anything')

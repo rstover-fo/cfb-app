@@ -60,10 +60,22 @@ import {
   type SeasonOutlookRow,
   type ModelBacktestRow,
 } from '@/lib/queries/season-outlook'
+import {
+  queryExpectedPoints,
+  eraForSeason,
+  fieldZoneForYardsToGoal,
+  EXPECTED_POINTS_ERAS,
+  EXPECTED_POINTS_DISTANCE_BUCKETS,
+  EXPECTED_POINTS_DEFAULT_LIMIT,
+  EXPECTED_POINTS_FIRST_SEASON,
+  type ExpectedPointsEra,
+  type ExpectedPointsDistanceBucket,
+  type ExpectedPointsRow,
+} from '@/lib/queries/expected-points'
 import { CURRENT_SEASON, PREDICTION_MODEL_VERSIONS, DEFAULT_PREDICTION_MODEL } from '@/lib/queries/constants'
 
 // ---------------------------------------------------------------------------
-// MCP v2: twenty-four read-only tools over the cfb-database warehouse, mounted
+// MCP v2: twenty-five read-only tools over the cfb-database warehouse, mounted
 // at src/app/api/[transport]/route.ts via mcp-handler's createMcpHandler.
 //
 // Tools 1-8 are a TypeScript port of the reference Python server
@@ -125,13 +137,20 @@ import { CURRENT_SEASON, PREDICTION_MODEL_VERSIONS, DEFAULT_PREDICTION_MODEL } f
 // say "this season is already played" or "6 of these 16 teams have half a
 // schedule loaded", and those are precisely the facts that decide whether the
 // numbers may be presented as a forecast at all.
+// Tool 25 (get_expected_points) is the house expected-points surface over
+// api.expected_points (src/lib/queries/expected-points.ts, McpResult
+// contract). Unlike every team/game tool before it, its unit of answer is a
+// game STATE (era x down x distance bucket x field-position decile), so its
+// description spends most of its length on what the tool does NOT answer
+// (team strength) and its payload carries the scoring basis structurally,
+// same honesty-metadata pattern as tool 24.
 // Tool implementations are exported as plain async (args) => string
 // functions (below) so they're unit-testable without spinning up the MCP
 // transport; registerMcpTools() is the only place that touches the SDK's
 // McpServer.
 // ---------------------------------------------------------------------------
 
-// All twenty-four tools are read-only, non-destructive, idempotent, and talk to
+// All twenty-five tools are read-only, non-destructive, idempotent, and talk to
 // an external service (Supabase/PostgREST) -- same annotation set for every
 // one, mirroring cfb_mcp/server.py's READ_ONLY_ANNOTATIONS.
 const READ_ONLY_ANNOTATIONS = {
@@ -1582,6 +1601,128 @@ export async function getSeasonOutlookTool(args: GetSeasonOutlookArgs): Promise<
 }
 
 // ---------------------------------------------------------------------------
+// 25. get_expected_points -- api.expected_points
+// ---------------------------------------------------------------------------
+
+export interface GetExpectedPointsArgs {
+  down?: number
+  yards_to_goal?: number
+  distance_bucket?: ExpectedPointsDistanceBucket
+  season?: number
+  limit?: number
+}
+
+/** How the ep_drive scoring basis is defined -- reported once per payload so
+ * answers can explain what the number means without the model reciting it
+ * from memory. */
+const EXPECTED_POINTS_BASIS = {
+  ep_drive:
+    'Drive-scoring basis: absorption probabilities x values {TD 6.97, FG 3, SAFETY -2, ' +
+    'TURNOVER_TD -6.97, else 0}. What this possession is worth, ignoring the field position ' +
+    'handed to the opponent afterward.',
+  ep_net:
+    'Net next-score basis -- the CFBD-PPA-comparable number. Lower than ep_drive, and negative ' +
+    'when the opponent is likelier to score next.',
+  se_boot: 'Bootstrap standard error of ep_drive, cluster-resampled by game_id.',
+} as const
+
+/** Cells observed fewer times than this get a reliability caveat. */
+const EXPECTED_POINTS_SPARSE_N = 100
+
+function expectedPointsCaveats(rows: ExpectedPointsRow[], effectiveLimit: number): string[] {
+  const caveats: string[] = []
+
+  if (rows.some(r => r.down === 4)) {
+    caveats.push(
+      'down=4 rows are GO-FOR-IT-CONDITIONAL: the value of fourth down given the offense keeps ' +
+        'the ball, not the unconditional value of facing fourth down. Do not read them as "what ' +
+        'a fourth down is worth" without saying so.'
+    )
+  }
+
+  const sparse = rows.filter(r => r.n_obs < EXPECTED_POINTS_SPARSE_N)
+  if (sparse.length > 0) {
+    const minObs = Math.min(...sparse.map(r => r.n_obs))
+    caveats.push(
+      `${sparse.length} of ${rows.length} cells rest on fewer than ${EXPECTED_POINTS_SPARSE_N} ` +
+        `observed plays (as few as ${minObs}). Their EP values are anecdotes with wide se_boot, ` +
+        'not settled numbers -- quote se_boot alongside them or prefer a better-observed ' +
+        'neighboring cell.'
+    )
+  }
+
+  if (rows.length >= effectiveLimit) {
+    caveats.push(
+      `Exactly ${rows.length} rows came back, which is the row limit -- the result is likely ` +
+        'cut off. Do not describe this as the complete table; raise `limit` or narrow the state.'
+    )
+  }
+
+  return caveats
+}
+
+export async function getExpectedPointsTool(args: GetExpectedPointsArgs): Promise<string> {
+  // Era resolves from the season asked about, defaulting to the current era.
+  // Seasons before the model's coverage fail fast with the valid range rather
+  // than silently answering from the oldest era.
+  let era: ExpectedPointsEra | null
+  let eraSource: 'requested_season' | 'current_era'
+  if (args.season != null) {
+    era = eraForSeason(args.season)
+    eraSource = 'requested_season'
+    if (era == null) {
+      return (
+        `No expected-points model covers season ${args.season}. The play-by-play behind it ` +
+        `starts in ${EXPECTED_POINTS_FIRST_SEASON}; eras are ${EXPECTED_POINTS_ERAS.join(', ')}.`
+      )
+    }
+  } else {
+    era = '2021+'
+    eraSource = 'current_era'
+  }
+
+  const fieldZone = args.yards_to_goal != null ? fieldZoneForYardsToGoal(args.yards_to_goal) : undefined
+  const effectiveLimit = args.limit ?? EXPECTED_POINTS_DEFAULT_LIMIT
+
+  const result = await queryExpectedPoints({
+    era,
+    down: args.down,
+    fieldZone,
+    distanceBucket: args.distance_bucket,
+    limit: args.limit,
+  })
+
+  if (result.error) return result.error
+  if (result.rows.length === 0) {
+    // The most common miss: asking for a bucket the down does not have.
+    // Down 1 has goal/short/standard/long only; downs 2-4 swap standard for
+    // med/xlong. Say so instead of returning an empty envelope.
+    return (
+      `No expected-points cell matches era '${era}'` +
+      (args.down != null ? `, down ${args.down}` : '') +
+      (args.distance_bucket ? `, distance_bucket '${args.distance_bucket}'` : '') +
+      (fieldZone != null ? `, field_zone ${fieldZone}` : '') +
+      ". Note the bucket vocabulary differs by down: down 1 uses 'standard' (the ordinary " +
+      "1st-and-10 state) and has no 'med'/'xlong'; downs 2-4 use short/med/long/xlong and have " +
+      "no 'standard'. 'goal' means goal-to-go at any down. Retry without distance_bucket to " +
+      'see every bucket for the state.'
+    )
+  }
+
+  return dump({
+    era,
+    era_source: eraSource,
+    ...(args.season != null ? { season: args.season } : {}),
+    ...(args.yards_to_goal != null
+      ? { yards_to_goal: args.yards_to_goal, field_zone: fieldZone }
+      : {}),
+    basis: EXPECTED_POINTS_BASIS,
+    caveats: expectedPointsCaveats(result.rows, effectiveLimit),
+    ...wrap('api.expected_points', result.rows),
+  })
+}
+
+// ---------------------------------------------------------------------------
 // Tool registration (MCP SDK wiring).
 // ---------------------------------------------------------------------------
 
@@ -2375,6 +2516,14 @@ export function registerMcpTools(server: McpServer): void {
         '- api.team_playcalling_profile: one row per team-season, 2004+: overall/early-down/red-zone\n' +
         '  run rates, third_down_pass_rate, leading/trailing run rates + run_rate_delta,\n' +
         '  pace_plays_per_game, success/EPA splits, *_pctl percentile columns\n' +
+        '- api.expected_points: the house EP model -- one row per (era, state), NO team column:\n' +
+        "  era ('2004-2013'|'2014-2020'|'2021+'), state ('d1|standard|z8'), down, distance_bucket\n" +
+        "  (goal/short/med/long/xlong/standard -- 'standard' only on down 1), field_zone (1 = 1-10\n" +
+        '  yards FROM THE GOAL, 10 = backed up), yards_to_goal_min/max, n_obs, ep_drive (drive-\n' +
+        '  scoring basis), ep_net (net next-score basis, CFBD-PPA-comparable), p_td, p_fg, p_punt,\n' +
+        '  p_turnover, se_boot. down=4 rows are GO-FOR-IT-CONDITIONAL, and sparse cells (n_obs can\n' +
+        '  be 1) are anecdotes -- check n_obs. Prefer get_expected_points, which attaches the basis\n' +
+        '  definitions and per-result caveats\n' +
         '- api.team_penalties: game_id, season, week, season_type, team, opponent, home_away, penalties,\n' +
         '  penalty_yards, opponent_penalties, opponent_penalty_yards -- two rows per game (one per team);\n' +
         "  the scorer's OFFICIAL box-score tally -- prefer it for totals and GROUP BY team for season\n" +
@@ -2636,6 +2785,104 @@ export function registerMcpTools(server: McpServer): void {
       annotations: { title: 'Get Season Outlook', ...READ_ONLY_ANNOTATIONS },
     },
     async args => textResult(await getSeasonOutlookTool(args))
+  )
+
+  server.registerTool(
+    'get_expected_points',
+    {
+      title: 'Get Expected Points',
+      description:
+        'Get the house expected-points value of a game SITUATION: what a down, distance bucket and ' +
+        'field position are worth in points, plus how the possession tends to end. Use for "what is ' +
+        'a 1st-and-10 at midfield worth", "how much did that holding penalty cost in expected ' +
+        'points", "should they have gone for it -- what was 4th-and-short at the 40 worth", "how ' +
+        'often does a drive from your own 5 end in a touchdown". Backed by api.expected_points: the ' +
+        'solved play-by-play Markov chain, one row per (era, state) where state = down x distance ' +
+        'bucket x field-position decile, three eras (2004-2013, 2014-2020, 2021+), ~483 rows total. ' +
+        'This is a STATE lookup, NOT a team stat -- there is no team column, and "expected points ' +
+        'FOR Ohio State" is not answerable here (use query_team / get_adjusted_epa for team ' +
+        'strength). The era resolves from `season` when given, else the current era; pass ' +
+        '`yards_to_goal` (1-99, distance to the goal line, NOT yard-line-on-the-field) and it maps ' +
+        'to the right decile for you. Omit `distance_bucket` unless you know the bucket: the tool ' +
+        'then returns every bucket for the state, and the spread across buckets IS the answer to ' +
+        '"how much does distance matter here".\n\n' +
+        'HOW TO REPORT IT. ep_drive is the drive-scoring basis (absorption probabilities x values ' +
+        '{TD 6.97, FG 3, SAFETY -2, TURNOVER_TD -6.97}) -- what THIS possession is worth. ep_net is ' +
+        'the net next-score basis, the number comparable to CFBD PPA -- lower, and negative deep in ' +
+        'own territory. Say which basis you are quoting; for "cost of a penalty in EP" subtract two ' +
+        'states on the SAME basis. Pair any cell-level claim with n_obs and se_boot: the payload ' +
+        'carries a "basis" block defining all three and a "caveats" array computed from the rows ' +
+        'actually returned -- relay every caveat that bears on the answer. p_td/p_fg/p_punt/' +
+        'p_turnover are how possessions from this state end (p_turnover includes turnover on downs).\n\n' +
+        'THINGS THAT ARE EASY TO GET WRONG: down=4 rows are GO-FOR-IT-CONDITIONAL -- the value given ' +
+        'the offense keeps the ball, not the unconditional value of facing 4th down, so never quote ' +
+        'them as "what a 4th down is worth" without saying so. The bucket vocabulary differs by ' +
+        "down: down 1 uses 'standard' (ordinary 1st-and-10) and has NO 'med'/'xlong'; downs 2-4 use " +
+        "short/med/long/xlong and have NO 'standard'; 'goal' means goal-to-go at any down. Exact " +
+        'yard boundaries of the buckets are owned by the upstream pipeline and not exposed -- do ' +
+        'not invent them. Sparse cells are real: oddball states can rest on a single observed play ' +
+        '(the caveats flag anything under 100), and their EP is an anecdote. field_zone counts from ' +
+        'the GOAL LINE: zone 1 = 1-10 yards out (about to score), zone 10 = 91-99 (backed up).\n\n' +
+        'Returns JSON with "era", "era_source", optional "season"/"yards_to_goal"/"field_zone", ' +
+        '"basis", "caveats", plus {"_source": "api.expected_points", "count", "rows"} -- or a ' +
+        'friendly "No expected-points cell matches..." string naming the bucket-vocabulary trap.',
+      inputSchema: {
+        down: z
+          .number()
+          .int()
+          .min(1)
+          .max(4)
+          .optional()
+          .describe(
+            'Down, 1-4. Omit to span all downs at the given spot. Remember down=4 rows are ' +
+              'conditional on going for it.'
+          ),
+        yards_to_goal: z
+          .number()
+          .int()
+          .min(1)
+          .max(99)
+          .optional()
+          .describe(
+            'Distance to the GOAL LINE in yards, 1-99 -- not the painted yard line. "At midfield" ' +
+              'is 50, "at their own 25" is 75, "at the opponent 25" is 25. Mapped to the ' +
+              "view's field-position decile server-side; the resolved zone comes back as " +
+              '"field_zone".'
+          ),
+        distance_bucket: z
+          .enum(EXPECTED_POINTS_DISTANCE_BUCKETS)
+          .optional()
+          .describe(
+            "Distance-to-go bucket. Down 1 has goal/short/standard/long ('standard' = ordinary " +
+              "1st-and-10); downs 2-4 have goal/short/med/long/xlong. Exact yard boundaries are " +
+              'not exposed, so when unsure OMIT this and read the spread across buckets instead ' +
+              'of guessing one.'
+          ),
+        season: z
+          .number()
+          .int()
+          .optional()
+          .describe(
+            `Season year the question is about, e.g. 2015. Selects the model era ` +
+              `(${EXPECTED_POINTS_ERAS.join(', ')}); defaults to the current era ('2021+'). ` +
+              `Seasons before ${EXPECTED_POINTS_FIRST_SEASON} are not covered and return a ` +
+              'friendly error.'
+          ),
+        limit: z
+          .number()
+          .int()
+          .min(1)
+          .max(DEFAULT_ROW_CAP)
+          .optional()
+          .describe(
+            `Max rows (default ${EXPECTED_POINTS_DEFAULT_LIMIT}, hard-capped at ${DEFAULT_ROW_CAP}). ` +
+              'A fully-specified state returns at most 6 rows (one per bucket); a whole era is ' +
+              '~165 and will truncate -- the caveats say so when that happens.'
+          ),
+      },
+      annotations: { title: 'Get Expected Points', ...READ_ONLY_ANNOTATIONS },
+    },
+    async args => textResult(await getExpectedPointsTool(args))
   )
 
   server.registerTool(
