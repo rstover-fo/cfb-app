@@ -77,6 +77,11 @@ export interface TeamDetailRow {
   sp_defense: number | null
   elo: number | null
   fpi: number | null
+  /** CFBD CORE (opponent/situation-adjusted), 2016+. NULL = not rated, never 0. */
+  core_overall: number | null
+  core_offense: number | null
+  /** LOWER is better (negative = points prevented vs average). */
+  core_defense: number | null
   epa_per_play: number | null
   epa_tier: string | null
   success_rate: number | null
@@ -89,6 +94,7 @@ const TEAM_DETAIL_COLUMNS = `
   school, mascot, abbreviation, color, alternate_color, logo_url, conference, classification,
   current_season, games, wins, losses, conf_wins, conf_losses, ppg, opp_ppg, avg_margin,
   sp_rating, sp_rank, sp_offense, sp_defense, elo, fpi,
+  core_overall, core_offense, core_defense,
   epa_per_play, epa_tier, success_rate, explosiveness,
   recruiting_rank, recruiting_points
 ` as const
@@ -104,6 +110,44 @@ export async function queryTeamDetail(team: string): Promise<McpResult<TeamDetai
 
   if (error) return { rows: [], error: fail('api.team_detail', error) }
   return { rows: (data ?? []) as unknown as TeamDetailRow[], error: null }
+}
+
+export interface CoreSnapshotRow {
+  season: number
+  /** How much of the season the rating has seen. The daily load advances the row in place. */
+  through_week: number | null
+  through_season_type: string | null
+  model_version: string | null
+  overall_rank: number | null
+  offense_rank: number | null
+  /** Rank of the LOWER-better defense column -- rank 1 is the best defense. */
+  defense_rank: number | null
+}
+
+const CORE_SNAPSHOT_COLUMNS = `
+  season, through_week, through_season_type, model_version,
+  overall_rank, offense_rank, defense_rank
+` as const
+
+/**
+ * The as-of markers and within-season ranks from a team's newest
+ * api.core_ratings row. api.team_detail embeds the CORE rating VALUES but not
+ * these -- and without through_week/through_season_type a mid-season rating
+ * reads as a final one. `[]` with no error means the team has no CORE row
+ * (not rated; the model starts in 2016).
+ */
+export async function queryCoreSnapshot(team: string): Promise<McpResult<CoreSnapshotRow>> {
+  const supabase = await createClient()
+  const { data, error } = await supabase
+    .schema('api')
+    .from('core_ratings')
+    .select(CORE_SNAPSHOT_COLUMNS)
+    .eq('team', team)
+    .order('season', { ascending: false })
+    .limit(1)
+
+  if (error) return { rows: [], error: fail('api.core_ratings', error) }
+  return { rows: (data ?? []) as unknown as CoreSnapshotRow[], error: null }
 }
 
 // ---------------------------------------------------------------------------

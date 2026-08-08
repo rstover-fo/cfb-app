@@ -97,7 +97,12 @@ traversal -- that flattening happens once, in the view definition, not in this a
 
 ### Key Tables/Views
 
-`teams_with_logos`, `games`, `team_epa_season`, `team_style_profile`, `defensive_havoc`, `team_tempo_metrics`, `records`, `team_special_teams_sos`, `roster` (`public`); `game_box_score`, `game_player_leaders`, `game_line_scores`, `game_drives`, `game_plays`, `game_win_probability`, `team_detail`, `matchup`, `poll_rankings`, `season_outlook`, `model_backtest`, `expected_points` (`api`)
+`teams_with_logos`, `games`, `team_epa_season`, `team_style_profile`, `defensive_havoc`, `team_tempo_metrics`, `records`, `team_special_teams_sos`, `roster` (`public`); `game_box_score`, `game_player_leaders`, `game_line_scores`, `game_drives`, `game_plays`, `game_win_probability`, `team_detail`, `matchup`, `poll_rankings`, `season_outlook`, `model_backtest`, `expected_points`, `core_ratings` (`api`)
+
+`api.core_ratings` (CFBD CORE, opponent/situation-adjusted team ratings) is 2016+ only --
+NULL/absent for earlier seasons means not-rated, never 0 -- and `defense` is LOWER-better
+(best defense = `defense_rank ASC`). `core_overall`/`core_offense`/`core_defense` are also
+embedded on `api.team_detail` and `api.team_history`.
 
 `api.season_outlook` (simulated season win totals) is not FBS-only -- filter on its
 `classification` column before ranking, and check `is_projection` before calling a row a

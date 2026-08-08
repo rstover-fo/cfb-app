@@ -5,6 +5,7 @@ import { getMatchup, getMatchupGames } from '@/lib/queries/matchups'
 import {
   DEFAULT_ROW_CAP,
   queryTeamDetail,
+  queryCoreSnapshot,
   queryGameDetail,
   queryPollRankings,
   queryLeaderboardTeams,
@@ -187,7 +188,7 @@ export interface QueryTeamArgs {
 export async function queryTeamTool(args: QueryTeamArgs): Promise<string> {
   const { team } = args
 
-  const [detail, historyDesc] = await Promise.all([
+  const [detail, historyDesc, coreSnapshot] = await Promise.all([
     queryTeamDetail(team),
     // getTeamHistory (src/lib/queries/compare.ts) already wraps api.team_history
     // for this exact team; it sorts ascending for chart display, so undo that
@@ -195,6 +196,10 @@ export async function queryTeamTool(args: QueryTeamArgs): Promise<string> {
     // (most recent season first), capped at the standard 100-row limit rather
     // than compare.ts's UI-oriented default of 8 seasons.
     getTeamHistory(team, DEFAULT_ROW_CAP).then(rows => [...rows].reverse()),
+    // The as-of markers behind the embedded core_* values. A failed lookup
+    // degrades to null rather than sinking the whole answer (partial-result
+    // precedent from search_players).
+    queryCoreSnapshot(team),
   ])
 
   if (detail.error) return detail.error
@@ -209,6 +214,14 @@ export async function queryTeamTool(args: QueryTeamArgs): Promise<string> {
   return dump({
     team_detail: wrap('api.team_detail', detail.rows),
     team_history: wrap('api.team_history', historyDesc),
+    // Three distinct shapes, because they mean three distinct things: the
+    // row (rated, with as-of markers), null (no CORE row -- unrated, the
+    // model starts 2016), or {unavailable: true} (the lookup FAILED -- the
+    // embedded core_* values may still be present and their finality is
+    // UNKNOWN, which must not be collapsed into "unrated").
+    core_snapshot: coreSnapshot.error
+      ? { unavailable: true }
+      : (coreSnapshot.rows[0] ?? null),
   })
 }
 
@@ -1896,11 +1909,22 @@ export function registerMcpTools(server: McpServer): void {
         "Get a team's current-season snapshot plus its full multi-season history. Use for any " +
         'question about a single team -- "how good is Oklahoma this year", "show Oklahoma\'s ' +
         'history since 2014", ratings/EPA trends over time. Combines api.team_detail (current-season ' +
-        'snapshot: record, SP+/Elo/FPI ratings, EPA/success rate/explosiveness, recruiting rank -- at ' +
+        'snapshot: record, SP+/Elo/FPI/CORE ratings (core_defense is lower-better; NULL CORE = not ' +
+        'rated, never 0), EPA/success rate/explosiveness, recruiting rank -- at ' +
         'most one row) and api.team_history (one row per season, ordered season DESC, up to 100 rows). ' +
         "Team names must match CFBD's convention exactly (case-sensitive) -- 'oklahoma' or 'OU' will " +
-        'not match \'Oklahoma\'. api.team_detail only includes FBS-classification teams. Returns JSON ' +
-        'with "team_detail" and "team_history" keys, each {"_source", "count", "rows"}, or a plain ' +
+        'not match \'Oklahoma\'. api.team_detail only includes FBS-classification teams. The ' +
+        '"core_snapshot" key carries the as-of markers behind the embedded CORE values ' +
+        '(through_week/through_season_type, model_version, and the within-season ranks): an ' +
+        'in-season CORE value is a SNAPSHOT of current form advanced in place by the daily load, ' +
+        'not a final rating -- check through_week/through_season_type before presenting it as ' +
+        "final, and say \"through week N\" when it is mid-season. core_snapshot is null ONLY when " +
+        'the team has no CORE row (the model starts in 2016); if the as-of lookup itself failed ' +
+        'it is {"unavailable": true} instead -- embedded core_* values may still be present then, ' +
+        'and their finality is UNKNOWN: do not present them as final and do not call the team ' +
+        'unrated. Returns JSON ' +
+        'with "team_detail", "team_history" (each {"_source", "count", "rows"}) and ' +
+        '"core_snapshot" (markers object, null, or {"unavailable": true}) keys, or a plain ' +
         '"No team found..." string if nothing matches.',
       inputSchema: {
         team: z
@@ -2576,10 +2600,18 @@ export function registerMcpTools(server: McpServer): void {
         "case-sensitive ('Ohio State', 'Miami (OH)', 'Texas A&M'). season is the fall year; " +
         "season_type is 'regular' or 'postseason'.\n" +
         'Core views (key columns):\n' +
-        '- api.team_detail: school, conference, wins, losses, ppg, opp_ppg, sp_rating, sp_rank, elo, fpi, epa_per_play, recruiting_rank (current season, FBS only)\n' +
+        '- api.team_detail: school, conference, wins, losses, ppg, opp_ppg, sp_rating, sp_rank, elo, fpi, core_overall/core_offense/core_defense (CFBD CORE, NULL = not rated), epa_per_play, recruiting_rank (current season, FBS only)\n' +
         '- api.team_history: school (column: team), season, wins, losses, ppg, opp_ppg, avg_margin,\n' +
         '  sp_rating, sp_rank, sp_offense, sp_defense (lower sp_defense is better), elo, fpi,\n' +
+        '  core_overall/core_offense/core_defense (2016+, NULL before = not rated never 0),\n' +
         '  epa_per_play, success_rate, explosiveness, recruiting_rank -- one row per team-season\n' +
+        "- api.core_ratings: CFBD CORE team ratings (opponent- and situation-adjusted), 2016+ -- one\n" +
+        '  row per (team, season): overall, offense, defense (per-100-qualifying-plays point margins\n' +
+        '  vs average; overall = offense - defense), offense_plays, defense_plays, through_week,\n' +
+        '  through_season_type, model_version, overall_rank/offense_rank/defense_rank (within-season).\n' +
+        "  defense is LOWER-BETTER: best defense = ORDER BY defense_rank ASC or defense ASC, NEVER\n" +
+        '  defense DESC. In-season rows are snapshots advanced in place (through_week says how much\n' +
+        '  the rating has seen) -- label mid-season values as current form, not final\n' +
         '- api.game_detail: game_id, season, week, season_type, start_date, completed, neutral_site, conference_game, home_team, away_team, home_points, away_points, winner, point_diff, home_spread, over_under, spread_result, ou_result, pregame_home_win_prob, venue, attendance, excitement_index\n' +
         '- api.team_elo: team, season, season_end_elo, elo_rank, games_played, low_confidence, cfbd_elo -- one row per team-season\n' +
         '- api.game_elo_history: per-game pregame/postgame elo for both teams, win_prob, margin errors.\n' +
