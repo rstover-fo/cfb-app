@@ -81,8 +81,16 @@ const EnvSchema = z.object({
   DAILY_BUDGET_USD: optionalNumber(),
   // Max Anthropic-native web_search calls per API request on the
   // conversational path. 0 disables the tool entirely (it is then omitted
-  // from the request AND the system prompt never mentions it).
-  WEB_SEARCH_MAX_USES: optionalNumber(),
+  // from the request AND the system prompt never mentions it). Constrained
+  // to a nonnegative integer at boot: the value is sent verbatim as the
+  // tool's max_uses, where a fraction would make the API reject every
+  // conversational request -- and a negative would silently act as the kill
+  // switch, which only an explicit 0 should.
+  WEB_SEARCH_MAX_USES: z
+    .string()
+    .optional()
+    .transform(v => (v && v.trim().length > 0 ? v : undefined))
+    .pipe(z.coerce.number().int().min(0, 'WEB_SEARCH_MAX_USES must be 0 or a positive integer').optional()),
   // z.coerce.number() on an empty string coerces to 0, not undefined -- treat
   // an empty/unset CFB_SEASON as "omitted" before it reaches the coercer.
   CFB_SEASON: z

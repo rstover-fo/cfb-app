@@ -555,6 +555,81 @@ describe('askClaude web_search tool', () => {
 
     expect(result.usage.web_search_requests).toBe(3)
   })
+
+  it('passes the REMAINING search budget as max_uses on continuations, floored at 1 when spent', async () => {
+    loadConfigMock.mockReturnValue({ ...VALID_CONFIG, webSearchMaxUses: 3 })
+    const paused = pausedResponse(500)
+    betaCreateMock
+      // Initial call spends 2 of the 3 searches, then pauses.
+      .mockResolvedValueOnce({ ...paused, usage: { ...paused.usage, server_tool_use: { web_search_requests: 2, web_fetch_requests: 0 } } })
+      // Resume spends the last one and pauses again.
+      .mockResolvedValueOnce({ ...paused, usage: { ...paused.usage, server_tool_use: { web_search_requests: 1, web_fetch_requests: 0 } } })
+      .mockResolvedValueOnce(apiResponse('done'))
+
+    await askClaude('deep news question')
+
+    const maxUses = betaCreateMock.mock.calls.map(call => call[0].tools[1].max_uses)
+    // Full budget first, remainder on the resume, floor of 1 once spent --
+    // the tool must stay declared (its result blocks are in the history),
+    // but a continuation can never again see the full configured allowance.
+    expect(maxUses).toEqual([3, 1, 1])
+  })
+
+  it('shares one search budget between the simple run and the [ESCALATE] advisor re-run', async () => {
+    loadConfigMock.mockReturnValue({ ...VALID_CONFIG, webSearchMaxUses: 3 })
+    betaCreateMock
+      .mockResolvedValueOnce(apiResponse('Partial.\n[ESCALATE]', { web_search_requests: 2 }))
+      .mockResolvedValueOnce(apiResponse('Advisor answer.'))
+
+    await askClaude('sneaky-deep news question')
+
+    const maxUses = betaCreateMock.mock.calls.map(call => call[0].tools[1].max_uses)
+    expect(maxUses).toEqual([3, 1])
+  })
+
+  it('appends a -# via source line from native web-search citations the model did not cite', async () => {
+    loadConfigMock.mockReturnValue({ ...VALID_CONFIG, webSearchMaxUses: 3 })
+    betaCreateMock.mockResolvedValueOnce({
+      content: [
+        {
+          type: 'text',
+          text: 'The QB is out for Saturday.',
+          citations: [
+            { type: 'web_search_result_location', url: 'https://www.espn.com/story/123', title: 'Injury report', cited_text: 'x', encrypted_index: 'e1' },
+            // Same domain cited twice -- deduped to one link.
+            { type: 'web_search_result_location', url: 'https://www.espn.com/story/456', title: 'Follow-up', cited_text: 'y', encrypted_index: 'e2' },
+          ],
+        },
+      ],
+      stop_reason: 'end_turn',
+      usage: { input_tokens: 1, output_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+    })
+
+    const result = await askClaude('is the QB playing?')
+
+    expect(result.text).toBe('The QB is out for Saturday.\n-# via [espn.com](https://www.espn.com/story/123)')
+  })
+
+  it('does not duplicate a source the model already cited in its own text', async () => {
+    loadConfigMock.mockReturnValue({ ...VALID_CONFIG, webSearchMaxUses: 3 })
+    betaCreateMock.mockResolvedValueOnce({
+      content: [
+        {
+          type: 'text',
+          text: 'The QB is out for Saturday.\n-# via espn.com',
+          citations: [
+            { type: 'web_search_result_location', url: 'https://www.espn.com/story/123', title: 'Injury report', cited_text: 'x', encrypted_index: 'e1' },
+          ],
+        },
+      ],
+      stop_reason: 'end_turn',
+      usage: { input_tokens: 1, output_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+    })
+
+    const result = await askClaude('is the QB playing?')
+
+    expect(result.text).toBe('The QB is out for Saturday.\n-# via espn.com')
+  })
 })
 
 describe('askClaude escalation backstop', () => {

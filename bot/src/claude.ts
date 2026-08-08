@@ -33,6 +33,10 @@ const ESCALATE_TOKEN = '[ESCALATE]'
 const RENDER_CHART_TOOL_NAME = 'render_chart'
 const MAX_CHARTS_PER_ANSWER = 1
 
+// Cap on the structurally-appended web-search source links (see
+// appendWebSources) -- attribution, not a bibliography.
+const MAX_WEB_SOURCES_PER_ANSWER = 3
+
 export interface HistoryTurn {
   role: 'user' | 'assistant'
   content: string
@@ -423,6 +427,40 @@ function summarizeChartRequest(blocks: BetaContentBlock[], mcpUrl: string): Char
   }
 }
 
+/**
+ * Web-search citation backstop. The API attaches native source attribution
+ * to answer text as `citations` entries of type web_search_result_location
+ * on each text block; extractText keeps only the prose, so without this the
+ * source URLs would survive only if the model remembered to type its
+ * `-# via domain.com` line. This collects the cited sources structurally
+ * (unique by domain, insertion order) and appends a `-# via [domain](url)`
+ * subtext line for any cited domain the answer doesn't already mention --
+ * so a model-written citation is never duplicated, and a forgotten one is
+ * never lost. Returns the text unchanged when nothing was cited.
+ */
+export function appendWebSources(text: string, blocks: BetaContentBlock[]): string {
+  if (text.length === 0) return text
+  const sources = new Map<string, { url: string; domain: string }>()
+  for (const block of blocks) {
+    if (block.type !== 'text' || !block.citations) continue
+    for (const citation of block.citations) {
+      if (citation.type !== 'web_search_result_location') continue
+      let domain: string
+      try {
+        domain = new URL(citation.url).hostname.replace(/^www\./, '')
+      } catch {
+        continue
+      }
+      if (!sources.has(domain)) sources.set(domain, { url: citation.url, domain })
+    }
+  }
+  const missing = [...sources.values()]
+    .filter(source => !text.includes(source.domain))
+    .slice(0, MAX_WEB_SOURCES_PER_ANSWER)
+  if (missing.length === 0) return text
+  return `${text}\n-# via ${missing.map(source => `[${source.domain}](${source.url})`).join(', ')}`
+}
+
 function summarizeUsage(usage: Anthropic.Beta.Messages.BetaUsage): UsageSummary {
   return {
     input_tokens: usage.input_tokens,
@@ -443,11 +481,23 @@ function addUsage(a: UsageSummary, b: UsageSummary): UsageSummary {
   }
 }
 
+/**
+ * The search allowance for one LOGICAL ask, shared across every API call it
+ * makes (pause_turn continuations and the [ESCALATE] advisor re-run alike).
+ * max_uses only bounds a single API request, so without this each
+ * continuation would reset the counter and one question could spend several
+ * times the configured budget.
+ */
+interface WebSearchBudget {
+  remaining: number
+}
+
 async function runConnectorCall(
   client: Anthropic,
   model: string,
   systemText: string,
-  messages: Anthropic.Beta.Messages.BetaMessageParam[]
+  messages: Anthropic.Beta.Messages.BetaMessageParam[],
+  webSearchBudget: WebSearchBudget
 ): Promise<Anthropic.Beta.Messages.BetaMessage> {
   const config = loadConfig()
   const tools: Anthropic.Beta.Messages.BetaToolUnion[] = [{ type: 'mcp_toolset', mcp_server_name: 'cfb' }]
@@ -456,7 +506,11 @@ async function runConnectorCall(
     // same server-side loop as the MCP tools, so no client wiring is needed --
     // results arrive as web_search_tool_result blocks (skipped by extractText)
     // and searches are metered in usage.server_tool_use.web_search_requests.
-    tools.push({ type: 'web_search_20260209', name: 'web_search', max_uses: config.webSearchMaxUses })
+    // max_uses carries the REMAINING budget, floored at 1 rather than
+    // dropping the tool when exhausted: a spent budget implies searches
+    // already happened, so their result blocks are in the continuation
+    // history and the declaration must stay for the request to be valid.
+    tools.push({ type: 'web_search_20260209', name: 'web_search', max_uses: Math.max(1, webSearchBudget.remaining) })
   }
   return client.beta.messages.create({
     model,
@@ -481,7 +535,8 @@ async function runConnectorTurn(
   client: Anthropic,
   model: string,
   systemText: string,
-  messages: Anthropic.Beta.Messages.BetaMessageParam[]
+  messages: Anthropic.Beta.Messages.BetaMessageParam[],
+  webSearchBudget: WebSearchBudget
 ): Promise<{
   response: Anthropic.Beta.Messages.BetaMessage
   usage: UsageSummary
@@ -493,17 +548,20 @@ async function runConnectorTurn(
   allContent: BetaContentBlock[]
 }> {
   let turnMessages = messages
-  let response = await runConnectorCall(client, model, systemText, turnMessages)
+  let response = await runConnectorCall(client, model, systemText, turnMessages, webSearchBudget)
   let usage = summarizeUsage(response.usage)
   let allContent: BetaContentBlock[] = [...response.content]
+  webSearchBudget.remaining = Math.max(0, webSearchBudget.remaining - usage.web_search_requests)
 
   let continuations = 0
   while (response.stop_reason === 'pause_turn' && continuations < MAX_PAUSE_CONTINUATIONS) {
     continuations++
     turnMessages = [...turnMessages, { role: 'assistant', content: response.content }]
-    response = await runConnectorCall(client, model, systemText, turnMessages)
-    usage = addUsage(usage, summarizeUsage(response.usage))
+    response = await runConnectorCall(client, model, systemText, turnMessages, webSearchBudget)
+    const callUsage = summarizeUsage(response.usage)
+    usage = addUsage(usage, callUsage)
     allContent = [...allContent, ...response.content]
+    webSearchBudget.remaining = Math.max(0, webSearchBudget.remaining - callUsage.web_search_requests)
   }
 
   return { response, usage, continuations, allContent }
@@ -561,8 +619,11 @@ export async function askClaude(
   // [ESCALATE] re-run the first run's charts are discarded along with its
   // text, since the user never sees that reply.
   let chartBlocks: BetaContentBlock[]
+  // One search budget for the whole logical ask -- shared by the initial
+  // turn, its pause_turn continuations, and any [ESCALATE] advisor re-run.
+  const webSearchBudget: WebSearchBudget = { remaining: config.webSearchMaxUses }
   try {
-    const turn = await runConnectorTurn(client, model, systemText, messages)
+    const turn = await runConnectorTurn(client, model, systemText, messages, webSearchBudget)
     text = extractText(turn.response.content)
     usage = turn.usage
     stopReason = turn.response.stop_reason
@@ -573,7 +634,7 @@ export async function askClaude(
     if (tier === 'simple' && text.endsWith(ESCALATE_TOKEN)) {
       escalated = true
       model = config.modelAdvisor
-      const rerun = await runConnectorTurn(client, model, basePrompt, messages)
+      const rerun = await runConnectorTurn(client, model, basePrompt, messages, webSearchBudget)
       text = extractText(rerun.response.content)
       usage = addUsage(usage, rerun.usage)
       stopReason = rerun.response.stop_reason
@@ -587,6 +648,9 @@ export async function askClaude(
 
   const charts = extractCharts(chartBlocks, config.mcpUrl)
   const chartRequest = summarizeChartRequest(chartBlocks, config.mcpUrl)
+  // chartBlocks is the winning run's full content, so an escalated re-run's
+  // citations are the ones surfaced -- same selection rule as charts.
+  text = appendWebSources(text, chartBlocks)
 
   if (text.length === 0) {
     // The caller shows a friendly "came back empty" reply; leave the reason in
