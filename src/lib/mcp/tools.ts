@@ -2288,6 +2288,23 @@ export function registerMcpTools(server: McpServer): void {
         '  Use for POINT-IN-TIME Elo: a team\'s elo entering/leaving any week (e.g. end-of-regular-season\n' +
         '  = postgame elo of its last regular-season game). NOTE: conference championship games are\n' +
         "  season_type='regular' (usually the final regular week) -- exclude that week for pre-CCG cuts\n" +
+        '- api.game_plays: RAW PLAY-BY-PLAY, 2004+ (~3.6M rows): game_id, season, drive_number,\n' +
+        '  play_number, offense, defense, period, clock_minutes, clock_seconds, down, distance,\n' +
+        '  yards_to_goal, yards_gained, play_type, play_text, ppa, scoring, offense_score,\n' +
+        '  defense_score. Use it to literally count plays (e.g. explosive plays = scrimmage plays\n' +
+        '  with yards_gained >= 20) instead of reaching for a proxy metric. ALWAYS filter season --\n' +
+        '  unfiltered scans hit the timeout. No week/season_type column: JOIN api.game_detail USING\n' +
+        '  (game_id) for week, date, or postseason cuts. EVERY event is a row (penalties, kickoffs,\n' +
+        "  timeouts, period ends), so filter play_type for scrimmage plays: rushes are IN ('Rush',\n" +
+        "  'Rushing Touchdown'); completed passes are IN ('Pass Reception', 'Pass Completion',\n" +
+        "  'Passing Touchdown'); pass attempts also include 'Pass Incompletion', 'Sack',\n" +
+        "  'Interception', 'Pass Interception Return', 'Interception Return Touchdown'\n" +
+        '- api.game_drives: drive-level grain, same era: game_id, season, drive_number, offense,\n' +
+        '  defense, start_period, start_yards_to_goal, end_yards_to_goal, plays, yards, drive_result,\n' +
+        '  scoring, start/end offense_score + defense_score, elapsed_minutes, elapsed_seconds,\n' +
+        '  is_home_offense -- same caveat: no week column, JOIN api.game_detail for week filters\n' +
+        '- api.game_box_score, api.game_line_scores, api.game_player_leaders, api.game_win_probability:\n' +
+        '  per-game team stats, quarter scores, stat leaders, and win-probability curves\n' +
         '- api.coaching_history: coach_name, team, tenure_start, tenure_end (null = active), seasons_count, total_wins, total_losses, win_pct, avg_sp_rating, peak_sp_rating -- one row per coach-tenure\n' +
         '- api.coach_records: coach career-at-school grain with ATS splits (ats_wins, ats_losses)\n' +
         '- api.poll_rankings: season, season_type, week, poll, rank, school, conference, points\n' +
