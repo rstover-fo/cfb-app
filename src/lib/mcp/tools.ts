@@ -214,10 +214,14 @@ export async function queryTeamTool(args: QueryTeamArgs): Promise<string> {
   return dump({
     team_detail: wrap('api.team_detail', detail.rows),
     team_history: wrap('api.team_history', historyDesc),
-    // NULL when the team has no CORE row (unrated; the model starts 2016) or
-    // when the snapshot lookup failed -- absence of markers must never make a
-    // mid-season rating read as final, which is why the key is always present.
-    core_snapshot: coreSnapshot.error ? null : (coreSnapshot.rows[0] ?? null),
+    // Three distinct shapes, because they mean three distinct things: the
+    // row (rated, with as-of markers), null (no CORE row -- unrated, the
+    // model starts 2016), or {unavailable: true} (the lookup FAILED -- the
+    // embedded core_* values may still be present and their finality is
+    // UNKNOWN, which must not be collapsed into "unrated").
+    core_snapshot: coreSnapshot.error
+      ? { unavailable: true }
+      : (coreSnapshot.rows[0] ?? null),
   })
 }
 
@@ -1914,10 +1918,13 @@ export function registerMcpTools(server: McpServer): void {
         '(through_week/through_season_type, model_version, and the within-season ranks): an ' +
         'in-season CORE value is a SNAPSHOT of current form advanced in place by the daily load, ' +
         'not a final rating -- check through_week/through_season_type before presenting it as ' +
-        "final, and say \"through week N\" when it is mid-season. core_snapshot is null when the " +
-        'team has no CORE row (the model starts in 2016). Returns JSON ' +
+        "final, and say \"through week N\" when it is mid-season. core_snapshot is null ONLY when " +
+        'the team has no CORE row (the model starts in 2016); if the as-of lookup itself failed ' +
+        'it is {"unavailable": true} instead -- embedded core_* values may still be present then, ' +
+        'and their finality is UNKNOWN: do not present them as final and do not call the team ' +
+        'unrated. Returns JSON ' +
         'with "team_detail", "team_history" (each {"_source", "count", "rows"}) and ' +
-        '"core_snapshot" (object or null) keys, or a plain ' +
+        '"core_snapshot" (markers object, null, or {"unavailable": true}) keys, or a plain ' +
         '"No team found..." string if nothing matches.',
       inputSchema: {
         team: z

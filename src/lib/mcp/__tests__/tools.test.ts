@@ -138,7 +138,7 @@ describe('queryTeamTool', () => {
     })
   })
 
-  it('renders core_snapshot as an explicit null for unrated teams and on snapshot failure', async () => {
+  it('keeps unrated (null) and lookup-failed ({unavailable}) as distinct core_snapshot shapes', async () => {
     vi.mocked(queryTeamDetail).mockResolvedValue({ rows: [{ school: 'Oklahoma' }] as never, error: null })
     vi.mocked(getTeamHistory).mockResolvedValue([])
 
@@ -146,13 +146,15 @@ describe('queryTeamTool', () => {
     const unrated = JSON.parse(await queryTeamTool({ team: 'Oklahoma' }))
     expect(unrated).toHaveProperty('core_snapshot', null)
 
-    // A failed snapshot lookup degrades to null instead of sinking the answer.
+    // A failed snapshot lookup must NOT masquerade as "unrated" -- the
+    // embedded core_* values may still be present and their finality is
+    // unknown. It degrades to a distinct shape instead of sinking the answer.
     vi.mocked(queryCoreSnapshot).mockResolvedValue({
       rows: [],
       error: 'Error: api.core_ratings request failed: boom',
     })
     const degraded = JSON.parse(await queryTeamTool({ team: 'Oklahoma' }))
-    expect(degraded.core_snapshot).toBeNull()
+    expect(degraded.core_snapshot).toEqual({ unavailable: true })
     expect(degraded.team_detail.count).toBe(1)
   })
 })
