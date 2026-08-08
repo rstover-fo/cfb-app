@@ -1168,15 +1168,22 @@ export type ApiSchema = {
       }
       Relationships: []
     }
-    // The house expected-points model (Goldner-basis drive EP from the solved
-    // play-by-play Markov chain). One row per (era, state) -- NOT per team or
-    // game: state encodes down x distance bucket x field-position decile
-    // ('d1|standard|z8'), which the view parses into the typed columns below.
-    // Columns confirmed by live introspection of information_schema.columns
-    // on 2026-08-08 (2026-08-08-expected-points-handoff). Traps: down=4 rows
-    // are go-for-it-conditional; 'standard' exists only on down 1; ep_drive
-    // (drive-scoring basis) and ep_net (net next-score basis, CFBD-PPA-
-    // comparable) are different bases; n_obs can be 1 on oddball states.
+    // The house expected-points model ("house EP v1.5": Goldner-basis drive
+    // EP from the solved play-by-play Markov chain). One row per (era, state)
+    // -- NOT per team or game: state encodes down x distance bucket x
+    // field-position decile ('d1|standard|z8'), which the view parses into
+    // the typed columns below. Columns confirmed by live introspection of
+    // information_schema.columns on 2026-08-08 and reconciled against
+    // cfb-database's docs/handoffs/2026-08-08-expected-points-handoff.md.
+    // Traps: down=4 rows are go-for-it-conditional (can price above d3);
+    // bucket boundaries are down-aware (d1 standard(=10)/short(<10)/
+    // long(>10)/goal; d2-4 short(<=3)/med(4-6)/long(7-10)/xlong(>10)/goal);
+    // ep_drive (drive basis) and ep_net (net next-score basis, CFBD-ppa-
+    // comparable, can be negative, NULL = not computed) are different bases;
+    // se_boot NULL = no interval, not +/-0; n_obs can be 1 on oddball
+    // states; never average eras. p_turnover includes defensive-TD
+    // turnovers. analytics.ep_states and analytics.drive_chain_transitions
+    // are contract-internal -- never read them directly.
     expected_points: {
       Row: {
         era: string | null

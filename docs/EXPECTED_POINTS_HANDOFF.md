@@ -3,17 +3,18 @@
 **From:** cfb-app
 **Date:** 2026-08-08
 **Re:** cfb-database `docs/handoffs/2026-08-08-expected-points-handoff.md` (+ its SCHEMA_CONTRACT entry)
-**Status:** Shipped -- `get_expected_points` MCP tool (tool 25) over `api.expected_points`, a
-`run_sql` schema-card entry, `ApiSchema.Views` types, a bot prompt block, and this reply.
+**Status:** Shipped and RECONCILED against the handoff text -- `get_expected_points` MCP tool
+(tool 25) over `api.expected_points`, a `run_sql` schema-card entry, `ApiSchema.Views` types, a
+bot prompt block, and this reply.
 
-A process note up front: the inbound handoff document itself was not readable from the session
-that built this consumption (the cfb-database repo attach was pending approval), so everything
-below was established by **live introspection** of the shared warehouse -- the view definition
-via `pg_get_viewdef`, the `COMMENT ON` metadata (which is what pointed at the handoff path),
-`information_schema.columns`, and verification queries against `api.expected_points` itself.
-Every claim carries its SQL so it can be re-run after any model refresh. If the handoff asserts
-anything this reply does not cover (bucket yard boundaries, era rationale, refresh cadence),
-those asserts are still unverified by cfb-app -- see the asks.
+A process note up front: the inbound handoff document was not readable from the session that
+built the first pass of this consumption (the cfb-database repo attach was pending approval), so
+the initial build was established by **live introspection** of the shared warehouse -- the view
+definition via `pg_get_viewdef`, the `COMMENT ON` metadata (which is what pointed at the handoff
+path), `information_schema.columns`, and verification queries against `api.expected_points`
+itself. The handoff text was then relayed by the repo owner and the consumption reconciled
+against it same-day -- see "Reconciliation" below. Every claim here carries its SQL so it can be
+re-run after any model refresh.
 
 ## 1. Verified surface
 
@@ -76,24 +77,55 @@ nullable anyway (typed `number | null`), so a future era computed without P2 deg
   penalty-manufactured 1st-and-goal from the 31-40 decile). The tool flags any returned cell
   under 100 observations and instructs the model to treat it as an anecdote.
 
-## 4. Asks
+## 4. Reconciliation against the handoff text (same-day)
 
-1. Update the two stale `ep_net` comments (finding 2).
-2. Publish the **bucket yard boundaries** (`short`/`med`/`long`/`xlong`, and the exact
-   `standard` definition) in the SCHEMA_CONTRACT entry or as `COMMENT ON COLUMN
-   distance_bucket`. cfb-app deliberately does not guess them: the tool exposes the bucket enum
-   and tells the model to omit the bucket and read the spread when unsure, which works but makes
-   "3rd and 7" answerable only approximately.
-3. Confirm the **era boundaries' rationale** (2013/2014 and 2020/2021 breaks) so the tool's era
-   notes can say why the eras exist rather than just that they do.
-4. State the **refresh cadence** for `analytics.ep_states` (all 483 rows were computed
-   2026-08-08 14:05-14:08 UTC in one batch). If it recomputes on a schedule, `computed_at` is
-   the staleness signal and cfb-app will surface it; if it is one-shot, say so.
+The handoff resolved three of the original four asks and corrected two of cfb-app's inferences;
+the consumption was updated accordingly:
+
+- **Bucket boundaries** (was ask 2 -- ANSWERED): down-aware, d1 `standard`(=10)/`short`(<10)/
+  `long`(>10)/`goal`; d2-4 `short`(<=3)/`med`(4-6)/`long`(7-10)/`xlong`(>10)/`goal`. cfb-app now
+  ships `distanceBucketFor(down, distance, yardsToGoal?)` and the tool accepts a `distance`
+  input, so "3rd and 7" maps exactly instead of returning the bucket spread.
+- **Era rationale** (was ask 3 -- ANSWERED): rules eras, solved separately per the design doc.
+  The same state moves ~15 SE between eras (own-25 1st-and-10: 1.58 -> 1.80), which is now a
+  named trap ("never average eras") in the module header, tool description, and schema card.
+- **Freshness** (was ask 4 -- ANSWERED): recomputed on demand via the `compute_drive_chain`
+  deploy workflow, not on the daily schedule; `computed_at` is the staleness signal. Additive
+  changes (new columns, a new open era) will not be announced as breaking.
+- **Corrected inference -- `p_turnover`:** cfb-app had written "includes turnover on downs";
+  the handoff says "includes defensive-TD turnovers" and does not assert the downs case (the
+  exposed outcome probabilities do not sum to 1, so the absorption set is wider than the four
+  columns). Wording aligned to the handoff everywhere.
+- **Contract text adopted:** NULL `ep_net` renders "not computed" (never 0, never clamped or
+  abs()ed, EPA deltas only from `ep_net`); NULL `se_boot` renders "interval unavailable" (never
+  +/- 0); intervals-not-verdicts (`ep_drive +/- 2*se_boot`) -- all three now emitted as computed
+  caveats / basis text by the tool. The payload's basis block also carries the handoff's
+  validation stats (monotonicity pass; P(TD) calibration MAE 0.0072-0.0077; play-level r = 0.86
+  vs CFBD ppa against a 0.93 grid ceiling) under the label "house EP v1.5".
+- **Rule-2 PostgREST `+` trap -- VERIFIED SAFE for this app's client:** the handoff warns
+  `era=eq.2021+` decodes as a space and matches nothing. supabase-js (the app's only PostgREST
+  path) encodes it correctly -- verified live on 2026-08-08 with the app's exact query shape:
+  `.schema('api').from('expected_points').eq('era', '2021+')` returned `d1|standard|z8`
+  (ep_drive 1.7961). Hand-built REST URLs remain on the hook for the encoding.
+- **Contract-internal surfaces respected:** `analytics.ep_states` and
+  `analytics.drive_chain_transitions` are not read by any cfb-app code; `ep_states` appears in
+  this doc and the types file as provenance only. Noted that a drive-sequences (sunburst) mart
+  will carry the transitions surface later.
+- **Suggested UI uses** (field-position value strip, 4th-down context chip): deliberately NOT in
+  this pass -- deferred as a separate task by the repo owner's scope decision. The agent-answers
+  use is live via the tool.
+
+## 5. Asks (remaining)
+
+1. Update the two stale `ep_net` `COMMENT ON` blocks (finding 2): the handoff's own changelog
+   records `ep_net` populated 2026-08-08, but both comments still say "NULL until P2", which
+   misleads anyone introspecting the warehouse.
 
 ## What cfb-app shipped (2026-08-08)
 
-- `src/lib/queries/expected-points.ts` -- query layer: era/zone helpers
-  (`eraForSeason`, `fieldZoneForYardsToGoal`), pinned era vocabulary, `McpResult` contract.
+- `src/lib/queries/expected-points.ts` -- query layer: era/zone/bucket helpers
+  (`eraForSeason`, `fieldZoneForYardsToGoal`, `distanceBucketFor`), pinned era vocabulary,
+  `McpResult` contract.
 - `get_expected_points` (tool 25) in `src/lib/mcp/tools.ts` -- payload carries a `basis` block
   (ep_drive vs ep_net definitions) and computed `caveats` (down-4 conditionality, sparse cells,
   truncation), same structural-honesty pattern as `get_season_outlook`.

@@ -16,6 +16,7 @@ import { DEFAULT_ROW_CAP } from '../mcp'
 import {
   EXPECTED_POINTS_DEFAULT_LIMIT,
   EXPECTED_POINTS_FIRST_SEASON,
+  distanceBucketFor,
   eraForSeason,
   fieldZoneForYardsToGoal,
   queryExpectedPoints,
@@ -71,6 +72,40 @@ describe('fieldZoneForYardsToGoal', () => {
   it('clamps out-of-range spots into the valid 1-10 zone range', () => {
     expect(fieldZoneForYardsToGoal(0)).toBe(1)
     expect(fieldZoneForYardsToGoal(120)).toBe(10)
+  })
+})
+
+describe('distanceBucketFor', () => {
+  it("maps down 1 through its own vocabulary: standard is exactly 10, not 'about 10'", () => {
+    // Handoff boundaries: d1 standard(=10) / short(<10) / long(>10).
+    expect(distanceBucketFor(1, 10)).toBe('standard')
+    expect(distanceBucketFor(1, 9)).toBe('short')
+    expect(distanceBucketFor(1, 1)).toBe('short')
+    expect(distanceBucketFor(1, 11)).toBe('long')
+    expect(distanceBucketFor(1, 25)).toBe('long')
+  })
+
+  it('maps downs 2-4 through the short/med/long/xlong boundaries', () => {
+    // Handoff boundaries: d2-4 short(<=3) / med(4-6) / long(7-10) / xlong(>10).
+    for (const down of [2, 3, 4]) {
+      expect(distanceBucketFor(down, 1)).toBe('short')
+      expect(distanceBucketFor(down, 3)).toBe('short')
+      expect(distanceBucketFor(down, 4)).toBe('med')
+      expect(distanceBucketFor(down, 6)).toBe('med')
+      expect(distanceBucketFor(down, 7)).toBe('long')
+      expect(distanceBucketFor(down, 10)).toBe('long')
+      expect(distanceBucketFor(down, 11)).toBe('xlong')
+    }
+  })
+
+  it('lets goal-to-go override the yardage buckets at every down', () => {
+    // 1st-and-goal from the 8 is 'goal', not 'short' -- there is no
+    // first-down line before the goal line.
+    expect(distanceBucketFor(1, 8, 8)).toBe('goal')
+    expect(distanceBucketFor(3, 3, 3)).toBe('goal')
+    // Not goal-to-go when a first-down line exists short of the goal.
+    expect(distanceBucketFor(1, 10, 35)).toBe('standard')
+    expect(distanceBucketFor(3, 3, 12)).toBe('short')
   })
 })
 

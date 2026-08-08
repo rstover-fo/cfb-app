@@ -33,6 +33,10 @@ import { fail, clamp, type McpResult } from './mcp'
 //      from the 35) can hold n_obs = 1. se_boot (bootstrap SE of ep_drive,
 //      cluster-resampled by game_id) is the per-cell reliability signal --
 //      report it, and treat tiny-n_obs cells as anecdotes.
+//   5. Era-scope every lookup and NEVER average eras: the same state moves
+//      materially between eras (1st-and-10 at own 25 is ~1.58 ep_drive in
+//      2004-2013 vs ~1.80 in 2021+ -- a ~15-SE gap per the producer's
+//      handoff). Join a game to its own era via eraForSeason().
 //
 // MCP-only module: keeps mcp.ts's McpResult error-passthrough contract
 // (friendly "Error: ..." strings, never a throw) rather than the UI query
@@ -53,10 +57,11 @@ export type ExpectedPointsEra = (typeof EXPECTED_POINTS_ERAS)[number]
 export const EXPECTED_POINTS_FIRST_SEASON = 2004
 
 /**
- * Distance buckets as stored in the view. Exact yard boundaries are owned by
- * cfb-database's EP pipeline and are not exposed by the view; 'standard'
- * exists only on down 1 (the ordinary 1st-and-10 state), downs 2-4 use
- * short/med/long/xlong instead, and 'goal' means goal-to-go at any down.
+ * Distance buckets as stored in the view. Boundaries are DOWN-AWARE, per the
+ * producer's 2026-08-08 handoff: down 1 uses standard (=10) / short (<10) /
+ * long (>10) / goal; downs 2-4 use short (<=3) / med (4-6) / long (7-10) /
+ * xlong (>10) / goal. 'goal' means goal-to-go at any down (no first-down
+ * line before the goal line).
  */
 export const EXPECTED_POINTS_DISTANCE_BUCKETS = [
   'goal',
@@ -68,6 +73,28 @@ export const EXPECTED_POINTS_DISTANCE_BUCKETS = [
 ] as const
 
 export type ExpectedPointsDistanceBucket = (typeof EXPECTED_POINTS_DISTANCE_BUCKETS)[number]
+
+/**
+ * The bucket a (down, distance-to-go) pair falls in, using the handoff's
+ * down-aware boundaries. Pass yardsToGoal too when known: goal-to-go
+ * (distance >= yardsToGoal) overrides the yardage buckets at every down --
+ * without it a 1st-and-goal from the 8 would misread as 'short'.
+ */
+export function distanceBucketFor(
+  down: number,
+  distance: number,
+  yardsToGoal?: number
+): ExpectedPointsDistanceBucket {
+  if (yardsToGoal != null && distance >= yardsToGoal) return 'goal'
+  if (down === 1) {
+    if (distance === 10) return 'standard'
+    return distance < 10 ? 'short' : 'long'
+  }
+  if (distance <= 3) return 'short'
+  if (distance <= 6) return 'med'
+  if (distance <= 10) return 'long'
+  return 'xlong'
+}
 
 /**
  * One era spans at most ~165 rows and a fully-filtered state ask returns at
@@ -117,14 +144,16 @@ export interface ExpectedPointsRow {
   ep_drive: number
   /**
    * Net next-score basis (the CFBD-PPA-comparable number). Lower than
-   * ep_drive; negative when the opponent is likelier to score next.
+   * ep_drive; negative when the opponent is likelier to score next. NULL
+   * after a partial recompute -- render "not computed", never 0, and never
+   * clamp or abs() it.
    */
   ep_net: number | null
   /** Probability this possession ends in an offensive TD. */
   p_td: number
   p_fg: number
   p_punt: number
-  /** Turnovers of every kind (downs included), not just giveaways. */
+  /** Drive-outcome absorption probability; includes defensive-TD turnovers. */
   p_turnover: number
   /**
    * Bootstrap SE of ep_drive, cluster-resampled by game_id. NULL when the

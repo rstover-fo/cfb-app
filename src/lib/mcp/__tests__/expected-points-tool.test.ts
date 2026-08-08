@@ -119,9 +119,60 @@ describe('getExpectedPointsTool', () => {
     mockRows([row()])
     const payload = JSON.parse(await getExpectedPointsTool({}))
 
+    expect(payload.basis.model).toMatch(/house EP v1\.5/)
+    expect(payload.basis.model).toMatch(/r = 0\.86/)
     expect(payload.basis.ep_drive).toMatch(/TD 6\.97/)
     expect(payload.basis.ep_net).toMatch(/net next-score/i)
-    expect(payload.basis.se_boot).toMatch(/bootstrap/i)
+    expect(payload.basis.ep_net).toMatch(/never clamp/i)
+    expect(payload.basis.se_boot).toMatch(/2\*se_boot/)
+  })
+
+  it('maps down + distance onto the handoff bucket boundaries and reports the derivation', async () => {
+    mockRows([row({ state: 'd3|long|z5', down: 3, distance_bucket: 'long', field_zone: 5 })])
+    const payload = JSON.parse(await getExpectedPointsTool({ down: 3, distance: 7, yards_to_goal: 45 }))
+
+    expect(payload.distance).toBe(7)
+    expect(payload.distance_bucket).toBe('long')
+    expect(payload.distance_bucket_source).toBe('derived_from_distance')
+    expect(vi.mocked(queryExpectedPoints)).toHaveBeenCalledWith(
+      expect.objectContaining({ down: 3, distanceBucket: 'long' })
+    )
+  })
+
+  it('lets an explicit distance_bucket win over distance, and ignores distance without down', async () => {
+    mockRows([row()])
+    const explicit = JSON.parse(
+      await getExpectedPointsTool({ down: 3, distance: 7, distance_bucket: 'short' })
+    )
+    expect(explicit.distance_bucket).toBe('short')
+    expect(explicit.distance_bucket_source).toBe('requested')
+    expect(vi.mocked(queryExpectedPoints)).toHaveBeenCalledWith(
+      expect.objectContaining({ distanceBucket: 'short' })
+    )
+
+    vi.clearAllMocks()
+    mockRows([row()])
+    // The boundaries are down-aware, so distance alone cannot pick a bucket.
+    const unmapped = JSON.parse(await getExpectedPointsTool({ distance: 7 }))
+    expect(unmapped).not.toHaveProperty('distance_bucket')
+    expect(vi.mocked(queryExpectedPoints)).toHaveBeenCalledWith(
+      expect.objectContaining({ distanceBucket: undefined })
+    )
+  })
+
+  it('renders NULL ep_net as not-computed and NULL se_boot as no-interval, never as zero', async () => {
+    mockRows([row({ ep_net: null }), row({ state: 'd2|short|z8', down: 2, distance_bucket: 'short', se_boot: null })])
+    const payload = JSON.parse(await getExpectedPointsTool({}))
+    const caveats = payload.caveats.join(' ')
+
+    expect(caveats).toMatch(/NULL ep_net/)
+    expect(caveats).toMatch(/not computed/)
+    expect(caveats).toMatch(/NULL se_boot/)
+    expect(caveats).toMatch(/interval unavailable/)
+
+    mockRows([row()])
+    const clean = JSON.parse(await getExpectedPointsTool({}))
+    expect(clean.caveats.join(' ')).not.toMatch(/NULL ep_net|NULL se_boot/)
   })
 
   it('wraps rows in the standard envelope with the view as _source', async () => {

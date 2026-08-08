@@ -146,10 +146,11 @@ the calendar in the offseason and trails it to a *completed* season.
 distance-bucket x field-zone state). Its payload carries a `basis` block defining `ep_drive`
 (drive-scoring basis) vs `ep_net` (net next-score basis, the CFBD-PPA-comparable one) and a
 computed `caveats` array flagging go-for-it-conditional down-4 rows, sparse cells (`n_obs` can
-be 1), and truncation. It is a *state* lookup -- "what is 1st-and-10 at midfield worth" -- never
-a team stat; the tool maps a `yards_to_goal` spot onto the view's field-position decile and,
-when no `distance_bucket` is given, returns every bucket for the state so the spread itself is
-reportable.
+be 1), NULL `ep_net`/`se_boot` after partial recomputes, and truncation. It is a *state* lookup
+-- "what is 1st-and-10 at midfield worth" -- never a team stat; the tool maps a `yards_to_goal`
+spot onto the view's field-position decile, maps `down` + `distance` onto the down-aware bucket
+boundaries, and, when neither `distance` nor `distance_bucket` is given, returns every bucket
+for the state so the spread itself is reportable.
 
 `run_sql` executes one read-only SELECT over the `api` schema through the guarded
 `public.run_analyst_query` RPC (SELECT-only role, statement timeout, row cap); the RPC's
