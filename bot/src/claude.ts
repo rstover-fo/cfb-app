@@ -519,38 +519,53 @@ async function runConnectorCall(
   webSearchBudget: WebSearchBudget
 ): Promise<Anthropic.Beta.Messages.BetaMessage> {
   const config = loadConfig()
-  const tools: Anthropic.Beta.Messages.BetaToolUnion[] = [{ type: 'mcp_toolset', mcp_server_name: 'cfb' }]
-  if (config.webSearchMaxUses > 0) {
-    // Anthropic-native server tool: search runs on Anthropic's side inside the
-    // same server-side loop as the MCP tools, so no client wiring is needed --
-    // results arrive as web_search_tool_result blocks (skipped by extractText)
-    // and searches are metered in usage.server_tool_use.web_search_requests.
-    if (webSearchBudget.remaining > 0) {
-      // max_uses carries the REMAINING logical-turn budget, not the
-      // configured per-request value -- see WebSearchBudget.
-      tools.push({ type: 'web_search_20260209', name: 'web_search', max_uses: webSearchBudget.remaining })
-    } else if (hasWebSearchBlocks(messages)) {
-      // Budget spent, but this request replays earlier search blocks from
-      // the same paused turn. The docs require sending those blocks back
-      // exactly as received, and dropping the tool they belong to is
-      // undocumented territory -- keep the minimum declaration rather than
-      // risk failing the whole answer. Worst case this authorizes one extra
-      // (fully metered) search per continuation.
-      tools.push({ type: 'web_search_20260209', name: 'web_search', max_uses: 1 })
-    }
-    // Budget spent with a search-free history (e.g. the [ESCALATE] advisor
-    // re-run, which restarts from the original messages): tool omitted.
+  const baseTools: Anthropic.Beta.Messages.BetaToolUnion[] = [{ type: 'mcp_toolset', mcp_server_name: 'cfb' }]
+  const create = (tools: Anthropic.Beta.Messages.BetaToolUnion[]) =>
+    client.beta.messages.create({
+      model,
+      max_tokens: MAX_TOKENS,
+      thinking: { type: 'adaptive' },
+      betas: ['mcp-client-2025-11-20'],
+      mcp_servers: [{ type: 'url', url: config.mcpUrl, name: 'cfb', authorization_token: config.mcpAuthToken }],
+      tools,
+      system: [{ type: 'text', text: systemText, cache_control: { type: 'ephemeral' } }],
+      messages,
+    })
+
+  // Anthropic-native server tool: search runs on Anthropic's side inside the
+  // same server-side loop as the MCP tools, so no client wiring is needed --
+  // results arrive as web_search_tool_result blocks (skipped by extractText)
+  // and searches are metered in usage.server_tool_use.web_search_requests.
+  // max_uses carries the REMAINING logical-turn budget, not the configured
+  // per-request value -- see WebSearchBudget.
+  if (config.webSearchMaxUses > 0 && webSearchBudget.remaining > 0) {
+    return create([...baseTools, { type: 'web_search_20260209', name: 'web_search', max_uses: webSearchBudget.remaining }])
   }
-  return client.beta.messages.create({
-    model,
-    max_tokens: MAX_TOKENS,
-    thinking: { type: 'adaptive' },
-    betas: ['mcp-client-2025-11-20'],
-    mcp_servers: [{ type: 'url', url: config.mcpUrl, name: 'cfb', authorization_token: config.mcpAuthToken }],
-    tools,
-    system: [{ type: 'text', text: systemText, cache_control: { type: 'ephemeral' } }],
-    messages,
-  })
+
+  if (config.webSearchMaxUses > 0 && hasWebSearchBlocks(messages)) {
+    // Budget spent, but this request replays search blocks from the same
+    // paused turn. Preferred shape: no search tool at all -- a spent budget
+    // must not authorize another search. Whether the API accepts replayed
+    // search blocks without their tool declared is undocumented, though, so
+    // if exactly that request is rejected, retry once with the minimum
+    // declaration rather than fail the whole answer (worst case: one extra
+    // fully-metered search per continuation; a rejected request bills
+    // nothing).
+    try {
+      return await create(baseTools)
+    } catch (err) {
+      if ((err as { status?: number } | null)?.status === 400) {
+        console.warn('[claude] continuation without web_search declaration rejected; retrying with min declaration')
+        return create([...baseTools, { type: 'web_search_20260209', name: 'web_search', max_uses: 1 }])
+      }
+      throw err
+    }
+  }
+
+  // Web search disabled, or budget spent with a search-free history (e.g.
+  // the [ESCALATE] advisor re-run, which restarts from the original
+  // messages): plain MCP toolset.
+  return create(baseTools)
 }
 
 /**
