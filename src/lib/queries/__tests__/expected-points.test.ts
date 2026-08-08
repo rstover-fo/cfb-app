@@ -15,10 +15,13 @@ import { createSupabaseMock, dbError, ok, type SupabaseMockConfig } from './help
 import { DEFAULT_ROW_CAP } from '../mcp'
 import {
   EXPECTED_POINTS_DEFAULT_LIMIT,
+  EXPECTED_POINTS_ERAS,
   EXPECTED_POINTS_FIRST_SEASON,
+  PUNT_OPPONENT_START_BY_ERA_ZONE,
   distanceBucketFor,
   eraForSeason,
   fieldZoneForYardsToGoal,
+  puntImpliedOpponentYtg,
   queryExpectedPoints,
 } from '../expected-points'
 
@@ -106,6 +109,35 @@ describe('distanceBucketFor', () => {
     // Not goal-to-go when a first-down line exists short of the goal.
     expect(distanceBucketFor(1, 10, 35)).toBe('standard')
     expect(distanceBucketFor(3, 3, 12)).toBe('short')
+  })
+})
+
+describe('puntImpliedOpponentYtg', () => {
+  it('covers every era and zone with real punt data behind each average', () => {
+    // The table is embedded (stable historical facts, not a model output);
+    // this guards against a refresh accidentally dropping an era or zone.
+    for (const era of EXPECTED_POINTS_ERAS) {
+      const zones = PUNT_OPPONENT_START_BY_ERA_ZONE[era]
+      for (let zone = 1; zone <= 10; zone++) {
+        expect(zones[zone].nPunts).toBeGreaterThan(0)
+        expect(zones[zone].oppStartYtg).toBeGreaterThanOrEqual(1)
+        expect(zones[zone].oppStartYtg).toBeLessThanOrEqual(99)
+      }
+    }
+  })
+
+  it('resolves the punting spot to its zone average, rounded to whole yards', () => {
+    // Punting from own 25 (ytg 75, zone 8) in the modern era: opponents start
+    // at their ~65 -- the classic ~40-yard net, live-verified 2026-08-08.
+    expect(puntImpliedOpponentYtg('2021+', 75)).toEqual({ ytg: 65, nPunts: 13897 })
+    // Midfield punts pin deep.
+    expect(puntImpliedOpponentYtg('2021+', 50)).toEqual({ ytg: 86, nPunts: 7468 })
+  })
+
+  it('carries the thin-sample count for zones where punting is nearly extinct', () => {
+    // 2021+ zone 1 (punting from inside the opponent 10) has 11 real punts --
+    // the tool layer uses nPunts to caveat these as anecdotes.
+    expect(puntImpliedOpponentYtg('2021+', 5)).toEqual({ ytg: 61, nPunts: 11 })
   })
 })
 

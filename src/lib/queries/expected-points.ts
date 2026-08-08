@@ -124,6 +124,97 @@ export function fieldZoneForYardsToGoal(yardsToGoal: number): number {
   return Math.min(Math.max(Math.ceil(yardsToGoal / 10), 1), 10)
 }
 
+/**
+ * Where the opponent actually starts after a punt, per era and punting
+ * field-zone: the empirical average of the NEXT drive's start_yards_to_goal
+ * across every drive_result='PUNT' drive in api.game_drives, so returns,
+ * touchbacks, muffs and shanks are all priced in. Powers the tool's
+ * fourth-down go-vs-punt comparison (EP(punt) = -ep_net at this spot).
+ *
+ * These are stable historical facts per era, not a re-runnable model output,
+ * so they are embedded like MODEL_BACKTEST_PREFERRED_WINDOW rather than
+ * fetched per request. Computed live 2026-08-08; refresh with:
+ *
+ *   WITH punts AS (
+ *     SELECT CASE WHEN d.season <= 2013 THEN '2004-2013'
+ *                 WHEN d.season <= 2020 THEN '2014-2020'
+ *                 ELSE '2021+' END AS era,
+ *            d.end_yards_to_goal AS punt_spot_ytg,
+ *            nxt.start_yards_to_goal AS opp_start_ytg
+ *     FROM api.game_drives d
+ *     JOIN api.game_drives nxt
+ *       ON nxt.game_id = d.game_id AND nxt.drive_number = d.drive_number + 1
+ *      AND nxt.offense = d.defense
+ *     WHERE d.drive_result = 'PUNT'
+ *       AND d.end_yards_to_goal BETWEEN 1 AND 99
+ *       AND nxt.start_yards_to_goal BETWEEN 1 AND 99
+ *   )
+ *   SELECT era, LEAST(GREATEST(CEIL(punt_spot_ytg / 10.0), 1), 10)::int AS punt_zone,
+ *          COUNT(*) AS n_punts, ROUND(AVG(opp_start_ytg)::numeric, 1) AS avg_opp_start_ytg
+ *   FROM punts GROUP BY 1, 2 ORDER BY 1, 2;
+ *
+ * Zones 1-3 (punting from inside the opponent 30) are nearly extinct in the
+ * modern era (2021+: n = 11/33/86) -- the tool caveats those as anecdotes.
+ * The same zones in 2004-2013 hold thousands of punts: teams really did punt
+ * from the opponent 35 in the 2000s.
+ */
+export const PUNT_OPPONENT_START_BY_ERA_ZONE: Record<
+  ExpectedPointsEra,
+  Record<number, { oppStartYtg: number; nPunts: number }>
+> = {
+  '2004-2013': {
+    1: { oppStartYtg: 76.9, nPunts: 2556 },
+    2: { oppStartYtg: 72.2, nPunts: 1582 },
+    3: { oppStartYtg: 76.9, nPunts: 1842 },
+    4: { oppStartYtg: 86.0, nPunts: 4601 },
+    5: { oppStartYtg: 85.1, nPunts: 9500 },
+    6: { oppStartYtg: 79.5, nPunts: 14412 },
+    7: { oppStartYtg: 72.1, nPunts: 16318 },
+    8: { oppStartYtg: 62.5, nPunts: 16784 },
+    9: { oppStartYtg: 53.2, nPunts: 8418 },
+    10: { oppStartYtg: 43.7, nPunts: 2766 },
+  },
+  '2014-2020': {
+    1: { oppStartYtg: 91.4, nPunts: 214 },
+    2: { oppStartYtg: 81.2, nPunts: 429 },
+    3: { oppStartYtg: 73.0, nPunts: 384 },
+    4: { oppStartYtg: 85.6, nPunts: 2712 },
+    5: { oppStartYtg: 85.5, nPunts: 7893 },
+    6: { oppStartYtg: 82.0, nPunts: 10409 },
+    7: { oppStartYtg: 74.1, nPunts: 12981 },
+    8: { oppStartYtg: 65.0, nPunts: 12656 },
+    9: { oppStartYtg: 55.2, nPunts: 6103 },
+    10: { oppStartYtg: 44.7, nPunts: 1903 },
+  },
+  '2021+': {
+    1: { oppStartYtg: 61.3, nPunts: 11 },
+    2: { oppStartYtg: 48.8, nPunts: 33 },
+    3: { oppStartYtg: 50.0, nPunts: 86 },
+    4: { oppStartYtg: 87.1, nPunts: 2035 },
+    5: { oppStartYtg: 86.2, nPunts: 7468 },
+    6: { oppStartYtg: 82.1, nPunts: 11044 },
+    7: { oppStartYtg: 73.8, nPunts: 14536 },
+    8: { oppStartYtg: 65.2, nPunts: 13897 },
+    9: { oppStartYtg: 55.6, nPunts: 6328 },
+    10: { oppStartYtg: 45.9, nPunts: 2017 },
+  },
+}
+
+/**
+ * The opponent's empirically implied starting yards-to-goal after a punt from
+ * this spot, with the punt count behind the average so callers can flag thin
+ * zones. Null when the era/zone pair has no punt data at all.
+ */
+export function puntImpliedOpponentYtg(
+  era: ExpectedPointsEra,
+  yardsToGoal: number
+): { ytg: number; nPunts: number } | null {
+  const zone = fieldZoneForYardsToGoal(yardsToGoal)
+  const cell = PUNT_OPPONENT_START_BY_ERA_ZONE[era]?.[zone]
+  if (!cell) return null
+  return { ytg: Math.min(Math.max(Math.round(cell.oppStartYtg), 1), 99), nPunts: cell.nPunts }
+}
+
 export interface ExpectedPointsRow {
   era: string
   /** The raw state key, e.g. 'd1|standard|z8'. Kept so answers can cite the cell. */

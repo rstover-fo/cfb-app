@@ -227,6 +227,85 @@ describe('getExpectedPointsTool', () => {
     expect(result).toMatch(/short\/med\/long\/xlong/)
   })
 
+  it('attaches the go-vs-punt block on a fully-specified 4th down, with delta on the ep_net basis', async () => {
+    // 4th-and-2 at midfield (ytg 50, zone 5). The punt table says opponents
+    // start at their 86 after a zone-5 punt in 2021+ (7468 real punts), which
+    // is zone 9 -- so the second query must ask for d1|standard|z9.
+    vi.mocked(queryExpectedPoints)
+      .mockResolvedValueOnce({
+        rows: [downFourRow({ state: 'd4|short|z5', field_zone: 5, ep_net: -0.1 })],
+        error: null,
+      })
+      .mockResolvedValueOnce({
+        rows: [row({ state: 'd1|standard|z9', field_zone: 9, ep_net: 0.35 })],
+        error: null,
+      })
+    const payload = JSON.parse(
+      await getExpectedPointsTool({ down: 4, distance: 2, yards_to_goal: 50 })
+    )
+
+    const block = payload.fourth_down_decision
+    expect(block.go.state).toBe('d4|short|z5')
+    expect(block.go.ep_net).toBe(-0.1)
+    expect(block.punt.implied_opponent_yards_to_goal).toBe(86)
+    expect(block.punt.n_punts_basis).toBe(7468)
+    expect(block.punt.opponent_state).toBe('d1|standard|z9')
+    expect(block.punt.ep_punt).toBe(-0.35)
+    expect(block.ep_delta_go_minus_punt).toBeCloseTo(0.25, 10)
+    expect(block.assumptions.join(' ')).toMatch(/FG option is NOT modeled/)
+    expect(vi.mocked(queryExpectedPoints)).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ down: 1, distanceBucket: 'standard', fieldZone: 9, limit: 1 })
+    )
+  })
+
+  it('omits the block without a spot, and nudges for distance when only the bucket is missing', async () => {
+    mockRows([downFourRow()])
+    const noSpot = JSON.parse(await getExpectedPointsTool({ down: 4, distance: 2 }))
+    expect(noSpot).not.toHaveProperty('fourth_down_decision')
+    expect(vi.mocked(queryExpectedPoints)).toHaveBeenCalledTimes(1)
+
+    vi.clearAllMocks()
+    mockRows([downFourRow()])
+    const noBucket = JSON.parse(await getExpectedPointsTool({ down: 4, yards_to_goal: 75 }))
+    expect(noBucket).not.toHaveProperty('fourth_down_decision')
+    expect(noBucket.caveats.join(' ')).toMatch(/Pass `distance`.*fourth_down_decision/)
+  })
+
+  it('skips the block with a caveat when a required ep_net is not computed', async () => {
+    vi.mocked(queryExpectedPoints)
+      .mockResolvedValueOnce({
+        rows: [downFourRow({ state: 'd4|short|z5', field_zone: 5, ep_net: null })],
+        error: null,
+      })
+      .mockResolvedValueOnce({ rows: [row({ state: 'd1|standard|z9', ep_net: 0.35 })], error: null })
+    const payload = JSON.parse(
+      await getExpectedPointsTool({ down: 4, distance: 2, yards_to_goal: 50 })
+    )
+
+    expect(payload).not.toHaveProperty('fourth_down_decision')
+    expect(payload.caveats.join(' ')).toMatch(/go-vs-punt comparison could not be computed/)
+  })
+
+  it('flags a punt side resting on a nearly-extinct punting zone as an anecdote', async () => {
+    // 4th-and-goal from the 5 (zone 1): 11 real punts back the 2021+ average.
+    vi.mocked(queryExpectedPoints)
+      .mockResolvedValueOnce({
+        rows: [downFourRow({ state: 'd4|goal|z1', distance_bucket: 'goal', field_zone: 1, ep_net: 1.9 })],
+        error: null,
+      })
+      .mockResolvedValueOnce({
+        rows: [row({ state: 'd1|standard|z7', field_zone: 7, ep_net: 0.9 })],
+        error: null,
+      })
+    const payload = JSON.parse(
+      await getExpectedPointsTool({ down: 4, distance: 5, yards_to_goal: 5 })
+    )
+
+    expect(payload.fourth_down_decision.punt.n_punts_basis).toBe(11)
+    expect(payload.caveats.join(' ')).toMatch(/Only 11 real punts/)
+  })
+
   it('passes the query error string through untouched (never throws)', async () => {
     vi.mocked(queryExpectedPoints).mockResolvedValue({
       rows: [],

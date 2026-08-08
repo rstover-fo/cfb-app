@@ -115,11 +115,42 @@ the consumption was updated accordingly:
   this pass -- deferred as a separate task by the repo owner's scope decision. The agent-answers
   use is live via the tool.
 
-## 5. Asks (remaining)
+## 5. P2 confirmed merged -- and the 4th-down comparison it gates (2026-08-08, later)
 
-1. Update the two stale `ep_net` `COMMENT ON` blocks (finding 2): the handoff's own changelog
-   records `ep_net` populated 2026-08-08, but both comments still say "NULL until P2", which
-   misleads anyone introspecting the warehouse.
+The repo owner confirmed P2 (the net next-score basis) merged in cfb-database. Live re-check:
+no structural change (same 16 columns, 483 rows, `ep_net` still 100% populated), but the data
+was RECOMPUTED at 14:45:40 UTC -- after the 14:05-14:08 batch cited above -- with values in the
+same range (`d1|standard|z10` in 2021+: ep_net -0.1226, consistent with the handoff's "own-5,
+modern era" illustration). `computed_at` behaving as the staleness signal, as documented.
+
+With P2 in, cfb-app shipped the handoff's P2-gated suggestion at the tool level: a
+`fourth_down_decision` block on `get_expected_points` when asked a fully-specified 4th-down
+state (down=4 + distance + yards_to_goal). All math on `ep_net` (rule 1):
+
+- **EP(go)** = the d4 state's own `ep_net` (go-conditional = exactly "given they go").
+- **EP(punt)** = `-ep_net` of the opponent's 1st-and-10 at their **empirically implied start**:
+  the average real next-drive `start_yards_to_goal` after `drive_result = 'PUNT'` drives in
+  `api.game_drives` (self-join on `(game_id, drive_number + 1)`), per era and punting
+  field-zone -- so returns, touchbacks, muffs and shanks are priced in rather than assumed.
+  The per-era tables (with n_punts) are embedded in
+  `src/lib/queries/expected-points.ts` (`PUNT_OPPONENT_START_BY_ERA_ZONE`) with the generating
+  SQL in the provenance comment; e.g. 2021+ zone 8 (punting from own 21-30): opponent starts at
+  their 65.2 across 13,897 punts, the classic ~40-yard net.
+- The block carries its assumptions verbatim, including that the **FG option is not modeled**,
+  and caveats a punt side resting on a nearly-extinct punting zone (2021+ zones 1-3:
+  n = 11/33/86 -- teams no longer punt from opponent territory; 2004-2013 has thousands of
+  those, a nice era artifact).
+
+**Optional ask (5):** if the drive-sequences mart ends up exposing punt outcomes (or a
+punt-implied next-state surface lands in `api`), cfb-app will happily swap the embedded
+empirical table for the contracted surface -- flagging it here so the need is known.
+
+## 6. Asks (remaining)
+
+1. Update the two stale `ep_net` `COMMENT ON` blocks (finding 2): P2 is merged and `ep_net` is
+   populated (the contract changelog says so too), but both comments still say "NULL until P2",
+   which misleads anyone introspecting the warehouse. Verified still stale after the P2 merge.
+2. (Optional) A contracted punt-implied next-state surface, per §5.
 
 ## What cfb-app shipped (2026-08-08)
 

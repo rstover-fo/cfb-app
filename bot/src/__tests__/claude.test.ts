@@ -235,6 +235,10 @@ describe('askClaude request shape', () => {
     expect(flat(text)).toMatch(/distance TO THE GOAL LINE/)
     expect(flat(text)).toMatch(/subtract two states on the SAME basis/)
     expect(flat(text)).toMatch(/down=4 rows assume the offense goes for it/)
+    // The go-vs-punt block answers "should they have gone for it" -- but only
+    // covers go vs punt, so the prompt must carry the FG-not-modeled limit.
+    expect(flat(text)).toMatch(/fourth_down_decision block/)
+    expect(flat(text)).toMatch(/FG option is NOT modeled/)
   })
 
   it('knows it has automatic long-term memory instead of denying it', async () => {

@@ -150,7 +150,10 @@ be 1), NULL `ep_net`/`se_boot` after partial recomputes, and truncation. It is a
 -- "what is 1st-and-10 at midfield worth" -- never a team stat; the tool maps a `yards_to_goal`
 spot onto the view's field-position decile, maps `down` + `distance` onto the down-aware bucket
 boundaries, and, when neither `distance` nor `distance_bucket` is given, returns every bucket
-for the state so the spread itself is reportable.
+for the state so the spread itself is reportable. A fully-specified 4th-down ask additionally
+gets a `fourth_down_decision` block -- EP(go) vs EP(punt) on the `ep_net` basis, with the punt
+side derived from real post-punt field position per era (embedded empirical table in
+`src/lib/queries/expected-points.ts`; FG option explicitly not modeled).
 
 `run_sql` executes one read-only SELECT over the `api` schema through the guarded
 `public.run_analyst_query` RPC (SELECT-only role, statement timeout, row cap); the RPC's
