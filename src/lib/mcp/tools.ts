@@ -2333,7 +2333,7 @@ export function registerMcpTools(server: McpServer): void {
         '  home/away_win_probability, projected_winner, projected_margin, confidence_tier, component\n' +
         '  probs (cfbd/market/elo/sp_home_win_prob), market_spread, market_over_under, actual result\n' +
         '  (home/away_points, actual_winner, brier_loss), and season context (home/away_expected_wins,\n' +
-        '  bowl_eligibility_prob, ten_plus_win_prob)\n' +
+        '  home/away_bowl_eligibility_prob, home/away_ten_plus_win_prob)\n' +
         '- api.season_outlook: season, team, conference, classification, is_projection, model_version,\n' +
         '  projected_wins, projected_losses, median_wins, wins_p10/p25/p75/p90, p_win_dist (jsonb\n' +
         '  {"0":p,...}), p_bowl_eligible, p_ten_plus, sos_rating, sos_rank, conf_title_prob,\n' +
@@ -2360,7 +2360,7 @@ export function registerMcpTools(server: McpServer): void {
         '  tackles, sacks, tfl), ppa_avg/ppa_total. api.player_comparison is the same grain plus\n' +
         '  *_pctl percentile columns\n' +
         '- api.roster_lookup: roster rows per team-season 2004+ (first/last_name, team, position,\n' +
-        '  height, weight, year = season, jersey, hometown)\n' +
+        '  height, weight, year = season, jersey, home_city, home_state, home_country)\n' +
         '- api.recruit_lookup: individual recruits 2000+ (name, year, stars, rating, ranking,\n' +
         '  position, school = HIGH SCHOOL, committed_to = college)\n' +
         '- api.recruiting_roi, api.transfer_portal_impact, api.team_returning_production, api.conference_comparison\n' +
