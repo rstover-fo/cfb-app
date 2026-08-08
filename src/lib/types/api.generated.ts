@@ -86,6 +86,12 @@ export type ApiSchema = {
         sp_defense: number | null
         elo: number | null
         fpi: number | null
+        // Added 2026-08-08 (CFBD CORE handoff): opponent/situation-adjusted
+        // ratings, 2016+. NULL = not rated, never 0. core_defense is
+        // LOWER-better. Confirmed by live introspection same day.
+        core_overall: number | null
+        core_offense: number | null
+        core_defense: number | null
         epa_per_play: number | null
         epa_tier: string | null
         success_rate: number | null
@@ -121,6 +127,11 @@ export type ApiSchema = {
         sp_defense: number | null
         elo: number | null
         fpi: number | null
+        // Added 2026-08-08 (CFBD CORE handoff): NULL for seasons < 2016 =
+        // not rated, never 0. core_defense is LOWER-better.
+        core_overall: number | null
+        core_offense: number | null
+        core_defense: number | null
         epa_per_play: number | null
         epa_tier: string | null
         success_rate: number | null
@@ -128,6 +139,33 @@ export type ApiSchema = {
         total_plays: number | null
         recruiting_rank: number | null
         recruiting_points: number | null
+      }
+      Relationships: []
+    }
+    // CFBD CORE (Context & Opponent-Relative Efficiency): situation- and
+    // opponent-adjusted team ratings, retrospective from 2016. One row per
+    // (team, season); per-100-qualifying-plays point margins vs average with
+    // overall = offense - defense (up to 0.01 rounding drift from the 2dp
+    // columns). defense is LOWER-better. In-season rows are snapshots
+    // advanced in place -- through_week/through_season_type are the as-of
+    // markers. Columns confirmed by live introspection of
+    // information_schema.columns on 2026-08-08 (CFBD CORE handoff).
+    core_ratings: {
+      Row: {
+        season: number | null
+        team: string | null
+        conference: string | null
+        overall: number | null
+        offense: number | null
+        defense: number | null
+        offense_plays: number | null
+        defense_plays: number | null
+        through_week: number | null
+        through_season_type: string | null
+        model_version: string | null
+        overall_rank: number | null
+        offense_rank: number | null
+        defense_rank: number | null
       }
       Relationships: []
     }

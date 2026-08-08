@@ -77,6 +77,11 @@ export interface TeamDetailRow {
   sp_defense: number | null
   elo: number | null
   fpi: number | null
+  /** CFBD CORE (opponent/situation-adjusted), 2016+. NULL = not rated, never 0. */
+  core_overall: number | null
+  core_offense: number | null
+  /** LOWER is better (negative = points prevented vs average). */
+  core_defense: number | null
   epa_per_play: number | null
   epa_tier: string | null
   success_rate: number | null
@@ -89,6 +94,7 @@ const TEAM_DETAIL_COLUMNS = `
   school, mascot, abbreviation, color, alternate_color, logo_url, conference, classification,
   current_season, games, wins, losses, conf_wins, conf_losses, ppg, opp_ppg, avg_margin,
   sp_rating, sp_rank, sp_offense, sp_defense, elo, fpi,
+  core_overall, core_offense, core_defense,
   epa_per_play, epa_tier, success_rate, explosiveness,
   recruiting_rank, recruiting_points
 ` as const

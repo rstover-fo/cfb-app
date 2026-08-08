@@ -1896,7 +1896,8 @@ export function registerMcpTools(server: McpServer): void {
         "Get a team's current-season snapshot plus its full multi-season history. Use for any " +
         'question about a single team -- "how good is Oklahoma this year", "show Oklahoma\'s ' +
         'history since 2014", ratings/EPA trends over time. Combines api.team_detail (current-season ' +
-        'snapshot: record, SP+/Elo/FPI ratings, EPA/success rate/explosiveness, recruiting rank -- at ' +
+        'snapshot: record, SP+/Elo/FPI/CORE ratings (core_defense is lower-better; NULL CORE = not ' +
+        'rated, never 0), EPA/success rate/explosiveness, recruiting rank -- at ' +
         'most one row) and api.team_history (one row per season, ordered season DESC, up to 100 rows). ' +
         "Team names must match CFBD's convention exactly (case-sensitive) -- 'oklahoma' or 'OU' will " +
         'not match \'Oklahoma\'. api.team_detail only includes FBS-classification teams. Returns JSON ' +
@@ -2576,10 +2577,18 @@ export function registerMcpTools(server: McpServer): void {
         "case-sensitive ('Ohio State', 'Miami (OH)', 'Texas A&M'). season is the fall year; " +
         "season_type is 'regular' or 'postseason'.\n" +
         'Core views (key columns):\n' +
-        '- api.team_detail: school, conference, wins, losses, ppg, opp_ppg, sp_rating, sp_rank, elo, fpi, epa_per_play, recruiting_rank (current season, FBS only)\n' +
+        '- api.team_detail: school, conference, wins, losses, ppg, opp_ppg, sp_rating, sp_rank, elo, fpi, core_overall/core_offense/core_defense (CFBD CORE, NULL = not rated), epa_per_play, recruiting_rank (current season, FBS only)\n' +
         '- api.team_history: school (column: team), season, wins, losses, ppg, opp_ppg, avg_margin,\n' +
         '  sp_rating, sp_rank, sp_offense, sp_defense (lower sp_defense is better), elo, fpi,\n' +
+        '  core_overall/core_offense/core_defense (2016+, NULL before = not rated never 0),\n' +
         '  epa_per_play, success_rate, explosiveness, recruiting_rank -- one row per team-season\n' +
+        "- api.core_ratings: CFBD CORE team ratings (opponent- and situation-adjusted), 2016+ -- one\n" +
+        '  row per (team, season): overall, offense, defense (per-100-qualifying-plays point margins\n' +
+        '  vs average; overall = offense - defense), offense_plays, defense_plays, through_week,\n' +
+        '  through_season_type, model_version, overall_rank/offense_rank/defense_rank (within-season).\n' +
+        "  defense is LOWER-BETTER: best defense = ORDER BY defense_rank ASC or defense ASC, NEVER\n" +
+        '  defense DESC. In-season rows are snapshots advanced in place (through_week says how much\n' +
+        '  the rating has seen) -- label mid-season values as current form, not final\n' +
         '- api.game_detail: game_id, season, week, season_type, start_date, completed, neutral_site, conference_game, home_team, away_team, home_points, away_points, winner, point_diff, home_spread, over_under, spread_result, ou_result, pregame_home_win_prob, venue, attendance, excitement_index\n' +
         '- api.team_elo: team, season, season_end_elo, elo_rank, games_played, low_confidence, cfbd_elo -- one row per team-season\n' +
         '- api.game_elo_history: per-game pregame/postgame elo for both teams, win_prob, margin errors.\n' +
