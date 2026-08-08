@@ -39,7 +39,7 @@ vi.mock('../config.js', () => ({
 const { getLoreEnabledMock } = vi.hoisted(() => ({ getLoreEnabledMock: vi.fn(async () => true) }))
 vi.mock('../settings.js', () => ({ getLoreEnabled: getLoreEnabledMock }))
 
-import { askClaude, ClaudeUnavailableError, resetClaudeForTests } from '../claude.js'
+import { askClaude, ClaudeUnavailableError, resetClaudeForTests, sanitizeWebSearchBlocks } from '../claude.js'
 import { resetAnthropicClientForTests } from '../anthropic-client.js'
 
 function apiResponse(
@@ -610,21 +610,88 @@ describe('askClaude web_search tool', () => {
     expect(betaCreateMock.mock.calls[2]?.[0].tools).toEqual([{ type: 'mcp_toolset', mcp_server_name: 'cfb' }])
   })
 
-  it('retries an exhausted continuation ONCE with a minimum declaration when omitting the tool is rejected', async () => {
+  it('retries an exhausted continuation with SANITIZED history, still without the tool, when the plain replay is rejected', async () => {
     loadConfigMock.mockReturnValue({ ...VALID_CONFIG, webSearchMaxUses: 1 })
+    const rejected = () =>
+      Object.assign(new Error('web_search_tool_result blocks require the web_search tool'), { status: 400 })
     betaCreateMock
       .mockResolvedValueOnce(pausedSearchResponse(1)) // spends the whole budget, pauses
       // The API rejecting the tool-less replay is the undocumented case the
-      // fallback exists for.
-      .mockRejectedValueOnce(Object.assign(new Error('web_search_tool_result blocks require the web_search tool'), { status: 400 }))
+      // fallback ladder exists for.
+      .mockRejectedValueOnce(rejected())
       .mockResolvedValueOnce(apiResponse('done'))
 
     const result = await askClaude('deep news question')
 
     expect(result.text).toBe('done')
     expect(betaCreateMock).toHaveBeenCalledTimes(3)
-    expect(betaCreateMock.mock.calls[1]?.[0].tools).toHaveLength(1) // omission attempted first
-    expect(betaCreateMock.mock.calls[2]?.[0].tools[1]).toEqual({ type: 'web_search_20260209', name: 'web_search', max_uses: 1 })
+    expect(betaCreateMock.mock.calls[1]?.[0].tools).toHaveLength(1) // plain omission attempted first
+    // The retry must NOT re-declare the tool -- a spent budget never
+    // authorizes another search. Instead the history is textified: no
+    // search blocks survive, and the note that replaced them is present.
+    const retry = betaCreateMock.mock.calls[2]?.[0]
+    expect(retry.tools).toEqual([{ type: 'mcp_toolset', mcp_server_name: 'cfb' }])
+    const retryBlocks = retry.messages.flatMap((m: { content: unknown }) =>
+      Array.isArray(m.content) ? m.content : []
+    )
+    expect(
+      retryBlocks.some(
+        (b: { type?: string; name?: string }) =>
+          b.type === 'web_search_tool_result' || (b.type === 'server_tool_use' && b.name === 'web_search')
+      )
+    ).toBe(false)
+    expect(
+      retryBlocks.some(
+        (b: { type?: string; text?: string }) => b.type === 'text' && /web search ran here/.test(b.text ?? '')
+      )
+    ).toBe(true)
+  })
+
+  it('declares the minimum allowance only as a last resort, after the sanitized replay is also rejected', async () => {
+    loadConfigMock.mockReturnValue({ ...VALID_CONFIG, webSearchMaxUses: 1 })
+    const rejected = () =>
+      Object.assign(new Error('web_search_tool_result blocks require the web_search tool'), { status: 400 })
+    betaCreateMock
+      .mockResolvedValueOnce(pausedSearchResponse(1)) // spends the whole budget, pauses
+      .mockRejectedValueOnce(rejected()) // plain replay rejected
+      .mockRejectedValueOnce(rejected()) // sanitized replay rejected too
+      .mockResolvedValueOnce(apiResponse('done'))
+
+    const result = await askClaude('deep news question')
+
+    expect(result.text).toBe('done')
+    expect(betaCreateMock).toHaveBeenCalledTimes(4)
+    expect(betaCreateMock.mock.calls[2]?.[0].tools).toHaveLength(1) // sanitized attempt, still tool-less
+    expect(betaCreateMock.mock.calls[3]?.[0].tools[1]).toEqual({
+      type: 'web_search_20260209',
+      name: 'web_search',
+      max_uses: 1,
+    })
+  })
+
+  it('collapses a search-use/result pair into one replay note and keeps every other block', () => {
+    const messages = [
+      { role: 'user' as const, content: 'q' },
+      {
+        role: 'assistant' as const,
+        content: [
+          { type: 'text', text: 'Looking this up.' },
+          { type: 'server_tool_use', id: 's1', name: 'web_search', input: { query: 'news' } },
+          { type: 'web_search_tool_result', tool_use_id: 's1', content: [] },
+          { type: 'text', text: 'Here is what I found.' },
+        ],
+      },
+    ]
+
+    const sanitized = sanitizeWebSearchBlocks(messages as never)
+
+    expect(sanitized[0]).toBe(messages[0]) // untouched messages pass through by reference
+    const content = sanitized[1]?.content as { type: string; text?: string }[]
+    expect(content).toHaveLength(3)
+    expect(content[0]).toEqual({ type: 'text', text: 'Looking this up.' })
+    expect(content[1]?.type).toBe('text')
+    expect(content[1]?.text).toMatch(/web search ran here/)
+    expect(content[2]).toEqual({ type: 'text', text: 'Here is what I found.' })
   })
 
   it('omits the tool on the [ESCALATE] re-run when the shared budget is spent (clean history)', async () => {

@@ -519,18 +519,52 @@ interface WebSearchBudget {
  * blocks -- i.e. this request replays earlier searches from the same
  * logical turn (a pause_turn continuation after a search happened).
  */
+function isWebSearchBlock(block: unknown): boolean {
+  const type = (block as { type?: string }).type
+  return (
+    type === 'web_search_tool_result' ||
+    (type === 'server_tool_use' && (block as { name?: string }).name === 'web_search')
+  )
+}
+
 function hasWebSearchBlocks(messages: Anthropic.Beta.Messages.BetaMessageParam[]): boolean {
   return messages.some(
-    message =>
-      Array.isArray(message.content) &&
-      message.content.some(block => {
-        const type = (block as { type?: string }).type
-        return (
-          type === 'web_search_tool_result' ||
-          (type === 'server_tool_use' && (block as { name?: string }).name === 'web_search')
-        )
-      })
+    message => Array.isArray(message.content) && message.content.some(isWebSearchBlock)
   )
+}
+
+/**
+ * The replayed history with every web-search block collapsed into a short
+ * text note (consecutive search blocks collapse into ONE note, so a
+ * search+result pair doesn't leave two).
+ *
+ * This exists for the spent-budget continuation: the API may reject a replay
+ * whose history carries search blocks for an undeclared tool, and
+ * re-declaring the tool would authorize a fresh search past the configured
+ * budget. Textifying the blocks removes the thing the rejection is about
+ * without re-arming the tool. The searched-up facts the model already wrote
+ * into its visible text survive verbatim; only the raw search machinery is
+ * dropped.
+ */
+export function sanitizeWebSearchBlocks(
+  messages: Anthropic.Beta.Messages.BetaMessageParam[]
+): Anthropic.Beta.Messages.BetaMessageParam[] {
+  const NOTE = '[a web search ran here; its raw results are omitted from this replay]'
+  return messages.map(message => {
+    if (!Array.isArray(message.content) || !message.content.some(isWebSearchBlock)) return message
+    const content: typeof message.content = []
+    for (const block of message.content) {
+      if (!isWebSearchBlock(block)) {
+        content.push(block)
+        continue
+      }
+      const last = content[content.length - 1] as { type?: string; text?: string } | undefined
+      if (!(last?.type === 'text' && last.text === NOTE)) {
+        content.push({ type: 'text', text: NOTE })
+      }
+    }
+    return { ...message, content }
+  })
 }
 
 async function runConnectorCall(
@@ -542,7 +576,12 @@ async function runConnectorCall(
 ): Promise<Anthropic.Beta.Messages.BetaMessage> {
   const config = loadConfig()
   const baseTools: Anthropic.Beta.Messages.BetaToolUnion[] = [{ type: 'mcp_toolset', mcp_server_name: 'cfb' }]
-  const create = (tools: Anthropic.Beta.Messages.BetaToolUnion[]) =>
+  const create = (
+    tools: Anthropic.Beta.Messages.BetaToolUnion[],
+    // The sanitized-replay fallback substitutes a textified history; every
+    // other call sends the turn's messages as-is.
+    messagesOverride: Anthropic.Beta.Messages.BetaMessageParam[] = messages
+  ) =>
     client.beta.messages.create({
       model,
       max_tokens: MAX_TOKENS,
@@ -551,7 +590,7 @@ async function runConnectorCall(
       mcp_servers: [{ type: 'url', url: config.mcpUrl, name: 'cfb', authorization_token: config.mcpAuthToken }],
       tools,
       system: [{ type: 'text', text: systemText, cache_control: { type: 'ephemeral' } }],
-      messages,
+      messages: messagesOverride,
     })
 
   // Anthropic-native server tool: search runs on Anthropic's side inside the
@@ -566,21 +605,32 @@ async function runConnectorCall(
 
   if (config.webSearchMaxUses > 0 && hasWebSearchBlocks(messages)) {
     // Budget spent, but this request replays search blocks from the same
-    // paused turn. Preferred shape: no search tool at all -- a spent budget
-    // must not authorize another search. Whether the API accepts replayed
-    // search blocks without their tool declared is undocumented, though, so
-    // if exactly that request is rejected, retry once with the minimum
-    // declaration rather than fail the whole answer (worst case: one extra
-    // fully-metered search per continuation; a rejected request bills
-    // nothing).
+    // paused turn. A spent budget must not authorize another search, so the
+    // ladder is: (1) replay as-is with no search tool -- whether the API
+    // accepts replayed search blocks without their tool declared is
+    // undocumented, and a rejected request bills nothing; (2) on a 400,
+    // replay with the search blocks collapsed into text notes, still with no
+    // tool -- removes what the rejection is about without re-arming the
+    // tool, so the configured cap holds strictly; (3) only if BOTH
+    // undocumented shapes are rejected, declare the minimum allowance rather
+    // than fail the whole answer (worst case: one extra fully-metered search
+    // for this call -- logged, and now a true corner case instead of the
+    // norm for spent-budget continuations).
     try {
       return await create(baseTools)
     } catch (err) {
-      if ((err as { status?: number } | null)?.status === 400) {
-        console.warn('[claude] continuation without web_search declaration rejected; retrying with min declaration')
+      if ((err as { status?: number } | null)?.status !== 400) throw err
+      console.warn('[claude] continuation without web_search declaration rejected; retrying with sanitized history')
+      try {
+        return await create(baseTools, sanitizeWebSearchBlocks(messages))
+      } catch (err2) {
+        if ((err2 as { status?: number } | null)?.status !== 400) throw err2
+        console.warn(
+          '[claude] sanitized continuation also rejected; retrying with min declaration -- ' +
+            'this call may exceed the configured web-search budget by one search'
+        )
         return create([...baseTools, { type: 'web_search_20260209', name: 'web_search', max_uses: 1 }])
       }
-      throw err
     }
   }
 
