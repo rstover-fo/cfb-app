@@ -23,6 +23,7 @@ function usage(overrides: Partial<UsageSummary> = {}): UsageSummary {
     output_tokens: 0,
     cache_creation_input_tokens: 0,
     cache_read_input_tokens: 0,
+    web_search_requests: 0,
     ...overrides,
   }
 }
@@ -173,12 +174,17 @@ describe('costUsd', () => {
     expect(cost).toBeCloseTo(3 * 0.1, 6)
   })
 
-  it('sums all four usage components', () => {
+  it('prices web_search_requests at a flat $0.01 per search, regardless of model', () => {
+    expect(costUsd(usage({ web_search_requests: 3 }), 'claude-sonnet-5')).toBeCloseTo(0.03, 6)
+    expect(costUsd(usage({ web_search_requests: 3 }), 'claude-opus-4-8')).toBeCloseTo(0.03, 6)
+  })
+
+  it('sums all five usage components', () => {
     const cost = costUsd(
-      usage({ input_tokens: 500_000, output_tokens: 100_000, cache_creation_input_tokens: 200_000, cache_read_input_tokens: 1_000_000 }),
+      usage({ input_tokens: 500_000, output_tokens: 100_000, cache_creation_input_tokens: 200_000, cache_read_input_tokens: 1_000_000, web_search_requests: 2 }),
       'claude-sonnet-5'
     )
-    const expected = 500_000 * (3 / 1e6) + 100_000 * (15 / 1e6) + 200_000 * (3 / 1e6) * 1.25 + 1_000_000 * (3 / 1e6) * 0.1
+    const expected = 500_000 * (3 / 1e6) + 100_000 * (15 / 1e6) + 200_000 * (3 / 1e6) * 1.25 + 1_000_000 * (3 / 1e6) * 0.1 + 2 * 0.01
     expect(cost).toBeCloseTo(expected, 6)
   })
 })

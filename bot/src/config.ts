@@ -19,6 +19,7 @@ const PICKS_PATH_FALLBACK = 'data/picks.json'
 const COOLDOWN_SECONDS_FALLBACK = 20
 const USER_DAILY_LIMIT_FALLBACK = 10
 const DAILY_BUDGET_USD_FALLBACK = 10
+const WEB_SEARCH_MAX_USES_FALLBACK = 3
 
 /** Treats empty/whitespace-only strings as "unset" before applying a default. */
 const optionalNonEmpty = z
@@ -78,6 +79,10 @@ const EnvSchema = z.object({
   COOLDOWN_SECONDS: optionalNumber(),
   USER_DAILY_LIMIT: optionalNumber(),
   DAILY_BUDGET_USD: optionalNumber(),
+  // Max Anthropic-native web_search calls per API request on the
+  // conversational path. 0 disables the tool entirely (it is then omitted
+  // from the request AND the system prompt never mentions it).
+  WEB_SEARCH_MAX_USES: optionalNumber(),
   // z.coerce.number() on an empty string coerces to 0, not undefined -- treat
   // an empty/unset CFB_SEASON as "omitted" before it reaches the coercer.
   CFB_SEASON: z
@@ -144,6 +149,8 @@ export interface BotConfig {
   userDailyLimit: number
   /** Global daily spend ceiling in USD for the LLM path. */
   dailyBudgetUsd: number
+  /** Max web_search calls per conversational request; 0 removes the tool entirely. */
+  webSearchMaxUses: number
   /** Raw CFB_SEASON override, if set. */
   cfbSeasonOverride?: number
   /** CFB_SEASON override if set, else the August-pivot default for `now`. */
@@ -204,6 +211,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): BotConfig {
     cooldownSeconds: data.COOLDOWN_SECONDS ?? COOLDOWN_SECONDS_FALLBACK,
     userDailyLimit: data.USER_DAILY_LIMIT ?? USER_DAILY_LIMIT_FALLBACK,
     dailyBudgetUsd: data.DAILY_BUDGET_USD ?? DAILY_BUDGET_USD_FALLBACK,
+    webSearchMaxUses: data.WEB_SEARCH_MAX_USES ?? WEB_SEARCH_MAX_USES_FALLBACK,
     cfbSeasonOverride: data.CFB_SEASON,
     defaultSeason: deriveDefaultSeason(data.CFB_SEASON),
   }

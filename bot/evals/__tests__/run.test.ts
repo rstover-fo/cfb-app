@@ -249,7 +249,7 @@ function fixtureAnswer(overrides: Record<string, unknown> = {}) {
     text: 'Oklahoma is 8-2, SP+ rank 14.',
     tier: 'simple' as const,
     escalated: false,
-    usage: { input_tokens: 1000, output_tokens: 100, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+    usage: { input_tokens: 1000, output_tokens: 100, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, web_search_requests: 0 },
     model: 'claude-sonnet-5',
     ...overrides,
   }
@@ -271,7 +271,7 @@ describe('runEntry', () => {
     askClaudeMock.mockResolvedValue(fixtureAnswer())
     const judgeFn: JudgeFn = vi.fn().mockResolvedValue({
       verdict: { pass: true, reason: 'cites SP+' },
-      usage: { input_tokens: 50, output_tokens: 10, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      usage: { input_tokens: 50, output_tokens: 10, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, web_search_requests: 0 },
     })
 
     const { row } = await runEntry(entry({ judge: 'cites a number' }), judgeFn)
@@ -284,7 +284,7 @@ describe('runEntry', () => {
     askClaudeMock.mockResolvedValue(fixtureAnswer())
     const judgeFn: JudgeFn = vi.fn().mockResolvedValue({
       verdict: { pass: false, reason: 'no numbers' },
-      usage: { input_tokens: 50, output_tokens: 10, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      usage: { input_tokens: 50, output_tokens: 10, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, web_search_requests: 0 },
     })
 
     const { row } = await runEntry(entry({ judge: 'cites a number' }), judgeFn)
@@ -293,10 +293,10 @@ describe('runEntry', () => {
   })
 
   it('sums askClaude usage cost and judge usage cost into spend', async () => {
-    askClaudeMock.mockResolvedValue(fixtureAnswer({ usage: { input_tokens: 1_000_000, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 } })) // $3 on sonnet
+    askClaudeMock.mockResolvedValue(fixtureAnswer({ usage: { input_tokens: 1_000_000, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, web_search_requests: 0 } })) // $3 on sonnet
     const judgeFn: JudgeFn = vi.fn().mockResolvedValue({
       verdict: { pass: true, reason: 'ok' },
-      usage: { input_tokens: 1_000_000, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 }, // $1 on haiku
+      usage: { input_tokens: 1_000_000, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, web_search_requests: 0 }, // $1 on haiku
     })
 
     const { spend } = await runEntry(entry({ judge: 'x' }), judgeFn)
