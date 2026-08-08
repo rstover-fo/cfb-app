@@ -17,11 +17,12 @@ import {
   EXPECTED_POINTS_DEFAULT_LIMIT,
   EXPECTED_POINTS_ERAS,
   EXPECTED_POINTS_FIRST_SEASON,
-  PUNT_OPPONENT_START_BY_ERA_ZONE,
+  PUNT_OUTCOMES_BY_ERA_ZONE,
+  PUNT_RETURN_TD_EP,
+  computePuntEp,
   distanceBucketFor,
   eraForSeason,
   fieldZoneForYardsToGoal,
-  puntImpliedOpponentYtg,
   queryExpectedPoints,
 } from '../expected-points'
 
@@ -112,32 +113,60 @@ describe('distanceBucketFor', () => {
   })
 })
 
-describe('puntImpliedOpponentYtg', () => {
-  it('covers every era and zone with real punt data behind each average', () => {
+describe('computePuntEp', () => {
+  /** A flat EP curve makes the weighted arithmetic hand-checkable. */
+  function flatCurve(epNet: number, omitZones: number[] = []) {
+    const map = new Map<number, number>()
+    for (let zone = 1; zone <= 10; zone++) {
+      if (!omitZones.includes(zone)) map.set(zone, epNet)
+    }
+    return map
+  }
+
+  it('covers every era and zone with real punt outcomes behind each distribution', () => {
     // The table is embedded (stable historical facts, not a model output);
     // this guards against a refresh accidentally dropping an era or zone.
     for (const era of EXPECTED_POINTS_ERAS) {
-      const zones = PUNT_OPPONENT_START_BY_ERA_ZONE[era]
       for (let zone = 1; zone <= 10; zone++) {
-        expect(zones[zone].nPunts).toBeGreaterThan(0)
-        expect(zones[zone].oppStartYtg).toBeGreaterThanOrEqual(1)
-        expect(zones[zone].oppStartYtg).toBeLessThanOrEqual(99)
+        const dist = PUNT_OUTCOMES_BY_ERA_ZONE[era][zone]
+        const nOpp = dist.oppZoneCounts.reduce((a, b) => a + b, 0)
+        expect(nOpp + dist.nReturnTd + dist.nKickKeep).toBeGreaterThan(0)
+        expect(dist.kickKeepAvgYtg).toBeGreaterThanOrEqual(1)
+        expect(dist.kickKeepAvgYtg).toBeLessThanOrEqual(99)
       }
     }
   })
 
-  it('resolves the punting spot to its zone average, rounded to whole yards', () => {
-    // Punting from own 25 (ytg 75, zone 8) in the modern era: opponents start
-    // at their ~65 -- the classic ~40-yard net, live-verified 2026-08-08.
-    expect(puntImpliedOpponentYtg('2021+', 75)).toEqual({ ytg: 65, nPunts: 13897 })
-    // Midfield punts pin deep.
-    expect(puntImpliedOpponentYtg('2021+', 50)).toEqual({ ytg: 86, nPunts: 7468 })
+  it('weights outcomes, not the average spot: return TDs and kick-team recoveries price in', () => {
+    // 2021+ zone 5 (punting from midfield): 7469 clean transfers, 16 return
+    // TDs, 223 kicking-team recoveries (avg retained spot ytg 54 -> zone 6).
+    // On a flat 0.4 EP curve: clean transfers are worth -0.4 each, return TDs
+    // -6.97, recoveries +0.4.
+    const result = computePuntEp('2021+', 50, flatCurve(0.4))
+    const expected = (7469 * -0.4 + 16 * PUNT_RETURN_TD_EP + 223 * 0.4) / 7708
+
+    expect(result).not.toBeNull()
+    expect(result!.nPunts).toBe(7708)
+    expect(result!.epPunt).toBeCloseTo(expected, 10)
+    expect(result!.pReturnTd).toBeCloseTo(16 / 7708, 10)
+    expect(result!.pKickKeep).toBeCloseTo(223 / 7708, 10)
   })
 
-  it('carries the thin-sample count for zones where punting is nearly extinct', () => {
-    // 2021+ zone 1 (punting from inside the opponent 10) has 11 real punts --
-    // the tool layer uses nPunts to caveat these as anecdotes.
-    expect(puntImpliedOpponentYtg('2021+', 5)).toEqual({ ytg: 61, nPunts: 11 })
+  it('returns null when a zone carrying weight has no computed ep_net -- never treats it as zero', () => {
+    // 2014-2020 zone 2 has weight in opponent zone 8 (144 punts); dropping
+    // that zone from the curve must fail the whole computation.
+    expect(computePuntEp('2014-2020', 15, flatCurve(0.4, [8]))).toBeNull()
+    // Opponent zone 10 has ZERO weight for that era/zone, so its absence is
+    // harmless.
+    expect(computePuntEp('2014-2020', 15, flatCurve(0.4, [10]))).not.toBeNull()
+  })
+
+  it('keeps the narration-only expected start out of the EP math but plausible', () => {
+    // 2021+ zone 8 (own 21-30): opponents mostly start in zones 6-8, i.e.
+    // around their own 30-40 -- the classic ~40 net.
+    const result = computePuntEp('2021+', 75, flatCurve(0.4))
+    expect(result!.expectedOppStartYtg).toBeGreaterThan(55)
+    expect(result!.expectedOppStartYtg).toBeLessThan(75)
   })
 })
 

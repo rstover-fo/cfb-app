@@ -67,6 +67,26 @@ function mockRows(rows: ExpectedPointsRow[]) {
   vi.mocked(queryExpectedPoints).mockResolvedValue({ rows, error: null })
 }
 
+/**
+ * A flat down-1 EP curve for the punt side of fourth_down_decision: one row
+ * per opponent starting zone ('goal' for zone 1, where 1st-and-10 cannot
+ * exist, 'standard' elsewhere), every ep_net the same so the distribution
+ * arithmetic is hand-checkable.
+ */
+function downOneCurve(epNet: number): ExpectedPointsRow[] {
+  return Array.from({ length: 10 }, (_, i) => {
+    const zone = i + 1
+    const bucket = zone === 1 ? 'goal' : 'standard'
+    return row({
+      state: `d1|${bucket}|z${zone}`,
+      down: 1,
+      distance_bucket: bucket,
+      field_zone: zone,
+      ep_net: epNet,
+    })
+  })
+}
+
 beforeEach(() => {
   vi.clearAllMocks()
 })
@@ -139,16 +159,31 @@ describe('getExpectedPointsTool', () => {
     )
   })
 
-  it('lets an explicit distance_bucket win over distance, and ignores distance without down', async () => {
-    mockRows([row()])
-    const explicit = JSON.parse(
+  it('lets the numbers beat a contradictory explicit bucket, with a caveat saying so', async () => {
+    // 3rd-and-7 maps to 'long'; an explicit 'short' contradicts the numbers
+    // and must not silently rewrite the state (a contradictory 'goal' on a
+    // 4th down would flip the go-vs-punt recommendation).
+    mockRows([row({ state: 'd3|long|z5', down: 3, distance_bucket: 'long', field_zone: 5 })])
+    const payload = JSON.parse(
       await getExpectedPointsTool({ down: 3, distance: 7, distance_bucket: 'short' })
     )
-    expect(explicit.distance_bucket).toBe('short')
-    expect(explicit.distance_bucket_source).toBe('requested')
+
+    expect(payload.distance_bucket).toBe('long')
+    expect(payload.distance_bucket_source).toBe('derived_from_distance')
+    expect(payload.caveats.join(' ')).toMatch(/contradicts down 3 and distance 7/)
+    expect(payload.caveats.join(' ')).toMatch(/The numbers win/)
     expect(vi.mocked(queryExpectedPoints)).toHaveBeenCalledWith(
-      expect.objectContaining({ distanceBucket: 'short' })
+      expect.objectContaining({ distanceBucket: 'long' })
     )
+  })
+
+  it('respects an explicit bucket when nothing can check it, and ignores distance without down', async () => {
+    mockRows([row()])
+    const explicitOnly = JSON.parse(
+      await getExpectedPointsTool({ down: 3, distance_bucket: 'short' })
+    )
+    expect(explicitOnly.distance_bucket).toBe('short')
+    expect(explicitOnly.distance_bucket_source).toBe('requested')
 
     vi.clearAllMocks()
     mockRows([row()])
@@ -227,35 +262,35 @@ describe('getExpectedPointsTool', () => {
     expect(result).toMatch(/short\/med\/long\/xlong/)
   })
 
-  it('attaches the go-vs-punt block on a fully-specified 4th down, with delta on the ep_net basis', async () => {
-    // 4th-and-2 at midfield (ytg 50, zone 5). The punt table says opponents
-    // start at their 86 after a zone-5 punt in 2021+ (7468 real punts), which
-    // is zone 9 -- so the second query must ask for d1|standard|z9.
+  it('attaches the go-vs-punt block with the distribution-weighted punt EP, not EP of the average spot', async () => {
+    // 4th-and-2 at midfield (ytg 50, zone 5), 2021+: 7469 clean transfers,
+    // 16 return TDs, 223 kicking-team recoveries = 7708 punts. On a flat 0.4
+    // down-1 curve: EP(punt) = (7469*(-0.4) + 16*(-6.97) + 223*(0.4)) / 7708.
     vi.mocked(queryExpectedPoints)
       .mockResolvedValueOnce({
         rows: [downFourRow({ state: 'd4|short|z5', field_zone: 5, ep_net: -0.1 })],
         error: null,
       })
-      .mockResolvedValueOnce({
-        rows: [row({ state: 'd1|standard|z9', field_zone: 9, ep_net: 0.35 })],
-        error: null,
-      })
+      .mockResolvedValueOnce({ rows: downOneCurve(0.4), error: null })
     const payload = JSON.parse(
       await getExpectedPointsTool({ down: 4, distance: 2, yards_to_goal: 50 })
     )
 
+    const expectedEpPunt = (7469 * -0.4 + 16 * -6.97 + 223 * 0.4) / 7708
     const block = payload.fourth_down_decision
     expect(block.go.state).toBe('d4|short|z5')
     expect(block.go.ep_net).toBe(-0.1)
-    expect(block.punt.implied_opponent_yards_to_goal).toBe(86)
-    expect(block.punt.n_punts_basis).toBe(7468)
-    expect(block.punt.opponent_state).toBe('d1|standard|z9')
-    expect(block.punt.ep_punt).toBe(-0.35)
-    expect(block.ep_delta_go_minus_punt).toBeCloseTo(0.25, 10)
+    expect(block.punt.ep_punt).toBeCloseTo(expectedEpPunt, 10)
+    expect(block.punt.n_punts_basis).toBe(7708)
+    expect(block.punt.p_return_td).toBeCloseTo(16 / 7708, 10)
+    expect(block.punt.p_kick_team_keeps).toBeCloseTo(223 / 7708, 10)
+    expect(block.ep_delta_go_minus_punt).toBeCloseTo(-0.1 - expectedEpPunt, 10)
+    expect(block.assumptions.join(' ')).toMatch(/distribution-weighted/)
     expect(block.assumptions.join(' ')).toMatch(/FG option is NOT modeled/)
+    // The punt side needs the whole down-1 curve, not one zone.
     expect(vi.mocked(queryExpectedPoints)).toHaveBeenNthCalledWith(
       2,
-      expect.objectContaining({ down: 1, distanceBucket: 'standard', fieldZone: 9, limit: 1 })
+      expect.objectContaining({ down: 1, limit: 50 })
     )
   })
 
@@ -273,37 +308,54 @@ describe('getExpectedPointsTool', () => {
   })
 
   it('skips the block with a caveat when a required ep_net is not computed', async () => {
+    // NULL ep_net on the go side: the punt side is computable but the
+    // comparison is not -- never substitute ep_drive or zero.
     vi.mocked(queryExpectedPoints)
       .mockResolvedValueOnce({
         rows: [downFourRow({ state: 'd4|short|z5', field_zone: 5, ep_net: null })],
         error: null,
       })
-      .mockResolvedValueOnce({ rows: [row({ state: 'd1|standard|z9', ep_net: 0.35 })], error: null })
+      .mockResolvedValueOnce({ rows: downOneCurve(0.4), error: null })
     const payload = JSON.parse(
       await getExpectedPointsTool({ down: 4, distance: 2, yards_to_goal: 50 })
     )
-
     expect(payload).not.toHaveProperty('fourth_down_decision')
     expect(payload.caveats.join(' ')).toMatch(/go-vs-punt comparison could not be computed/)
+
+    vi.clearAllMocks()
+    // A hole in the down-1 curve where the punt distribution carries weight
+    // (zone 9 dropped) must also fail the punt side rather than zeroing it.
+    vi.mocked(queryExpectedPoints)
+      .mockResolvedValueOnce({
+        rows: [downFourRow({ state: 'd4|short|z5', field_zone: 5, ep_net: -0.1 })],
+        error: null,
+      })
+      .mockResolvedValueOnce({
+        rows: downOneCurve(0.4).filter(r => r.field_zone !== 9),
+        error: null,
+      })
+    const holed = JSON.parse(
+      await getExpectedPointsTool({ down: 4, distance: 2, yards_to_goal: 50 })
+    )
+    expect(holed).not.toHaveProperty('fourth_down_decision')
+    expect(holed.caveats.join(' ')).toMatch(/go-vs-punt comparison could not be computed/)
   })
 
   it('flags a punt side resting on a nearly-extinct punting zone as an anecdote', async () => {
-    // 4th-and-goal from the 5 (zone 1): 11 real punts back the 2021+ average.
+    // 4th-and-goal from the 5 (zone 1): 13 usable punts in the 2021+ table
+    // (11 clean transfers + 1 return TD + 1 kicking-team recovery).
     vi.mocked(queryExpectedPoints)
       .mockResolvedValueOnce({
         rows: [downFourRow({ state: 'd4|goal|z1', distance_bucket: 'goal', field_zone: 1, ep_net: 1.9 })],
         error: null,
       })
-      .mockResolvedValueOnce({
-        rows: [row({ state: 'd1|standard|z7', field_zone: 7, ep_net: 0.9 })],
-        error: null,
-      })
+      .mockResolvedValueOnce({ rows: downOneCurve(0.4), error: null })
     const payload = JSON.parse(
       await getExpectedPointsTool({ down: 4, distance: 5, yards_to_goal: 5 })
     )
 
-    expect(payload.fourth_down_decision.punt.n_punts_basis).toBe(11)
-    expect(payload.caveats.join(' ')).toMatch(/Only 11 real punts/)
+    expect(payload.fourth_down_decision.punt.n_punts_basis).toBe(13)
+    expect(payload.caveats.join(' ')).toMatch(/Only 13 real punts/)
   })
 
   it('passes the query error string through untouched (never throws)', async () => {

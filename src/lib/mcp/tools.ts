@@ -65,7 +65,7 @@ import {
   eraForSeason,
   fieldZoneForYardsToGoal,
   distanceBucketFor,
-  puntImpliedOpponentYtg,
+  computePuntEp,
   EXPECTED_POINTS_ERAS,
   EXPECTED_POINTS_DISTANCE_BUCKETS,
   EXPECTED_POINTS_DEFAULT_LIMIT,
@@ -1717,31 +1717,43 @@ export async function getExpectedPointsTool(args: GetExpectedPointsArgs): Promis
   const fieldZone = args.yards_to_goal != null ? fieldZoneForYardsToGoal(args.yards_to_goal) : undefined
   const effectiveLimit = args.limit ?? EXPECTED_POINTS_DEFAULT_LIMIT
 
-  // An explicit bucket wins; otherwise a (down, distance) pair maps through
-  // the handoff's down-aware boundaries -- with yards_to_goal along so
-  // goal-to-go overrides the yardage buckets. distance without down stays
-  // unmapped (the boundaries differ by down), falling back to all buckets.
-  let distanceBucket = args.distance_bucket
-  let bucketSource: 'requested' | 'derived_from_distance' | undefined = distanceBucket
-    ? 'requested'
-    : undefined
-  if (!distanceBucket && args.distance != null && args.down != null) {
-    distanceBucket = distanceBucketFor(args.down, args.distance, args.yards_to_goal)
-    bucketSource = 'derived_from_distance'
+  // Bucket resolution. When (down, distance) can derive the bucket, the
+  // NUMBERS are authoritative: an explicit distance_bucket that contradicts
+  // them is ignored with a caveat rather than silently rewriting the state
+  // ("4th-and-2 at midfield" with distance_bucket='goal' would otherwise
+  // price a goal-to-go cell and flip the go-vs-punt recommendation). An
+  // explicit bucket stands only when there is nothing to check it against;
+  // distance without down stays unmapped (the boundaries differ by down).
+  const bucketCaveats: string[] = []
+  const derivedBucket =
+    args.distance != null && args.down != null
+      ? distanceBucketFor(args.down, args.distance, args.yards_to_goal)
+      : undefined
+  const distanceBucket = derivedBucket ?? args.distance_bucket
+  const bucketSource: 'requested' | 'derived_from_distance' | undefined = derivedBucket
+    ? 'derived_from_distance'
+    : args.distance_bucket
+      ? 'requested'
+      : undefined
+  if (derivedBucket && args.distance_bucket && args.distance_bucket !== derivedBucket) {
+    bucketCaveats.push(
+      `distance_bucket '${args.distance_bucket}' contradicts down ${args.down} and distance ` +
+        `${args.distance}${args.yards_to_goal != null ? ` at yards_to_goal ${args.yards_to_goal}` : ''}, ` +
+        `which map to '${derivedBucket}'. The numbers win: this result uses '${derivedBucket}'. ` +
+        'Drop the explicit bucket, or drop distance, if you meant something else.'
+    )
   }
 
   // A fully-resolved 4th-down state with a known spot also gets the go-vs-punt
   // comparison: EP(go) is the state's own ep_net (d4 rows are go-conditional,
-  // exactly the "given they go" number), EP(punt) is -ep_net of the opponent's
-  // 1st-and-10 at their empirically implied start after a punt from here. The
-  // opponent lookup is independent of the main query, so it goes out in the
-  // same round trip.
-  const puntImplied =
-    args.down === 4 && args.yards_to_goal != null && distanceBucket != null
-      ? puntImpliedOpponentYtg(era, args.yards_to_goal)
-      : null
+  // exactly the "given they go" number), EP(punt) is the distribution-weighted
+  // E[EP(outcome)] over the era's real punt outcomes from this zone. The punt
+  // side needs the era's whole down-1 EP curve (every opponent starting zone
+  // has weight), so the second query fetches all down-1 rows -- independent of
+  // the main query, same round trip.
+  const puntEligible = args.down === 4 && args.yards_to_goal != null && distanceBucket != null
 
-  const [result, opponentResult] = await Promise.all([
+  const [result, downOneResult] = await Promise.all([
     queryExpectedPoints({
       era,
       down: args.down,
@@ -1749,14 +1761,8 @@ export async function getExpectedPointsTool(args: GetExpectedPointsArgs): Promis
       distanceBucket,
       limit: args.limit,
     }),
-    puntImplied
-      ? queryExpectedPoints({
-          era,
-          down: 1,
-          fieldZone: fieldZoneForYardsToGoal(puntImplied.ytg),
-          distanceBucket: 'standard',
-          limit: 1,
-        })
+    puntEligible
+      ? queryExpectedPoints({ era, down: 1, limit: 50 })
       : Promise.resolve({ rows: [] as ExpectedPointsRow[], error: null }),
   ])
 
@@ -1788,40 +1794,59 @@ export async function getExpectedPointsTool(args: GetExpectedPointsArgs): Promis
     )
   }
 
-  if (puntImplied) {
+  if (puntEligible) {
+    // Opponent-zone EP curve: the opponent's 1st-and-10 ep_net per starting
+    // zone. Zone 1 (inside their 10... which from the punting team's view is
+    // nearly conceding a score against the punter's own goal) has no
+    // 'standard' cell -- 1st-and-10 there is goal-to-go -- so 'goal' stands in.
+    const epNetByZone = new Map<number, number>()
+    for (const r of downOneResult.rows) {
+      const preferred = r.field_zone === 1 ? 'goal' : 'standard'
+      if (r.distance_bucket === preferred && r.ep_net != null) {
+        epNetByZone.set(r.field_zone, r.ep_net)
+      }
+    }
+    const puntEp =
+      downOneResult.error == null && args.yards_to_goal != null
+        ? computePuntEp(era, args.yards_to_goal, epNetByZone)
+        : null
+
     const goRow = result.rows.length === 1 ? result.rows[0] : null
-    const oppRow = opponentResult.rows[0]
-    if (!goRow || goRow.ep_net == null || opponentResult.error || !oppRow || oppRow.ep_net == null) {
+    if (!goRow || goRow.ep_net == null || puntEp == null) {
       decisionCaveats.push(
         'The go-vs-punt comparison could not be computed for this 4th-down state (a required ' +
-          'ep_net was missing or not computed). Do not improvise the punt side by hand.'
+          'ep_net was missing or not computed, or no punt data covers this zone). Do not ' +
+          'improvise the punt side by hand.'
       )
     } else {
       const epGo = goRow.ep_net
-      const epPunt = -oppRow.ep_net
       fourthDownDecision = {
         go: { state: goRow.state, ep_net: epGo, n_obs: goRow.n_obs, se_boot: goRow.se_boot },
         punt: {
-          implied_opponent_yards_to_goal: puntImplied.ytg,
-          n_punts_basis: puntImplied.nPunts,
-          opponent_state: oppRow.state,
-          ep_punt: epPunt,
+          ep_punt: puntEp.epPunt,
+          n_punts_basis: puntEp.nPunts,
+          p_return_td: puntEp.pReturnTd,
+          p_kick_team_keeps: puntEp.pKickKeep,
+          expected_opponent_start_ytg: puntEp.expectedOppStartYtg,
         },
-        ep_delta_go_minus_punt: epGo - epPunt,
+        ep_delta_go_minus_punt: epGo - puntEp.epPunt,
         assumptions: [
           'EP(go) is the ep_net of the 4th-down state itself -- d4 rows are conditional on ' +
             'going, which is exactly the "given they go" number.',
-          `EP(punt) = -ep_net of the opponent's 1st-and-10 at their empirically implied start ` +
-            `(yards_to_goal ${puntImplied.ytg}): the average real next-drive start after ` +
-            `${puntImplied.nPunts} actual punts from this zone in this era, so returns, ` +
-            'touchbacks and shanks are priced in.',
+          `EP(punt) is the distribution-weighted E[EP(outcome)] over ${puntEp.nPunts} real ` +
+            'punts from this zone in this era: each resulting opponent starting zone valued at ' +
+            "-ep_net of the opponent's 1st-and-10 there (touchbacks, returns and receiver-kept " +
+            'muffs included), punts returned or blocked for a TD valued at -6.97, and ' +
+            'kicking-team recoveries valued at the average retained spot. NOT ' +
+            'EP-of-the-average-spot: the weighting happens over outcomes, so nonlinearity in ' +
+            'the EP curve is respected. expected_opponent_start_ytg is narration only.',
           'The FG option is NOT modeled here. Inside plausible FG range, this comparison is ' +
             'incomplete -- say so rather than presenting go-vs-punt as the whole decision.',
         ],
       }
-      if (puntImplied.nPunts < PUNT_SPARSE_N) {
+      if (puntEp.nPunts < PUNT_SPARSE_N) {
         decisionCaveats.push(
-          `Only ${puntImplied.nPunts} real punts back the punt side of the comparison -- teams ` +
+          `Only ${puntEp.nPunts} real punts back the punt side of the comparison -- teams ` +
             'almost never punt from this zone (it is FG/go territory). Treat the punt EP as an ' +
             'anecdote, not a baseline.'
         )
@@ -1845,7 +1870,11 @@ export async function getExpectedPointsTool(args: GetExpectedPointsArgs): Promis
       : {}),
     ...(fourthDownDecision ? { fourth_down_decision: fourthDownDecision } : {}),
     basis: EXPECTED_POINTS_BASIS,
-    caveats: [...expectedPointsCaveats(result.rows, effectiveLimit), ...decisionCaveats],
+    caveats: [
+      ...bucketCaveats,
+      ...expectedPointsCaveats(result.rows, effectiveLimit),
+      ...decisionCaveats,
+    ],
     ...wrap('api.expected_points', result.rows),
   })
 }
@@ -2963,12 +2992,13 @@ export function registerMcpTools(server: McpServer): void {
         '1-10 yards out (about to score), zone 10 = 91-99 (backed up).\n\n' +
         'FOURTH-DOWN DECISIONS: ask with down=4 + distance + yards_to_goal and the response ' +
         'attaches a "fourth_down_decision" block -- EP(go) (the state\'s own ep_net; d4 rows are ' +
-        "go-conditional, exactly the \"given they go\" number) vs EP(punt) (-ep_net of the " +
-        "opponent's 1st-and-10 at their empirically implied start: the average real next-drive " +
-        'start after actual punts from this zone and era, returns and touchbacks priced in), plus ' +
-        'ep_delta_go_minus_punt and an assumptions list. All of it is on the ep_net basis. The FG ' +
-        'option is NOT modeled -- inside plausible FG range say the comparison is incomplete. ' +
-        'Relay the assumptions when you use the block.\n\n' +
+        'go-conditional, exactly the "given they go" number) vs EP(punt) (the distribution-' +
+        'weighted E[EP] over real punt outcomes from this zone and era: every resulting opponent ' +
+        'starting zone valued at its own -ep_net, punts returned/blocked for TDs at -6.97, ' +
+        'kicking-team recoveries at the retained spot -- outcome-weighted, never EP of the ' +
+        'average spot), plus ep_delta_go_minus_punt and an assumptions list. All of it is on the ' +
+        'ep_net basis. The FG option is NOT modeled -- inside plausible FG range say the ' +
+        'comparison is incomplete. Relay the assumptions when you use the block.\n\n' +
         'Returns JSON with "era", "era_source", optional "season"/"yards_to_goal"/"field_zone"/' +
         '"distance"/"distance_bucket"/"distance_bucket_source"/"fourth_down_decision", "basis", ' +
         '"caveats", plus {"_source": "api.expected_points", "count", "rows"} -- or a friendly ' +
@@ -2992,8 +3022,8 @@ export function registerMcpTools(server: McpServer): void {
           .describe(
             'Yards to go for a first down (the "7" in 3rd-and-7). Requires `down` to map to a ' +
               'bucket -- the boundaries are down-aware. Pass `yards_to_goal` too when known, so ' +
-              'goal-to-go is detected. Ignored when `distance_bucket` is passed explicitly; ' +
-              'ignored entirely without `down`.'
+              'goal-to-go is detected. When both this and `distance_bucket` are passed and they ' +
+              'disagree, the numbers win and a caveat says so. Ignored entirely without `down`.'
           ),
         yards_to_goal: z
           .number()

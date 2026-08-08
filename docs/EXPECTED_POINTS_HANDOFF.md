@@ -128,17 +128,22 @@ With P2 in, cfb-app shipped the handoff's P2-gated suggestion at the tool level:
 state (down=4 + distance + yards_to_goal). All math on `ep_net` (rule 1):
 
 - **EP(go)** = the d4 state's own `ep_net` (go-conditional = exactly "given they go").
-- **EP(punt)** = `-ep_net` of the opponent's 1st-and-10 at their **empirically implied start**:
-  the average real next-drive `start_yards_to_goal` after `drive_result = 'PUNT'` drives in
-  `api.game_drives` (self-join on `(game_id, drive_number + 1)`), per era and punting
-  field-zone -- so returns, touchbacks, muffs and shanks are priced in rather than assumed.
-  The per-era tables (with n_punts) are embedded in
-  `src/lib/queries/expected-points.ts` (`PUNT_OPPONENT_START_BY_ERA_ZONE`) with the generating
-  SQL in the provenance comment; e.g. 2021+ zone 8 (punting from own 21-30): opponent starts at
-  their 65.2 across 13,897 punts, the classic ~40-yard net.
+- **EP(punt)** = the **distribution-weighted E[EP(outcome)]** over the era's real punt outcomes
+  from the punting zone, from `api.game_drives` (LEFT-join to the next drive): each resulting
+  opponent starting ZONE valued at `-ep_net` of the opponent's 1st-and-10 there (touchbacks,
+  returns and receiver-kept muffs included), punts returned or blocked for TDs valued at -6.97,
+  and kicking-team recoveries valued at `+ep_net` of the average retained spot. Explicitly NOT
+  `EP(E[field position])` -- the EP curve is nonlinear across zones, so evaluating it at the
+  mean spot would bias the punt value (both points raised by PR #51's automated review and
+  adopted); the ~1% of punts that do not transfer possession cleanly are kept, not filtered by
+  an inner join. Per-era outcome distributions (with counts) are embedded in
+  `src/lib/queries/expected-points.ts` (`PUNT_OUTCOMES_BY_ERA_ZONE`) with the generating SQL in
+  the provenance comment. Worked example, live 2026-08-08: 4th-and-2 at midfield in 2021+ --
+  EP(go) +1.388 vs distribution-weighted EP(punt) -0.374 (the single-point version said -0.411;
+  the ~0.04 correction is Jensen plus tail outcomes), delta +1.76 toward going.
 - The block carries its assumptions verbatim, including that the **FG option is not modeled**,
-  and caveats a punt side resting on a nearly-extinct punting zone (2021+ zones 1-3:
-  n = 11/33/86 -- teams no longer punt from opponent territory; 2004-2013 has thousands of
+  and caveats a punt side resting on a nearly-extinct punting zone (2021+ zones 1-3 total
+  13/35/94 punts -- teams no longer punt from opponent territory; 2004-2013 has thousands of
   those, a nice era artifact).
 
 **Optional ask (5):** if the drive-sequences mart ends up exposing punt outcomes (or a

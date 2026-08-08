@@ -125,11 +125,22 @@ export function fieldZoneForYardsToGoal(yardsToGoal: number): number {
 }
 
 /**
- * Where the opponent actually starts after a punt, per era and punting
- * field-zone: the empirical average of the NEXT drive's start_yards_to_goal
- * across every drive_result='PUNT' drive in api.game_drives, so returns,
- * touchbacks, muffs and shanks are all priced in. Powers the tool's
- * fourth-down go-vs-punt comparison (EP(punt) = -ep_net at this spot).
+ * The full empirical outcome distribution of a punt, per era and punting
+ * field-zone, from api.game_drives. Powers the tool's fourth-down go-vs-punt
+ * comparison as E[EP(outcome)] -- a distribution-weighted average, NOT
+ * EP(E[field position]): ep_net is nonlinear across zones, so evaluating it
+ * at the mean starting spot biases the punt value (Jensen), and the ~1% of
+ * punts that do not transfer possession cleanly carry outsized values that a
+ * clean-transfer-only join would silently drop.
+ *
+ * Per (era, punting zone): `oppZoneCounts[z-1]` counts punts whose NEXT drive
+ * belonged to the receiving team starting in opponent zone z (this includes
+ * touchbacks, returns, muffs the receivers kept, and non-TD blocked punts
+ * recovered by the defense); `nReturnTd` counts punts scored against the
+ * punting team (drive_result in PUNT RETURN TD / PUNT TD / BLOCKED PUNT TD
+ * and their doubled-label variants); `nKickKeep` counts punts after which the
+ * KICKING team possessed next (muff/block recoveries), with
+ * `kickKeepAvgYtg` the average spot it kept the ball at.
  *
  * These are stable historical facts per era, not a re-runnable model output,
  * so they are embedded like MODEL_BACKTEST_PREFERRED_WINDOW rather than
@@ -139,80 +150,157 @@ export function fieldZoneForYardsToGoal(yardsToGoal: number): number {
  *     SELECT CASE WHEN d.season <= 2013 THEN '2004-2013'
  *                 WHEN d.season <= 2020 THEN '2014-2020'
  *                 ELSE '2021+' END AS era,
- *            d.end_yards_to_goal AS punt_spot_ytg,
- *            nxt.start_yards_to_goal AS opp_start_ytg
+ *            LEAST(GREATEST(CEIL(d.end_yards_to_goal / 10.0), 1), 10)::int AS punt_zone,
+ *            CASE
+ *              WHEN d.drive_result IN ('PUNT RETURN TD','PUNT RETURN TD TD','PUNT TD',
+ *                                      'BLOCKED PUNT TD','BLOCKED PUNT TD TD') THEN 'return_td'
+ *              WHEN nxt.offense = d.defense THEN 'opp'
+ *              WHEN nxt.offense = d.offense THEN 'kick_keep'
+ *              ELSE 'unknown' END AS outcome,
+ *            CASE WHEN nxt.start_yards_to_goal BETWEEN 1 AND 99
+ *                 THEN LEAST(GREATEST(CEIL(nxt.start_yards_to_goal / 10.0), 1), 10)::int
+ *            END AS next_zone,
+ *            nxt.start_yards_to_goal AS next_ytg
  *     FROM api.game_drives d
- *     JOIN api.game_drives nxt
+ *     LEFT JOIN api.game_drives nxt
  *       ON nxt.game_id = d.game_id AND nxt.drive_number = d.drive_number + 1
- *      AND nxt.offense = d.defense
- *     WHERE d.drive_result = 'PUNT'
+ *     WHERE d.drive_result IN ('PUNT','PUNT RETURN TD','PUNT RETURN TD TD','PUNT TD',
+ *                              'BLOCKED PUNT','BLOCKED PUNT TD','BLOCKED PUNT TD TD')
  *       AND d.end_yards_to_goal BETWEEN 1 AND 99
- *       AND nxt.start_yards_to_goal BETWEEN 1 AND 99
  *   )
- *   SELECT era, LEAST(GREATEST(CEIL(punt_spot_ytg / 10.0), 1), 10)::int AS punt_zone,
- *          COUNT(*) AS n_punts, ROUND(AVG(opp_start_ytg)::numeric, 1) AS avg_opp_start_ytg
+ *   SELECT era, punt_zone, COUNT(*) FILTER (WHERE outcome = 'return_td') AS n_return_td,
+ *          COUNT(*) FILTER (WHERE outcome = 'kick_keep') AS n_kick_keep,
+ *          ROUND(AVG(next_ytg) FILTER (WHERE outcome = 'kick_keep')::numeric, 0) AS kick_keep_avg_ytg,
+ *          COUNT(*) FILTER (WHERE outcome = 'opp' AND next_zone = 1) AS oz1  -- ... oz2..oz10
  *   FROM punts GROUP BY 1, 2 ORDER BY 1, 2;
  *
- * Zones 1-3 (punting from inside the opponent 30) are nearly extinct in the
- * modern era (2021+: n = 11/33/86) -- the tool caveats those as anecdotes.
- * The same zones in 2004-2013 hold thousands of punts: teams really did punt
- * from the opponent 35 in the 2000s.
+ * Punting from opponent territory (zones 1-3) is nearly extinct in the modern
+ * era (2021+ totals: 13/35/94) -- the tool caveats those as anecdotes. The
+ * same zones in 2004-2013 hold thousands: teams really did punt from the
+ * opponent 35 in the 2000s.
  */
-export const PUNT_OPPONENT_START_BY_ERA_ZONE: Record<
+export interface PuntOutcomeDistribution {
+  /** Punts whose next drive went to the receiving team, counted by the opponent's starting zone (index 0 = zone 1). */
+  oppZoneCounts: readonly [
+    number, number, number, number, number, number, number, number, number, number,
+  ]
+  /** Punts scored against the punting team (returns/blocks taken to the house). */
+  nReturnTd: number
+  /** Punts after which the kicking team possessed next (muff/block recoveries). */
+  nKickKeep: number
+  /** Average yards-to-goal at which the kicking team kept the ball. */
+  kickKeepAvgYtg: number
+}
+
+export const PUNT_OUTCOMES_BY_ERA_ZONE: Record<
   ExpectedPointsEra,
-  Record<number, { oppStartYtg: number; nPunts: number }>
+  Record<number, PuntOutcomeDistribution>
 > = {
   '2004-2013': {
-    1: { oppStartYtg: 76.9, nPunts: 2556 },
-    2: { oppStartYtg: 72.2, nPunts: 1582 },
-    3: { oppStartYtg: 76.9, nPunts: 1842 },
-    4: { oppStartYtg: 86.0, nPunts: 4601 },
-    5: { oppStartYtg: 85.1, nPunts: 9500 },
-    6: { oppStartYtg: 79.5, nPunts: 14412 },
-    7: { oppStartYtg: 72.1, nPunts: 16318 },
-    8: { oppStartYtg: 62.5, nPunts: 16784 },
-    9: { oppStartYtg: 53.2, nPunts: 8418 },
-    10: { oppStartYtg: 43.7, nPunts: 2766 },
+    1: { oppZoneCounts: [1, 2, 2, 6, 35, 704, 51, 564, 676, 531], nReturnTd: 17, nKickKeep: 20, kickKeepAvgYtg: 53 },
+    2: { oppZoneCounts: [1, 0, 2, 22, 5, 19, 1016, 185, 137, 214], nReturnTd: 12, nKickKeep: 17, kickKeepAvgYtg: 51 },
+    3: { oppZoneCounts: [0, 2, 11, 1, 4, 9, 36, 1703, 52, 36], nReturnTd: 10, nKickKeep: 31, kickKeepAvgYtg: 46 },
+    4: { oppZoneCounts: [5, 4, 4, 4, 7, 17, 65, 1332, 1925, 1246], nReturnTd: 6, nKickKeep: 47, kickKeepAvgYtg: 32 },
+    5: { oppZoneCounts: [16, 15, 20, 28, 45, 63, 263, 3110, 3044, 2907], nReturnTd: 20, nKickKeep: 133, kickKeepAvgYtg: 38 },
+    6: { oppZoneCounts: [42, 32, 67, 91, 429, 347, 1203, 5120, 4962, 2139], nReturnTd: 37, nKickKeep: 259, kickKeepAvgYtg: 32 },
+    7: { oppZoneCounts: [75, 62, 113, 289, 460, 1310, 4056, 6119, 3010, 853], nReturnTd: 63, nKickKeep: 320, kickKeepAvgYtg: 37 },
+    8: { oppZoneCounts: [155, 110, 259, 473, 1473, 4275, 5707, 3240, 928, 222], nReturnTd: 85, nKickKeep: 346, kickKeepAvgYtg: 43 },
+    9: { oppZoneCounts: [115, 132, 239, 747, 1960, 2885, 1696, 511, 128, 40], nReturnTd: 61, nKickKeep: 180, kickKeepAvgYtg: 52 },
+    10: { oppZoneCounts: [76, 86, 241, 649, 915, 548, 198, 44, 18, 3], nReturnTd: 20, nKickKeep: 59, kickKeepAvgYtg: 59 },
   },
   '2014-2020': {
-    1: { oppStartYtg: 91.4, nPunts: 214 },
-    2: { oppStartYtg: 81.2, nPunts: 429 },
-    3: { oppStartYtg: 73.0, nPunts: 384 },
-    4: { oppStartYtg: 85.6, nPunts: 2712 },
-    5: { oppStartYtg: 85.5, nPunts: 7893 },
-    6: { oppStartYtg: 82.0, nPunts: 10409 },
-    7: { oppStartYtg: 74.1, nPunts: 12981 },
-    8: { oppStartYtg: 65.0, nPunts: 12656 },
-    9: { oppStartYtg: 55.2, nPunts: 6103 },
-    10: { oppStartYtg: 44.7, nPunts: 1903 },
+    1: { oppZoneCounts: [0, 0, 1, 2, 3, 3, 0, 1, 44, 160], nReturnTd: 1, nKickKeep: 6, kickKeepAvgYtg: 44 },
+    2: { oppZoneCounts: [0, 0, 3, 3, 5, 6, 11, 144, 257, 0], nReturnTd: 0, nKickKeep: 7, kickKeepAvgYtg: 50 },
+    3: { oppZoneCounts: [0, 2, 3, 7, 7, 6, 52, 282, 14, 11], nReturnTd: 1, nKickKeep: 8, kickKeepAvgYtg: 47 },
+    4: { oppZoneCounts: [8, 4, 4, 2, 5, 33, 255, 694, 605, 1102], nReturnTd: 4, nKickKeep: 20, kickKeepAvgYtg: 40 },
+    5: { oppZoneCounts: [8, 17, 14, 9, 23, 196, 110, 2066, 3035, 2415], nReturnTd: 13, nKickKeep: 53, kickKeepAvgYtg: 24 },
+    6: { oppZoneCounts: [13, 21, 25, 32, 108, 188, 628, 3367, 4197, 1830], nReturnTd: 44, nKickKeep: 98, kickKeepAvgYtg: 26 },
+    7: { oppZoneCounts: [26, 43, 54, 142, 248, 787, 2863, 5218, 2812, 788], nReturnTd: 113, nKickKeep: 175, kickKeepAvgYtg: 31 },
+    8: { oppZoneCounts: [57, 83, 106, 241, 827, 2665, 4527, 3074, 871, 205], nReturnTd: 145, nKickKeep: 151, kickKeepAvgYtg: 36 },
+    9: { oppZoneCounts: [31, 65, 147, 396, 1211, 2317, 1409, 413, 98, 16], nReturnTd: 92, nKickKeep: 84, kickKeepAvgYtg: 46 },
+    10: { oppZoneCounts: [30, 51, 145, 403, 684, 413, 138, 31, 7, 1], nReturnTd: 46, nKickKeep: 18, kickKeepAvgYtg: 51 },
   },
   '2021+': {
-    1: { oppStartYtg: 61.3, nPunts: 11 },
-    2: { oppStartYtg: 48.8, nPunts: 33 },
-    3: { oppStartYtg: 50.0, nPunts: 86 },
-    4: { oppStartYtg: 87.1, nPunts: 2035 },
-    5: { oppStartYtg: 86.2, nPunts: 7468 },
-    6: { oppStartYtg: 82.1, nPunts: 11044 },
-    7: { oppStartYtg: 73.8, nPunts: 14536 },
-    8: { oppStartYtg: 65.2, nPunts: 13897 },
-    9: { oppStartYtg: 55.6, nPunts: 6328 },
-    10: { oppStartYtg: 45.9, nPunts: 2017 },
+    1: { oppZoneCounts: [0, 0, 0, 0, 1, 4, 4, 1, 1, 0], nReturnTd: 1, nKickKeep: 1, kickKeepAvgYtg: 45 },
+    2: { oppZoneCounts: [0, 2, 0, 7, 12, 6, 4, 1, 0, 1], nReturnTd: 0, nKickKeep: 2, kickKeepAvgYtg: 76 },
+    3: { oppZoneCounts: [0, 4, 20, 18, 8, 5, 7, 14, 5, 5], nReturnTd: 0, nKickKeep: 8, kickKeepAvgYtg: 52 },
+    4: { oppZoneCounts: [2, 10, 16, 5, 5, 6, 23, 610, 436, 922], nReturnTd: 2, nKickKeep: 65, kickKeepAvgYtg: 53 },
+    5: { oppZoneCounts: [13, 25, 13, 14, 17, 40, 134, 2041, 2649, 2523], nReturnTd: 16, nKickKeep: 223, kickKeepAvgYtg: 54 },
+    6: { oppZoneCounts: [18, 29, 35, 46, 62, 198, 656, 3535, 4526, 1941], nReturnTd: 47, nKickKeep: 362, kickKeepAvgYtg: 52 },
+    7: { oppZoneCounts: [30, 48, 67, 127, 309, 994, 3298, 5848, 3016, 803], nReturnTd: 93, nKickKeep: 437, kickKeepAvgYtg: 53 },
+    8: { oppZoneCounts: [56, 74, 118, 310, 889, 2733, 5160, 3435, 901, 224], nReturnTd: 129, nKickKeep: 457, kickKeepAvgYtg: 56 },
+    9: { oppZoneCounts: [28, 58, 122, 417, 1295, 2291, 1509, 493, 93, 22], nReturnTd: 80, nKickKeep: 206, kickKeepAvgYtg: 60 },
+    10: { oppZoneCounts: [16, 55, 157, 390, 691, 506, 143, 45, 11, 3], nReturnTd: 44, nKickKeep: 69, kickKeepAvgYtg: 68 },
   },
 }
 
 /**
- * The opponent's empirically implied starting yards-to-goal after a punt from
- * this spot, with the punt count behind the average so callers can flag thin
- * zones. Null when the era/zone pair has no punt data at all.
+ * The value of a punt return TD to the PUNTING team, on the same scoring
+ * basis as ep_drive/ep_net's TD value (6.97 = TD + expected PAT).
  */
-export function puntImpliedOpponentYtg(
+export const PUNT_RETURN_TD_EP = -6.97
+
+export interface PuntEpResult {
+  /** Distribution-weighted EP of punting, from the punting team's view. */
+  epPunt: number
+  /** Usable punts behind the distribution. */
+  nPunts: number
+  pReturnTd: number
+  pKickKeep: number
+  /** Weighted mean opponent starting yards-to-goal over clean transfers -- narration only, not used in the EP math. */
+  expectedOppStartYtg: number
+}
+
+/**
+ * Distribution-weighted punt EP for a punt from this spot:
+ * E[EP(outcome)] over the era's empirical punt outcomes -- clean transfers
+ * weighted by the opponent's actual starting zone (valued at -ep_net of the
+ * opponent's 1st-and-10 there), return TDs at PUNT_RETURN_TD_EP, and
+ * kicking-team recoveries at +ep_net of the kicking team's average retained
+ * spot (a single-point approximation on a ~1-3% weight term).
+ *
+ * `epNetByZone` maps opponent starting zone -> the era's down-1 ep_net there
+ * (bucket 'standard', or 'goal' for zone 1 where 1st-and-10 cannot exist).
+ * Returns null when the era/zone has no punt data or any zone with weight
+ * lacks a computed ep_net -- callers must render that as not-computable, not
+ * as zero.
+ */
+export function computePuntEp(
   era: ExpectedPointsEra,
-  yardsToGoal: number
-): { ytg: number; nPunts: number } | null {
-  const zone = fieldZoneForYardsToGoal(yardsToGoal)
-  const cell = PUNT_OPPONENT_START_BY_ERA_ZONE[era]?.[zone]
-  if (!cell) return null
-  return { ytg: Math.min(Math.max(Math.round(cell.oppStartYtg), 1), 99), nPunts: cell.nPunts }
+  yardsToGoal: number,
+  epNetByZone: ReadonlyMap<number, number>
+): PuntEpResult | null {
+  const dist = PUNT_OUTCOMES_BY_ERA_ZONE[era]?.[fieldZoneForYardsToGoal(yardsToGoal)]
+  if (!dist) return null
+
+  const nOpp = dist.oppZoneCounts.reduce((a, b) => a + b, 0)
+  const nTotal = nOpp + dist.nReturnTd + dist.nKickKeep
+  if (nTotal === 0) return null
+
+  let weightedEp = dist.nReturnTd * PUNT_RETURN_TD_EP
+  let oppStartSum = 0
+  for (let zone = 1; zone <= 10; zone++) {
+    const count = dist.oppZoneCounts[zone - 1]
+    if (count === 0) continue
+    const epNet = epNetByZone.get(zone)
+    if (epNet == null) return null
+    weightedEp += count * -epNet
+    // Zone midpoint stands in for the within-zone spot; narration only.
+    oppStartSum += count * (zone * 10 - 4.5)
+  }
+  if (dist.nKickKeep > 0) {
+    const keepZoneEp = epNetByZone.get(fieldZoneForYardsToGoal(dist.kickKeepAvgYtg))
+    if (keepZoneEp == null) return null
+    weightedEp += dist.nKickKeep * keepZoneEp
+  }
+
+  return {
+    epPunt: weightedEp / nTotal,
+    nPunts: nTotal,
+    pReturnTd: dist.nReturnTd / nTotal,
+    pKickKeep: dist.nKickKeep / nTotal,
+    expectedOppStartYtg: nOpp > 0 ? Math.round(oppStartSum / nOpp) : 0,
+  }
 }
 
 export interface ExpectedPointsRow {
