@@ -556,26 +556,52 @@ describe('askClaude web_search tool', () => {
     expect(result.usage.web_search_requests).toBe(3)
   })
 
-  it('passes the REMAINING search budget as max_uses on continuations, floored at 1 when spent', async () => {
+  it('passes the REMAINING search budget as max_uses on continuations, floored at 1 while search blocks are in history', async () => {
     loadConfigMock.mockReturnValue({ ...VALID_CONFIG, webSearchMaxUses: 3 })
-    const paused = pausedResponse(500)
+    // A paused response whose content carries the searches it performed --
+    // those blocks get replayed in the continuation request's history.
+    const pausedSearch = (searches: number) => ({
+      content: [
+        { type: 'server_tool_use', id: `s${searches}`, name: 'web_search', input: { query: 'injury news' } },
+        { type: 'web_search_tool_result', tool_use_id: `s${searches}`, content: [] },
+      ],
+      stop_reason: 'pause_turn',
+      usage: {
+        input_tokens: 100, output_tokens: 500, cache_creation_input_tokens: 0, cache_read_input_tokens: 0,
+        server_tool_use: { web_search_requests: searches, web_fetch_requests: 0 },
+      },
+    })
     betaCreateMock
-      // Initial call spends 2 of the 3 searches, then pauses.
-      .mockResolvedValueOnce({ ...paused, usage: { ...paused.usage, server_tool_use: { web_search_requests: 2, web_fetch_requests: 0 } } })
-      // Resume spends the last one and pauses again.
-      .mockResolvedValueOnce({ ...paused, usage: { ...paused.usage, server_tool_use: { web_search_requests: 1, web_fetch_requests: 0 } } })
+      .mockResolvedValueOnce(pausedSearch(2)) // spends 2 of 3, pauses
+      .mockResolvedValueOnce(pausedSearch(1)) // spends the last one, pauses
       .mockResolvedValueOnce(apiResponse('done'))
 
     await askClaude('deep news question')
 
     const maxUses = betaCreateMock.mock.calls.map(call => call[0].tools[1].max_uses)
-    // Full budget first, remainder on the resume, floor of 1 once spent --
-    // the tool must stay declared (its result blocks are in the history),
-    // but a continuation can never again see the full configured allowance.
+    // Full budget first, remainder on the first resume, floor of 1 once
+    // spent: the replayed search blocks belong to this tool, so its
+    // declaration must survive -- but a continuation never again sees the
+    // full configured allowance.
     expect(maxUses).toEqual([3, 1, 1])
   })
 
-  it('shares one search budget between the simple run and the [ESCALATE] advisor re-run', async () => {
+  it('omits the tool on the [ESCALATE] re-run when the shared budget is spent (clean history)', async () => {
+    loadConfigMock.mockReturnValue({ ...VALID_CONFIG, webSearchMaxUses: 2 })
+    betaCreateMock
+      .mockResolvedValueOnce(apiResponse('Partial.\n[ESCALATE]', { web_search_requests: 2 }))
+      .mockResolvedValueOnce(apiResponse('Advisor answer.'))
+
+    await askClaude('sneaky-deep news question')
+
+    // The re-run restarts from the original messages -- no search blocks to
+    // replay -- so a spent budget drops the tool entirely instead of
+    // authorizing one more search.
+    expect(betaCreateMock.mock.calls[0]?.[0].tools).toHaveLength(2)
+    expect(betaCreateMock.mock.calls[1]?.[0].tools).toEqual([{ type: 'mcp_toolset', mcp_server_name: 'cfb' }])
+  })
+
+  it('gives the [ESCALATE] re-run the remaining budget when some is left', async () => {
     loadConfigMock.mockReturnValue({ ...VALID_CONFIG, webSearchMaxUses: 3 })
     betaCreateMock
       .mockResolvedValueOnce(apiResponse('Partial.\n[ESCALATE]', { web_search_requests: 2 }))

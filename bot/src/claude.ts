@@ -492,6 +492,25 @@ interface WebSearchBudget {
   remaining: number
 }
 
+/**
+ * True when any assistant turn in `messages` carries web-search activity
+ * blocks -- i.e. this request replays earlier searches from the same
+ * logical turn (a pause_turn continuation after a search happened).
+ */
+function hasWebSearchBlocks(messages: Anthropic.Beta.Messages.BetaMessageParam[]): boolean {
+  return messages.some(
+    message =>
+      Array.isArray(message.content) &&
+      message.content.some(block => {
+        const type = (block as { type?: string }).type
+        return (
+          type === 'web_search_tool_result' ||
+          (type === 'server_tool_use' && (block as { name?: string }).name === 'web_search')
+        )
+      })
+  )
+}
+
 async function runConnectorCall(
   client: Anthropic,
   model: string,
@@ -506,11 +525,21 @@ async function runConnectorCall(
     // same server-side loop as the MCP tools, so no client wiring is needed --
     // results arrive as web_search_tool_result blocks (skipped by extractText)
     // and searches are metered in usage.server_tool_use.web_search_requests.
-    // max_uses carries the REMAINING budget, floored at 1 rather than
-    // dropping the tool when exhausted: a spent budget implies searches
-    // already happened, so their result blocks are in the continuation
-    // history and the declaration must stay for the request to be valid.
-    tools.push({ type: 'web_search_20260209', name: 'web_search', max_uses: Math.max(1, webSearchBudget.remaining) })
+    if (webSearchBudget.remaining > 0) {
+      // max_uses carries the REMAINING logical-turn budget, not the
+      // configured per-request value -- see WebSearchBudget.
+      tools.push({ type: 'web_search_20260209', name: 'web_search', max_uses: webSearchBudget.remaining })
+    } else if (hasWebSearchBlocks(messages)) {
+      // Budget spent, but this request replays earlier search blocks from
+      // the same paused turn. The docs require sending those blocks back
+      // exactly as received, and dropping the tool they belong to is
+      // undocumented territory -- keep the minimum declaration rather than
+      // risk failing the whole answer. Worst case this authorizes one extra
+      // (fully metered) search per continuation.
+      tools.push({ type: 'web_search_20260209', name: 'web_search', max_uses: 1 })
+    }
+    // Budget spent with a search-free history (e.g. the [ESCALATE] advisor
+    // re-run, which restarts from the original messages): tool omitted.
   }
   return client.beta.messages.create({
     model,
