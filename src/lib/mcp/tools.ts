@@ -2328,9 +2328,12 @@ export function registerMcpTools(server: McpServer): void {
         '- api.team_ats: team, season, ats record vs the spread\n' +
         '- api.scored_matchup_edges / api.game_predictions / api.prediction_accuracy: model predictions vs\n' +
         `  market. THREE model_versions per game: elo_v1, elo_epa_blend_v1, ${DEFAULT_PREDICTION_MODEL}\n` +
-        '  (the current house model). ALWAYS filter model_version or every game appears three times.\n' +
-        '  api.matchup_forecast is NOT readable by this role (permission denied) -- never query it;\n' +
-        '  use these views or the get_game_prediction tool instead\n' +
+        '  (the current house model). ALWAYS filter model_version or every game appears three times\n' +
+        '- api.matchup_forecast: ONE row per game, 2000+ -- blended pregame forecast + result:\n' +
+        '  home/away_win_probability, projected_winner, projected_margin, confidence_tier, component\n' +
+        '  probs (cfbd/market/elo/sp_home_win_prob), market_spread, market_over_under, actual result\n' +
+        '  (home/away_points, actual_winner, brier_loss), and season context (home/away_expected_wins,\n' +
+        '  bowl_eligibility_prob, ten_plus_win_prob)\n' +
         '- api.season_outlook: season, team, conference, classification, is_projection, model_version,\n' +
         '  projected_wins, projected_losses, median_wins, wins_p10/p25/p75/p90, p_win_dist (jsonb\n' +
         '  {"0":p,...}), p_bowl_eligible, p_ten_plus, sos_rating, sos_rank, conf_title_prob,\n' +
