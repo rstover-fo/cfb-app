@@ -5,6 +5,7 @@ import { getMatchup, getMatchupGames } from '@/lib/queries/matchups'
 import {
   DEFAULT_ROW_CAP,
   queryTeamDetail,
+  queryCoreSnapshot,
   queryGameDetail,
   queryPollRankings,
   queryLeaderboardTeams,
@@ -187,7 +188,7 @@ export interface QueryTeamArgs {
 export async function queryTeamTool(args: QueryTeamArgs): Promise<string> {
   const { team } = args
 
-  const [detail, historyDesc] = await Promise.all([
+  const [detail, historyDesc, coreSnapshot] = await Promise.all([
     queryTeamDetail(team),
     // getTeamHistory (src/lib/queries/compare.ts) already wraps api.team_history
     // for this exact team; it sorts ascending for chart display, so undo that
@@ -195,6 +196,10 @@ export async function queryTeamTool(args: QueryTeamArgs): Promise<string> {
     // (most recent season first), capped at the standard 100-row limit rather
     // than compare.ts's UI-oriented default of 8 seasons.
     getTeamHistory(team, DEFAULT_ROW_CAP).then(rows => [...rows].reverse()),
+    // The as-of markers behind the embedded core_* values. A failed lookup
+    // degrades to null rather than sinking the whole answer (partial-result
+    // precedent from search_players).
+    queryCoreSnapshot(team),
   ])
 
   if (detail.error) return detail.error
@@ -209,6 +214,10 @@ export async function queryTeamTool(args: QueryTeamArgs): Promise<string> {
   return dump({
     team_detail: wrap('api.team_detail', detail.rows),
     team_history: wrap('api.team_history', historyDesc),
+    // NULL when the team has no CORE row (unrated; the model starts 2016) or
+    // when the snapshot lookup failed -- absence of markers must never make a
+    // mid-season rating read as final, which is why the key is always present.
+    core_snapshot: coreSnapshot.error ? null : (coreSnapshot.rows[0] ?? null),
   })
 }
 
@@ -1900,8 +1909,15 @@ export function registerMcpTools(server: McpServer): void {
         'rated, never 0), EPA/success rate/explosiveness, recruiting rank -- at ' +
         'most one row) and api.team_history (one row per season, ordered season DESC, up to 100 rows). ' +
         "Team names must match CFBD's convention exactly (case-sensitive) -- 'oklahoma' or 'OU' will " +
-        'not match \'Oklahoma\'. api.team_detail only includes FBS-classification teams. Returns JSON ' +
-        'with "team_detail" and "team_history" keys, each {"_source", "count", "rows"}, or a plain ' +
+        'not match \'Oklahoma\'. api.team_detail only includes FBS-classification teams. The ' +
+        '"core_snapshot" key carries the as-of markers behind the embedded CORE values ' +
+        '(through_week/through_season_type, model_version, and the within-season ranks): an ' +
+        'in-season CORE value is a SNAPSHOT of current form advanced in place by the daily load, ' +
+        'not a final rating -- check through_week/through_season_type before presenting it as ' +
+        "final, and say \"through week N\" when it is mid-season. core_snapshot is null when the " +
+        'team has no CORE row (the model starts in 2016). Returns JSON ' +
+        'with "team_detail", "team_history" (each {"_source", "count", "rows"}) and ' +
+        '"core_snapshot" (object or null) keys, or a plain ' +
         '"No team found..." string if nothing matches.',
       inputSchema: {
         team: z

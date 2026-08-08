@@ -11,6 +11,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 vi.mock('@/lib/queries/mcp', () => ({
   DEFAULT_ROW_CAP: 100,
   queryTeamDetail: vi.fn(),
+  queryCoreSnapshot: vi.fn(),
   queryGameDetail: vi.fn(),
   queryPollRankings: vi.fn(),
   queryLeaderboardTeams: vi.fn(),
@@ -39,6 +40,7 @@ vi.mock('@/lib/queries/matchups', () => ({
 
 import {
   queryTeamDetail,
+  queryCoreSnapshot,
   queryGameDetail,
   queryPollRankings,
   queryLeaderboardTeams,
@@ -63,6 +65,9 @@ import {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  // queryTeamTool always awaits the CORE snapshot; the common no-CORE case is
+  // the default so pre-CORE tests stay unchanged.
+  vi.mocked(queryCoreSnapshot).mockResolvedValue({ rows: [], error: null })
 })
 
 describe('queryTeamTool', () => {
@@ -96,6 +101,59 @@ describe('queryTeamTool', () => {
     vi.mocked(getTeamHistory).mockResolvedValue([])
 
     expect(await queryTeamTool({ team: 'Oklahoma' })).toBe('Error: api.team_detail request failed: boom')
+  })
+
+  it('attaches the CORE as-of markers so a mid-season rating never reads as final', async () => {
+    vi.mocked(queryTeamDetail).mockResolvedValue({
+      rows: [{ school: 'Ohio State', core_overall: 33.82 }] as never,
+      error: null,
+    })
+    vi.mocked(getTeamHistory).mockResolvedValue([])
+    // Real live-verified values: the completed 2025 season reads as the final
+    // postseason snapshot.
+    vi.mocked(queryCoreSnapshot).mockResolvedValue({
+      rows: [
+        {
+          season: 2025,
+          through_week: 1,
+          through_season_type: 'postseason',
+          model_version: 'core_v1',
+          overall_rank: 1,
+          offense_rank: 2,
+          defense_rank: 5,
+        },
+      ],
+      error: null,
+    })
+
+    const parsed = JSON.parse(await queryTeamTool({ team: 'Ohio State' }))
+    expect(parsed.core_snapshot).toEqual({
+      season: 2025,
+      through_week: 1,
+      through_season_type: 'postseason',
+      model_version: 'core_v1',
+      overall_rank: 1,
+      offense_rank: 2,
+      defense_rank: 5,
+    })
+  })
+
+  it('renders core_snapshot as an explicit null for unrated teams and on snapshot failure', async () => {
+    vi.mocked(queryTeamDetail).mockResolvedValue({ rows: [{ school: 'Oklahoma' }] as never, error: null })
+    vi.mocked(getTeamHistory).mockResolvedValue([])
+
+    // No CORE row (the model starts in 2016): the key is present and null.
+    const unrated = JSON.parse(await queryTeamTool({ team: 'Oklahoma' }))
+    expect(unrated).toHaveProperty('core_snapshot', null)
+
+    // A failed snapshot lookup degrades to null instead of sinking the answer.
+    vi.mocked(queryCoreSnapshot).mockResolvedValue({
+      rows: [],
+      error: 'Error: api.core_ratings request failed: boom',
+    })
+    const degraded = JSON.parse(await queryTeamTool({ team: 'Oklahoma' }))
+    expect(degraded.core_snapshot).toBeNull()
+    expect(degraded.team_detail.count).toBe(1)
   })
 })
 

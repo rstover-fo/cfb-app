@@ -112,6 +112,44 @@ export async function queryTeamDetail(team: string): Promise<McpResult<TeamDetai
   return { rows: (data ?? []) as unknown as TeamDetailRow[], error: null }
 }
 
+export interface CoreSnapshotRow {
+  season: number
+  /** How much of the season the rating has seen. The daily load advances the row in place. */
+  through_week: number | null
+  through_season_type: string | null
+  model_version: string | null
+  overall_rank: number | null
+  offense_rank: number | null
+  /** Rank of the LOWER-better defense column -- rank 1 is the best defense. */
+  defense_rank: number | null
+}
+
+const CORE_SNAPSHOT_COLUMNS = `
+  season, through_week, through_season_type, model_version,
+  overall_rank, offense_rank, defense_rank
+` as const
+
+/**
+ * The as-of markers and within-season ranks from a team's newest
+ * api.core_ratings row. api.team_detail embeds the CORE rating VALUES but not
+ * these -- and without through_week/through_season_type a mid-season rating
+ * reads as a final one. `[]` with no error means the team has no CORE row
+ * (not rated; the model starts in 2016).
+ */
+export async function queryCoreSnapshot(team: string): Promise<McpResult<CoreSnapshotRow>> {
+  const supabase = await createClient()
+  const { data, error } = await supabase
+    .schema('api')
+    .from('core_ratings')
+    .select(CORE_SNAPSHOT_COLUMNS)
+    .eq('team', team)
+    .order('season', { ascending: false })
+    .limit(1)
+
+  if (error) return { rows: [], error: fail('api.core_ratings', error) }
+  return { rows: (data ?? []) as unknown as CoreSnapshotRow[], error: null }
+}
+
 // ---------------------------------------------------------------------------
 // 2. query_games -- api.game_detail
 // ---------------------------------------------------------------------------
