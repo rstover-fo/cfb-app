@@ -2282,8 +2282,8 @@ export function registerMcpTools(server: McpServer): void {
         '- api.team_history: school (column: team), season, wins, losses, ppg, opp_ppg, avg_margin,\n' +
         '  sp_rating, sp_rank, sp_offense, sp_defense (lower sp_defense is better), elo, fpi,\n' +
         '  epa_per_play, success_rate, explosiveness, recruiting_rank -- one row per team-season\n' +
-        '- api.game_detail: game_id, season, week, season_type, start_date, completed, home_team, away_team, home_points, away_points, winner, point_diff, home_spread, venue\n' +
-        '- api.team_elo: team, season, season_end_elo, elo_rank, games_played -- one row per team-season\n' +
+        '- api.game_detail: game_id, season, week, season_type, start_date, completed, neutral_site, conference_game, home_team, away_team, home_points, away_points, winner, point_diff, home_spread, over_under, spread_result, ou_result, pregame_home_win_prob, venue, attendance, excitement_index\n' +
+        '- api.team_elo: team, season, season_end_elo, elo_rank, games_played, low_confidence, cfbd_elo -- one row per team-season\n' +
         '- api.game_elo_history: per-game pregame/postgame elo for both teams, win_prob, margin errors.\n' +
         '  Use for POINT-IN-TIME Elo: a team\'s elo entering/leaving any week (e.g. end-of-regular-season\n' +
         '  = postgame elo of its last regular-season game). NOTE: conference championship games are\n' +
@@ -2303,11 +2303,23 @@ export function registerMcpTools(server: McpServer): void {
         '  defense, start_period, start_yards_to_goal, end_yards_to_goal, plays, yards, drive_result,\n' +
         '  scoring, start/end offense_score + defense_score, elapsed_minutes, elapsed_seconds,\n' +
         '  is_home_offense -- same caveat: no week column, JOIN api.game_detail for week filters\n' +
-        '- api.game_box_score, api.game_line_scores, api.game_player_leaders, api.game_win_probability:\n' +
-        '  per-game team stats, quarter scores, stat leaders, and win-probability curves\n' +
+        '- api.game_box_score: per-game team stats in LONG format -- one row per (game_id, team,\n' +
+        '  category, stat_value); filter or pivot on category. api.game_player_leaders: same idea at\n' +
+        '  player grain (category, stat_type, player_name, stat)\n' +
+        '- api.game_line_scores: quarter-by-quarter scores (home_q1..away_ot). api.game_win_probability:\n' +
+        '  play-level win-prob curve. api.game_recaps: generated headline + recap text per game (2025+)\n' +
+        '- api.matchup: head-to-head history, ONE row per pair ordered team1 < team2 ALPHABETICALLY --\n' +
+        "  match a school with (team1 = 'X' OR team2 = 'X'), never team1 alone: total_games,\n" +
+        '  team1_wins, team2_wins, ties, first_meeting, last_meeting, recent_results + both teams\'\n' +
+        '  current-season form\n' +
+        '- api.line_movement: betting-line SNAPSHOTS over time (captured_at, provider, spread,\n' +
+        '  formatted_spread, over_under, home/away_moneyline), several rows per game, current season\n' +
+        '  only -- latest line = greatest captured_at per (game_id, provider)\n' +
+        '- api.live_scoreboard: in-progress games only, empty outside live windows -- prefer the\n' +
+        '  get_live_scoreboard tool\n' +
         '- api.coaching_history: coach_name, team, tenure_start, tenure_end (null = active), seasons_count, total_wins, total_losses, win_pct, avg_sp_rating, peak_sp_rating -- one row per coach-tenure\n' +
         '- api.coach_records: coach career-at-school grain with ATS splits (ats_wins, ats_losses)\n' +
-        '- api.poll_rankings: season, season_type, week, poll, rank, school, conference, points\n' +
+        '- api.poll_rankings: season, season_type, week, poll, rank, school, conference, first_place_votes, points\n' +
         '- api.leaderboard_teams: team, conference, season, wins, losses, ppg, opp_ppg, sp_rating,\n' +
         '  sp_rank, sp_offense, sp_defense (offense/defense SP+ components -- available for ALL seasons,\n' +
         '  lower sp_defense is better), elo, fpi, epa_per_play, success_rate, explosiveness,\n' +
@@ -2316,7 +2328,9 @@ export function registerMcpTools(server: McpServer): void {
         '- api.team_ats: team, season, ats record vs the spread\n' +
         '- api.scored_matchup_edges / api.game_predictions / api.prediction_accuracy: model predictions vs\n' +
         `  market. THREE model_versions per game: elo_v1, elo_epa_blend_v1, ${DEFAULT_PREDICTION_MODEL}\n` +
-        '  (the current house model). ALWAYS filter model_version or every game appears three times\n' +
+        '  (the current house model). ALWAYS filter model_version or every game appears three times.\n' +
+        '  api.matchup_forecast is NOT readable by this role (permission denied) -- never query it;\n' +
+        '  use these views or the get_game_prediction tool instead\n' +
         '- api.season_outlook: season, team, conference, classification, is_projection, model_version,\n' +
         '  projected_wins, projected_losses, median_wins, wins_p10/p25/p75/p90, p_win_dist (jsonb\n' +
         '  {"0":p,...}), p_bowl_eligible, p_ten_plus, sos_rating, sos_rank, conf_title_prob,\n' +
@@ -2336,8 +2350,28 @@ export function registerMcpTools(server: McpServer): void {
         '  so an unpinned scope returns several. `n` counts TEAM-SEASONS, not games. For an interval use\n' +
         '  resid_p10/resid_p90 (asymmetric) -- never +/- win_mae, which spans only ~58% of outcomes.\n' +
         '  No row means never backtested: report unmeasured, never zero error\n' +
-        '- api.player_season_leaders, api.player_wepa_leaders, api.player_usage_leaders: player-season stats\n' +
+        '- api.player_season_leaders (LONG: one row per player-category, e.g. passing/rushing),\n' +
+        '  api.player_wepa_leaders, api.player_usage_leaders: player-season leaderboards\n' +
+        '- api.player_detail: one row per player-season, 2004+ (~340k rows): bio, recruit pedigree\n' +
+        '  (stars, recruit_rating, national_ranking), raw counting stats (pass_*, rush_*, rec_*,\n' +
+        '  tackles, sacks, tfl), ppa_avg/ppa_total. api.player_comparison is the same grain plus\n' +
+        '  *_pctl percentile columns\n' +
+        '- api.roster_lookup: roster rows per team-season 2004+ (first/last_name, team, position,\n' +
+        '  height, weight, year = season, jersey, hometown)\n' +
+        '- api.recruit_lookup: individual recruits 2000+ (name, year, stars, rating, ranking,\n' +
+        '  position, school = HIGH SCHOOL, committed_to = college)\n' +
         '- api.recruiting_roi, api.transfer_portal_impact, api.team_returning_production, api.conference_comparison\n' +
+        '- api.team_week_features: one row per (team, season, week_index), 2015+ -- POINT-IN-TIME weekly\n' +
+        '  features: week, games_played_to_date, elo_pregame, adj_epa_off/def/net (walk-forward\n' +
+        '  opponent-adjusted, fit only on data through that week), off/def EPA + success +\n' +
+        '  explosiveness rates, havoc_rate_defense, havoc_rate_offense_allowed, returning production,\n' +
+        '  preseason SP+. The go-to join for "as of week N" strength cuts; week_index is a dense 1..N\n' +
+        '  within-season index, not the raw week. Prefer get_adjusted_epa for one team\'s trend\n' +
+        '- api.adjusted_epa_week: ridge-fit model internals behind those adjustments (team, season,\n' +
+        '  week_index, off_coef, def_coef, hfa_coef, mu, plays), 2004+ -- prefer team_week_features\n' +
+        '- api.team_playcalling_profile: one row per team-season, 2004+: overall/early-down/red-zone\n' +
+        '  run rates, third_down_pass_rate, leading/trailing run rates + run_rate_delta,\n' +
+        '  pace_plays_per_game, success/EPA splits, *_pctl percentile columns\n' +
         '- api.team_penalties: game_id, season, week, season_type, team, opponent, home_away, penalties,\n' +
         '  penalty_yards, opponent_penalties, opponent_penalty_yards -- two rows per game (one per team);\n' +
         "  the scorer's OFFICIAL box-score tally -- prefer it for totals and GROUP BY team for season\n" +
