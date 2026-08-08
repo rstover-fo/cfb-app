@@ -173,6 +173,8 @@ export function makeJudgeFn(client: Anthropic, model: string): JudgeFn {
       output_tokens: response.usage.output_tokens,
       cache_creation_input_tokens: response.usage.cache_creation_input_tokens ?? 0,
       cache_read_input_tokens: response.usage.cache_read_input_tokens ?? 0,
+      // The judge call declares no server tools, so this is always 0.
+      web_search_requests: 0,
     }
 
     return { verdict: parseJudgeVerdict(text), usage }

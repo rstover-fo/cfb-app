@@ -113,6 +113,7 @@ All defaults and validation live in `src/config.ts`.
 | `COOLDOWN_SECONDS` | No | `20` | Minimum seconds between LLM-backed questions from the same user |
 | `USER_DAILY_LIMIT` | No | `10` | Max LLM-backed questions a single user can ask per day |
 | `DAILY_BUDGET_USD` | No | `10` | Global daily spend ceiling in USD for the LLM path |
+| `WEB_SEARCH_MAX_USES` | No | `3` | Max Anthropic-native `web_search` calls per conversational request ($0.01/search, drawn from the daily budget); `0` disables the tool and its prompt rules entirely |
 | `CFB_SEASON` | No | August-pivot rule | Overrides the season commands default to when none is specified (current year from August on, else the prior year) |
 
 ## Run locally
@@ -221,7 +222,8 @@ request is made:
 3. **Global dollar budget** (`DAILY_BUDGET_USD`, default $10/day) -- also resets at UTC midnight.
    Spend is priced from the actual `usage` returned by each Anthropic response, at that response's
    model's per-token rates, including the 1.25x cache-write and 0.1x cache-read multipliers --
-   not a flat per-call estimate.
+   not a flat per-call estimate. Native `web_search` calls add a flat $0.01 per search on top
+   (capped per request by `WEB_SEARCH_MAX_USES`).
 
 Rough per-question cost: Sonnet 5 tier ~$0.06-0.20, Opus 4.8 advisor tier ~$0.10-0.35, Haiku
 router classification ~$0.001. Once the budget or a user's cap is hit, `/ask` and `@`-mentions

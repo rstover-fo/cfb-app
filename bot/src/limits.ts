@@ -38,6 +38,10 @@ const UNKNOWN_MODEL_RATES: ModelRates = { input: 5, output: 25 }
 const CACHE_WRITE_MULTIPLIER = 1.25 // cache_creation_input_tokens, relative to the input rate
 const CACHE_READ_MULTIPLIER = 0.1 // cache_read_input_tokens, relative to the input rate
 
+// Anthropic web_search server tool: $10 per 1,000 searches, flat across
+// models, billed on top of the tokens the results consume.
+const WEB_SEARCH_COST_USD = 0.01
+
 function ratesFor(model: string): ModelRates {
   const match = MODEL_RATES.find(([prefix]) => model.startsWith(prefix))
   return match ? match[1] : UNKNOWN_MODEL_RATES
@@ -52,7 +56,8 @@ export function costUsd(usage: UsageSummary, model: string): number {
     usage.input_tokens * perTokenInput +
     usage.output_tokens * perTokenOutput +
     usage.cache_creation_input_tokens * perTokenInput * CACHE_WRITE_MULTIPLIER +
-    usage.cache_read_input_tokens * perTokenInput * CACHE_READ_MULTIPLIER
+    usage.cache_read_input_tokens * perTokenInput * CACHE_READ_MULTIPLIER +
+    usage.web_search_requests * WEB_SEARCH_COST_USD
   )
 }
 

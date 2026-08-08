@@ -42,7 +42,7 @@ function rawResult(text: string) {
     text,
     tier: 'simple' as const,
     escalated: false,
-    usage: { input_tokens: 1, output_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+    usage: { input_tokens: 1, output_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, web_search_requests: 0 },
     model: 'claude-sonnet-5',
   }
 }
@@ -208,7 +208,7 @@ describe('askCommand limits wiring', () => {
 
     expect(recordUsageMock).toHaveBeenCalledWith(
       'user-1',
-      { input_tokens: 1, output_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      { input_tokens: 1, output_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, web_search_requests: 0 },
       'claude-opus-4-8'
     )
   })

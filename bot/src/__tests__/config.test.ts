@@ -106,6 +106,25 @@ describe('loadConfig', () => {
     expect(config.cooldownSeconds).toBe(20)
     expect(config.userDailyLimit).toBe(10)
     expect(config.dailyBudgetUsd).toBe(10)
+    expect(config.webSearchMaxUses).toBe(3)
+  })
+
+  it('honors WEB_SEARCH_MAX_USES, including 0 as an explicit kill switch', () => {
+    expect(loadConfig({ ...VALID_ENV, WEB_SEARCH_MAX_USES: '5' }).webSearchMaxUses).toBe(5)
+    resetConfigForTests()
+    expect(loadConfig({ ...VALID_ENV, WEB_SEARCH_MAX_USES: '0' }).webSearchMaxUses).toBe(0)
+    resetConfigForTests()
+    // Empty string is "unset", not 0 -- falls back to the default.
+    expect(loadConfig({ ...VALID_ENV, WEB_SEARCH_MAX_USES: ' ' }).webSearchMaxUses).toBe(3)
+  })
+
+  it('rejects a fractional or negative WEB_SEARCH_MAX_USES at boot', () => {
+    // A fraction would be sent verbatim as the tool's max_uses and make the
+    // API reject every conversational request -- fail the boot instead.
+    expect(() => loadConfig({ ...VALID_ENV, WEB_SEARCH_MAX_USES: '0.5' })).toThrow(/WEB_SEARCH_MAX_USES/)
+    resetConfigForTests()
+    // Only an explicit 0 may act as the kill switch.
+    expect(() => loadConfig({ ...VALID_ENV, WEB_SEARCH_MAX_USES: '-1' })).toThrow(/WEB_SEARCH_MAX_USES/)
   })
 
   it('honors PROFILES_PATH / COOLDOWN_SECONDS / USER_DAILY_LIMIT / DAILY_BUDGET_USD overrides', () => {
