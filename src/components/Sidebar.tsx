@@ -20,6 +20,7 @@ import {
   Target,
   TrendUp,
   UsersThree,
+  ChatCircle,
   List,
   X,
 } from '@phosphor-icons/react'
@@ -38,6 +39,7 @@ const navItems = [
   { href: '/analytics', label: 'Analytics', icon: ChartScatter },
   { href: '/models', label: 'Models', icon: Target },
   { href: '/predictions', label: 'Edge Board', icon: TrendUp },
+  { href: '/chat', label: 'Ask the Savant', icon: ChatCircle },
 ]
 
 interface SidebarProps {
