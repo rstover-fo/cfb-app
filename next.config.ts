@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import { withEve } from "eve/next";
 
 const nextConfig: NextConfig = {
   // @resvg/resvg-js ships a native .node binary per platform. Without this the
@@ -38,4 +39,8 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default nextConfig;
+// withEve discovers the agent/ directory at the project root, mounts its HTTP
+// channel at /eve/v1/*, and (on Vercel) emits the eve runtime as a Build
+// Output service alongside the app. It must wrap the final config so the
+// resvg externals / font tracing / image patterns above survive.
+export default withEve(nextConfig);
