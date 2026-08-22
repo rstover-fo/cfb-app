@@ -225,6 +225,38 @@ export async function queryTeamTool(args: QueryTeamArgs): Promise<string> {
   })
 }
 
+export const queryTeamDescription =
+  "Get a team's current-season snapshot plus its full multi-season history. Use for any " +
+  'question about a single team -- "how good is Oklahoma this year", "show Oklahoma\'s ' +
+  'history since 2014", ratings/EPA trends over time. Combines api.team_detail (current-season ' +
+  'snapshot: record, SP+/Elo/FPI/CORE ratings (core_defense is lower-better; NULL CORE = not ' +
+  'rated, never 0), EPA/success rate/explosiveness, recruiting rank -- at ' +
+  'most one row) and api.team_history (one row per season, ordered season DESC, up to 100 rows). ' +
+  "Team names must match CFBD's convention exactly (case-sensitive) -- 'oklahoma' or 'OU' will " +
+  'not match \'Oklahoma\'. api.team_detail only includes FBS-classification teams. The ' +
+  '"core_snapshot" key carries the as-of markers behind the embedded CORE values ' +
+  '(through_week/through_season_type, model_version, and the within-season ranks): an ' +
+  'in-season CORE value is a SNAPSHOT of current form advanced in place by the daily load, ' +
+  'not a final rating -- check through_week/through_season_type before presenting it as ' +
+  "final, and say \"through week N\" when it is mid-season. core_snapshot is null ONLY when " +
+  'the team has no CORE row (the model starts in 2016); if the as-of lookup itself failed ' +
+  'it is {"unavailable": true} instead -- embedded core_* values may still be present then, ' +
+  'and their finality is UNKNOWN: do not present them as final and do not call the team ' +
+  'unrated. Returns JSON ' +
+  'with "team_detail", "team_history" (each {"_source", "count", "rows"}) and ' +
+  '"core_snapshot" (markers object, null, or {"unavailable": true}) keys, or a plain ' +
+  '"No team found..." string if nothing matches.'
+
+export const queryTeamInputShape = {
+  team: z
+    .string()
+    .describe(
+      "Exact school name as used by CFBD, e.g. 'Oklahoma', 'Ohio State', 'Texas A&M'. This is " +
+        'an exact, case-sensitive match, not a fuzzy search -- if unsure of the exact spelling, ' +
+        'try get_leaderboard or query_games first to confirm it.'
+    ),
+} as const
+
 // ---------------------------------------------------------------------------
 // 2. query_games
 // ---------------------------------------------------------------------------
@@ -250,6 +282,49 @@ export async function queryGamesTool(args: QueryGamesArgs): Promise<string> {
   if (result.rows.length === 0) return 'No games found matching the given filters.'
   return dump(wrap('api.game_detail', result.rows))
 }
+
+export const queryGamesDescription =
+  'Search games by season, week, team, and/or minimum excitement. Use for "what happened in ' +
+  'Oklahoma\'s week 5 game", "show close games in the 2023 season", "list Oklahoma\'s 2024 ' +
+  'schedule". Backed by api.game_detail: teams, scores, winner, betting lines (spread/over-under ' +
+  'and whether they hit), EPA, pregame win probability, venue, attendance, excitement_index. ' +
+  'Ordered by start_date descending (most recent first). All filters combine with AND ' +
+  '(min_excitement is a floor, not a range). Calling with no filters returns the 100 most recent ' +
+  'games across all of CFBD history -- always pass at least `season` or `team`. `team` matches ' +
+  'home OR away (use query_matchup for head-to-head). Results are capped at 100 rows; a full ' +
+  'season across all FBS teams is ~800 games, so pair `season` with `team` or `week` to stay ' +
+  'under the cap. Uncompleted/future games have NULL scores, winner, and EPA. Returns JSON ' +
+  '{"_source": "api.game_detail", "count", "rows"}, or "No games found..." if nothing matches.'
+
+export const queryGamesInputShape = {
+  season: z.number().int().optional().describe('Season year, e.g. 2024. Strongly recommended.'),
+  week: z
+    .number()
+    .int()
+    .optional()
+    .describe(
+      'Week number within the season (regular season roughly 1-15; bowls/playoff weeks follow ' +
+        "CFBD's season_type/week scheme)."
+    ),
+  team: z
+    .string()
+    .optional()
+    .describe('Exact school name. Matches games where this team played either home or away.'),
+  min_excitement: z
+    .number()
+    .optional()
+    .describe(
+      "Minimum excitement_index (CFBD's game-excitement score, roughly 0-10; >6 is generally a " +
+        'thrilling finish). Use to find close or dramatic games.'
+    ),
+  limit: z
+    .number()
+    .int()
+    .min(1)
+    .max(DEFAULT_ROW_CAP)
+    .optional()
+    .describe(`Max rows to return. Hard-capped at ${DEFAULT_ROW_CAP} server-side regardless of this value.`),
+} as const
 
 // ---------------------------------------------------------------------------
 // 3. query_matchup
@@ -288,6 +363,26 @@ export async function queryMatchupTool(args: QueryMatchupArgs): Promise<string> 
   })
 }
 
+export const queryMatchupDescription =
+  'Get head-to-head history and current-season comparison between two teams. Use for "Oklahoma ' +
+  'vs Texas all-time record", "how do these two teams compare this season" (rivalry games, bowl ' +
+  'previews). Backed by api.matchup (one row per unordered team pair; order of team_a/team_b ' +
+  "doesn't matter) plus the full api.game_detail game log between the pair. Returns all-time " +
+  'record (total games, wins for each side, ties, first/last meeting), recent results, and each ' +
+  "team's current-season record/SP+ rank/EPA for context. Returns JSON with \"matchup\" and " +
+  '"games" keys, each {"_source", "count", "rows"}, or "No matchup history found..." if the teams ' +
+  'have never played or a name is misspelled.'
+
+export const queryMatchupInputShape = {
+  team_a: z.string().describe("First team's exact school name."),
+  team_b: z
+    .string()
+    .describe(
+      "Second team's exact school name. Order relative to team_a doesn't matter -- results are " +
+        'identical either way.'
+    ),
+} as const
+
 // ---------------------------------------------------------------------------
 // 4. get_rankings
 // ---------------------------------------------------------------------------
@@ -318,6 +413,44 @@ export async function getRankingsTool(args: GetRankingsArgs): Promise<string> {
   return dump(wrap('api.poll_rankings', result.rows))
 }
 
+export const getRankingsDescription =
+  'Get weekly or final poll rankings (AP Top 25, Coaches Poll, CFP committee, etc). Use for "who ' +
+  'was #1 in the AP poll in week 8 of 2024", "show the final CFP rankings for 2023", "was ' +
+  'Oklahoma ranked in week 3". Backed by api.poll_rankings, ordered week/poll/rank ascending. ' +
+  'IMPORTANT: tied teams share the same rank value and the next rank is skipped (e.g. two teams ' +
+  'at #11 means no #12 that week) -- do not assume rank values are contiguous or one row per ' +
+  'rank. To get the END-OF-SEASON final poll, set season_type=\'postseason\' (week is reported ' +
+  "as 1, identical to the regular-season week-1 poll's week number -- season_type is the only " +
+  'disambiguator). Omitting both `week` and `poll` for a full season can return a lot of rows ' +
+  '(many weeks x several polls x ~25 teams); the 100-row cap may truncate results, so prefer ' +
+  'narrowing with `poll` and/or `week`. Returns JSON {"_source": "api.poll_rankings", "count", ' +
+  '"rows"}, or "No rankings found..." if nothing matches.'
+
+export const getRankingsInputShape = {
+  season: z.number().int().describe('Season year, e.g. 2024.'),
+  week: z
+    .number()
+    .int()
+    .optional()
+    .describe('Week number. Omit to get every week of the season (subject to the 100-row cap).'),
+  poll: z
+    .string()
+    .optional()
+    .describe(
+      "Exact poll name, e.g. 'AP Top 25', 'Coaches Poll', 'Playoff Committee Rankings'. Omit to " +
+        'get all polls for the given week(s).'
+    ),
+  season_type: z
+    .enum(POLL_SEASON_TYPES)
+    .optional()
+    .describe(
+      "'regular' (default) for weekly in-season polls, or 'postseason' for the final poll of the " +
+        'season. CFBD reports the final poll as week=1, the same week number as the ' +
+        'regular-season week-1 poll -- season_type is what tells them apart.'
+    ),
+  limit: z.number().int().min(1).max(DEFAULT_ROW_CAP).optional().describe('Max rows to return.'),
+} as const
+
 // ---------------------------------------------------------------------------
 // 5. get_leaderboard
 // ---------------------------------------------------------------------------
@@ -341,6 +474,37 @@ export async function getLeaderboardTool(args: GetLeaderboardArgs): Promise<stri
   return dump(wrap(source, result.rows))
 }
 
+export const getLeaderboardDescription =
+  'Get a ranked leaderboard of teams for a season by a chosen metric. Use for "top 10 teams by ' +
+  'EPA in 2024", "best scoring defense last season", "who led the country in wins". Ranks are ' +
+  'FBS-scoped (FCS teams are excluded and do not count toward rank position). All metrics ' +
+  'except \'wepa\' are served from api.leaderboard_teams, which pre-computes rank columns ' +
+  "(wins_rank, ppg_rank, defense_ppg_rank, epa_rank) via SQL window functions -- ties are " +
+  "possible. 'wepa' (opponent-adjusted EPA) is served from the separate api.team_wepa_season " +
+  'view. Returns JSON {"_source", "count", "rows"} ordered best-to-worst, or "No leaderboard data ' +
+  'found..." if the season has no data.'
+
+export const getLeaderboardInputShape = {
+  season: z.number().int().describe('Season year, e.g. 2024.'),
+  metric: z
+    .enum(LEADERBOARD_METRICS)
+    .describe(
+      "Ranking metric: 'wins' (most wins), 'ppg' (points per game), 'scoring_defense' (fewest " +
+        "points allowed per game), 'epa' (EPA/play), 'sp_rating' (best SP+ rank), or 'wepa' " +
+        '(opponent-adjusted EPA -- pulled from api.team_wepa_season).'
+    ),
+  limit: z
+    .number()
+    .int()
+    .min(1)
+    .max(DEFAULT_ROW_CAP)
+    .optional()
+    .describe(
+      'Max rows. Capped at 100; there are ~130 FBS teams so a full-season list may be truncated ' +
+        '-- lower this or treat results as top-N, not exhaustive.'
+    ),
+} as const
+
 // ---------------------------------------------------------------------------
 // 6. situational_splits
 // ---------------------------------------------------------------------------
@@ -363,6 +527,29 @@ export async function situationalSplitsTool(args: SituationalSplitsArgs): Promis
   }
   return dump(wrap(`public.${SPLIT_RPC_NAMES[args.split_type]}`, result.rows))
 }
+
+export const situationalSplitsDescription =
+  'Get a team\'s situational performance splits for a season. Use for "how does Oklahoma perform ' +
+  'on 3rd down", "home vs away splits for Oklahoma in 2023", "red zone efficiency", "conference ' +
+  'vs non-conference performance". Fans out to one of five public RPCs based on split_type: ' +
+  'get_home_away_splits, get_conference_splits, get_red_zone_splits, get_down_distance_splits, ' +
+  'get_field_position_splits -- each called as (p_team=team, p_season=season). All five exclude ' +
+  'garbage-time plays. Play-by-play data is available from the 2014 season on; earlier seasons ' +
+  'will return empty or partial results. Returns JSON {"_source": "public.<rpc_name>", "count", ' +
+  '"rows"}, or "No <split_type> splits found..." if the team/season has no matching plays.'
+
+export const situationalSplitsInputShape = {
+  team: z.string().describe('Exact school name.'),
+  season: z.number().int().describe('Season year, e.g. 2024.'),
+  split_type: z
+    .enum(SPLIT_TYPES)
+    .describe(
+      "Which breakdown to compute: 'home_away' (home vs away performance), 'conference' " +
+        "(conference vs non-conference opponents), 'red_zone' (trips inside the opponent 20: " +
+        "TD/FG/turnover rates), 'down_distance' (success rate/EPA by down and distance bucket), " +
+        "or 'field_position' (EPA/success rate by field-position zone)."
+    ),
+} as const
 
 // ---------------------------------------------------------------------------
 // 7. search_players
@@ -402,6 +589,38 @@ export async function searchPlayersTool(args: SearchPlayersArgs): Promise<string
   })
 }
 
+export const searchPlayersDescription =
+  'Search for a player by name, then fetch full detail for the best match. Use anytime the ' +
+  'caller has a name but not an exact player_id -- "find Caleb Williams\' stats", "search for a ' +
+  'player named Bijan on Texas". Two-step workflow: (1) get_player_search(p_query, p_team, ' +
+  'p_season, p_limit) -- fuzzy name match via pg_trgm, ranked by similarity_score descending; (2) ' +
+  'get_player_detail(p_player_id, p_season) is then called automatically for the single ' +
+  'top-ranked hit, returning full bio/recruiting/season stats/PPA/WEPA/PAAR. If multiple players ' +
+  'share a similar name, only the top hit gets full detail -- inspect the "search" rows for other ' +
+  'candidates and call again with a more specific query/team/season if the top hit is wrong. If ' +
+  '`season` is omitted, get_player_detail returns that player\'s most recent season on record, ' +
+  'which may not be the season implied by the query. Returns JSON with "search" and ' +
+  '"top_hit_detail" keys (or "top_hit_detail_error" if the detail lookup itself fails -- search ' +
+  'results are never discarded), or "No players found..." if the search itself is empty.'
+
+export const searchPlayersInputShape = {
+  query: z
+    .string()
+    .describe(
+      "Player name to search, full or partial, typo-tolerant (trigram similarity match). E.g. " +
+        "'Caleb Williams', 'Bijan', or a misspelling like 'Calib Williams'."
+    ),
+  team: z.string().optional().describe('Restrict search to an exact school name.'),
+  season: z.number().int().optional().describe('Restrict search to a season year.'),
+  limit: z
+    .number()
+    .int()
+    .min(1)
+    .max(DEFAULT_ROW_CAP)
+    .optional()
+    .describe('Max search results (default 25, hard-capped at 100).'),
+} as const
+
 // ---------------------------------------------------------------------------
 // 8. get_data_freshness
 // ---------------------------------------------------------------------------
@@ -411,6 +630,17 @@ export async function getDataFreshnessTool(): Promise<string> {
   if (result.error) return result.error
   return dump(wrap('public.get_data_freshness', result.rows))
 }
+
+export const getDataFreshnessDescription =
+  'Get freshness/staleness status for all tracked warehouse tables. Use before answering ' +
+  'questions about very recent games/stats, to qualify how current the data is -- e.g. "as of ' +
+  'the last refresh (X days ago), ...". Also useful if a query returns unexpectedly few/no rows ' +
+  'for the current week, to check whether the pipeline has run yet. Takes no arguments. Backed by ' +
+  'the public.get_data_freshness() RPC, which reports row_count, expected_refresh_frequency, ' +
+  'days_since_activity, and is_stale for each of ~23 tracked tables, ordered stale-first. Returns ' +
+  'JSON {"_source": "public.get_data_freshness", "count", "rows"}.'
+
+export const getDataFreshnessInputShape = {} as const
 
 // ---------------------------------------------------------------------------
 // 9. get_game_prediction
@@ -447,6 +677,45 @@ export async function getGamePredictionTool(args: GetGamePredictionArgs): Promis
   return dump(wrap('api.game_predictions', [prediction]))
 }
 
+export const getGamePredictionDescription =
+  'Get the house model\'s prediction for a single game, plus how it stacks up against the market ' +
+  'line. Use for "what does the model predict for the Oklahoma vs Texas game", "is there value on ' +
+  'this line", "how confident is the model in this matchup". Backed by api.game_predictions, which ' +
+  'is already latest-snapshot per (game_id, model_version) -- at most one row. Three model versions ' +
+  "are written per game: 'fitted_v1' (default -- the current house model, a fitted 20-feature ridge), " +
+  "'elo_v1' (Elo rating differential only), and 'elo_epa_blend_v1' (blends Elo with recent EPA form). " +
+  'The two Elo versions share one Elo-derived home_win_prob and differ only in expected_home_margin; ' +
+  "'fitted_v1' carries its OWN Platt-scaled win probability, so BOTH expected_home_margin and " +
+  'home_win_prob change when you switch to or from it -- never quote a win probability without saying ' +
+  "which version produced it. 'fitted_v1' also leaves elo_margin and epa_margin NULL (the fitted " +
+  'ridge does not decompose its margin into those components) and covers 2018+ only, while the two ' +
+  'Elo versions cover 2015+ -- those nulls are the normal shape of a fitted_v1 row, not missing data. ' +
+  '`edge` = expected_home_margin + market_spread: a ' +
+  'positive edge means the model favors the home team more than the market does (vs. the number); a ' +
+  'negative edge means the model favors the away team relative to the market. market_provider, ' +
+  'market_spread, market_home_margin, market_captured_at, edge, and edge_pick are all null when no ' +
+  'betting line has been posted for this game -- that is a normal state (e.g. very early in the week, ' +
+  'or a game with no market coverage), not an error. Returns JSON {"_source": "api.game_predictions", ' +
+  '"count", "rows"} with at most one row, or a friendly "No prediction found..." string if the model ' +
+  "hasn't run for this game_id/model_version combination or the game_id doesn't exist."
+
+export const getGamePredictionInputShape = {
+  game_id: z
+    .number()
+    .int()
+    .describe('The game_id to fetch a prediction for (same id as api.game_detail/api.game_predictions).'),
+  model_version: z
+    .enum(PREDICTION_MODEL_VERSIONS)
+    .optional()
+    .describe(
+      `Which model version to fetch. Defaults to '${DEFAULT_PREDICTION_MODEL}', the current house ` +
+        "model (fitted 20-feature ridge with its own win-probability fit). 'elo_v1' is Elo-only and " +
+        "'elo_epa_blend_v1' is the Elo + recent-EPA blend; those two share a win probability and " +
+        'differ only in expected_home_margin, but switching between an Elo version and the fitted ' +
+        'model moves home_win_prob as well as expected_home_margin (and therefore edge).'
+    ),
+} as const
+
 // ---------------------------------------------------------------------------
 // 10. get_team_elo
 // ---------------------------------------------------------------------------
@@ -477,6 +746,29 @@ export async function getTeamEloTool(args: GetTeamEloArgs): Promise<string> {
   })
 }
 
+export const getTeamEloDescription =
+  'Get a team\'s season-end Elo rating/rank plus its full game-by-game Elo trajectory for a season. ' +
+  'Use for "how strong is Oklahoma by Elo this year", "show Oklahoma\'s Elo trend through the ' +
+  'season", "was this team\'s rating built on a small sample". Combines api.team_elo (season-end ' +
+  'summary: season_end_elo, elo_rank, games_played, a low_confidence flag, and cfbd_elo as a ' +
+  'cross-check against CFBD\'s own published Elo -- at most one row) and api.game_elo_history (one ' +
+  "row per game the team played that season: pregame -> postgame Elo, opponent, home/away, and the " +
+  "team's own win probability for that game, ordered by start_date ascending). low_confidence=true " +
+  'means the season-end rating rests on too few games to be reliable (e.g. an incomplete or just-' +
+  "started season) -- treat it as a caveat, not a data error. Team names must match CFBD's exact, " +
+  'case-sensitive convention. `season` defaults to the current season if omitted. Returns JSON with ' +
+  '"elo" and "history" keys, each {"_source", "count", "rows"} ("elo".rows has 0 or 1 entries), or a ' +
+  'friendly "No Elo data found..." string if the team/season combination has no coverage at all.'
+
+export const getTeamEloInputShape = {
+  team: z.string().describe("Exact school name as used by CFBD, e.g. 'Oklahoma'. Case-sensitive."),
+  season: z
+    .number()
+    .int()
+    .optional()
+    .describe(`Season year, e.g. 2024. Defaults to the current season (${CURRENT_SEASON}) if omitted.`),
+} as const
+
 // ---------------------------------------------------------------------------
 // 11. get_matchup_edges
 // ---------------------------------------------------------------------------
@@ -505,6 +797,49 @@ export async function getMatchupEdgesTool(args: GetMatchupEdgesArgs): Promise<st
   return dump(wrap('api.scored_matchup_edges', edges.slice(0, limit)))
 }
 
+export const getMatchupEdgesDescription =
+  'Get the scored slate of upcoming games where the house model\'s prediction diverges most from the ' +
+  'market line, ranked by conviction. Use for "which games have the biggest edge this week", "where ' +
+  'does the model disagree with Vegas", "best value on the board". Backed by ' +
+  'api.scored_matchup_edges (upcoming/scheduled games only -- a game drops off this view once it ' +
+  "completes), ordered by abs_edge descending (biggest model-vs-market disagreement first; rows with " +
+  'no posted market line have a null edge and sort last, but are still included, not filtered out). ' +
+  '`edge` = expected_home_margin + market_spread: positive favors the home team vs. the market, ' +
+  'negative favors the away team. Three model versions are written per game; pass `model_version` ' +
+  `explicitly to pin one, otherwise the current house model ('${DEFAULT_PREDICTION_MODEL}') is used. ` +
+  'IMPORTANT: this view only ever contains games that have not yet been played, so during the ' +
+  'off-season, or after a season\'s full slate has already locked in and completed, an EMPTY result ' +
+  '({"count": 0, "rows": []}) is the expected, correct response -- not an error and not a sign the ' +
+  'query is broken. Returns JSON {"_source": "api.scored_matchup_edges", "count", "rows"}, sliced to ' +
+  'at most `limit` rows (default 25, hard-capped at 100) after sorting by conviction.'
+
+export const getMatchupEdgesInputShape = {
+  season: z
+    .number()
+    .int()
+    .optional()
+    .describe(`Season year, e.g. 2024. Defaults to the current season (${CURRENT_SEASON}) if omitted.`),
+  week: z
+    .number()
+    .int()
+    .optional()
+    .describe('Restrict to a single week. Omit to get the full season slate (subject to `limit`).'),
+  model_version: z
+    .enum(PREDICTION_MODEL_VERSIONS)
+    .optional()
+    .describe(`Which model version to score edges against. Defaults to '${DEFAULT_PREDICTION_MODEL}'.`),
+  limit: z
+    .number()
+    .int()
+    .min(1)
+    .max(MATCHUP_EDGES_MAX_LIMIT)
+    .optional()
+    .describe(
+      `Max rows to return, taken from the top of the abs_edge-sorted slate. Default ` +
+        `${MATCHUP_EDGES_DEFAULT_LIMIT}, hard-capped at ${MATCHUP_EDGES_MAX_LIMIT}.`
+    ),
+} as const
+
 // ---------------------------------------------------------------------------
 // 12. get_playcalling_profile
 // ---------------------------------------------------------------------------
@@ -531,6 +866,30 @@ export async function getPlaycallingProfileTool(args: GetPlaycallingProfileArgs)
 
   return dump(wrap('api.team_playcalling_profile', [profile]))
 }
+
+export const getPlaycallingProfileDescription =
+  "Get a team's situational run/pass identity for a season, with percentile ranks against the " +
+  'rest of FBS. Use for "how run-heavy is Oklahoma on early downs", "does this team pass more on ' +
+  '3rd down than average", "red zone tendencies", "pace of play". Backed by ' +
+  'api.team_playcalling_profile (one row per team/season): overall/early-down/3rd-down/red-zone ' +
+  'run and pass rates, success rates, avg EPA, run-rate deltas when leading vs trailing, ' +
+  'plays-per-game pace, plus a matching set of *_pctl columns giving each rate\'s percentile rank ' +
+  '(0-100) against the rest of FBS that same season -- a higher percentile means more extreme ' +
+  "relative to the league, not necessarily 'better' (e.g. a very high third_down_pass_rate_pctl " +
+  'just means this team passes on 3rd down far more than most FBS teams). `season` defaults to ' +
+  `the current season (${CURRENT_SEASON}) if omitted. Returns JSON {"_source": ` +
+  '"api.team_playcalling_profile", "count", "rows"} with at most one row, or a friendly "No ' +
+  'playcalling profile found..." string if the team/season combination has too few qualifying ' +
+  'plays for the view to emit a row.'
+
+export const getPlaycallingProfileInputShape = {
+  team: z.string().describe("Exact school name as used by CFBD, e.g. 'Oklahoma'. Case-sensitive."),
+  season: z
+    .number()
+    .int()
+    .optional()
+    .describe(`Season year, e.g. 2024. Defaults to the current season (${CURRENT_SEASON}) if omitted.`),
+} as const
 
 // ---------------------------------------------------------------------------
 // 13. get_adjusted_epa
@@ -560,6 +919,34 @@ export async function getAdjustedEpaTool(args: GetAdjustedEpaArgs): Promise<stri
   return dump(wrap('api.team_week_features', weeks))
 }
 
+export const getAdjustedEpaDescription =
+  "Get a team's week-by-week walk-forward opponent-adjusted EPA alongside the matching raw " +
+  '(unadjusted) EPA and success-rate columns for the same weeks. Use for "how has Oklahoma\'s ' +
+  'adjusted offense trended this season", "is this team\'s raw EPA inflated by weak opponents", ' +
+  '"walk-forward EPA trajectory". Backed by api.team_week_features, one row per (team, season, ' +
+  'week_index) -- week_index is a dense 1..N index within the season (some weeks/teams are ' +
+  'skipped by the model), not the raw `week` column, though `week` is also included for ' +
+  'reference. adj_epa_off/adj_epa_def/adj_epa_net are WALK-FORWARD opponent-adjusted EPA (each ' +
+  "week's coefficients are fit only on data available up to that point in the season, so these " +
+  'are not hindsight-adjusted using the full season) computed via ridge regression against ' +
+  'opponent strength; off_epa_per_play and def_epa_per_play_allowed are the corresponding RAW, ' +
+  "unadjusted per-play EPA for the same team/week -- compare adj vs raw to see how much of a " +
+  "team's raw EPA is opponent-strength noise versus real performance. Also includes elo_pregame, " +
+  'games_played_to_date, off_success_rate, and both havoc-rate columns (havoc_rate_defense, ' +
+  'havoc_rate_offense_allowed). `season` defaults to the current season ' +
+  `(${CURRENT_SEASON}) if omitted. Returns JSON {"_source": "api.team_week_features", "count", ` +
+  '"rows"} ordered week_index ascending, or a friendly "No adjusted-EPA data found..." string if ' +
+  "the feature build hasn't run yet for this team/season."
+
+export const getAdjustedEpaInputShape = {
+  team: z.string().describe("Exact school name as used by CFBD, e.g. 'Oklahoma'. Case-sensitive."),
+  season: z
+    .number()
+    .int()
+    .optional()
+    .describe(`Season year, e.g. 2024. Defaults to the current season (${CURRENT_SEASON}) if omitted.`),
+} as const
+
 // ---------------------------------------------------------------------------
 // 14. get_live_scoreboard
 // ---------------------------------------------------------------------------
@@ -575,6 +962,21 @@ export async function getLiveScoreboardTool(): Promise<string> {
   return dump(wrap('api.live_scoreboard', games))
 }
 
+export const getLiveScoreboardDescription =
+  'Get the current live scoreboard slate: in-progress/pregame/final game state for the day\'s ' +
+  'tracked games (score, period/clock, possession, live win probability vs market). Use for ' +
+  '"what\'s the score of the Oklahoma game right now", "who has the ball", "live win probability ' +
+  'for this game". Backed by api.live_scoreboard, ordered by game_id (the view has no start-time ' +
+  'column to order by). IMPORTANT: this view is only populated during Saturday polling windows ' +
+  "during the season -- cfb-database's live poller writes/refreshes rows only while games are " +
+  'scheduled or in progress that day, and the table is otherwise empty. An EMPTY result ' +
+  '({"count": 0, "rows": []}) is the normal state most of the time -- any weekday, the ' +
+  'off-season, or any moment outside an active polling window -- not an error and not a sign the ' +
+  'query is broken. Takes no arguments. Returns JSON {"_source": "api.live_scoreboard", "count", ' +
+  '"rows"}.'
+
+export const getLiveScoreboardInputShape = {} as const
+
 // ---------------------------------------------------------------------------
 // 15. get_model_accuracy
 // ---------------------------------------------------------------------------
@@ -588,6 +990,31 @@ export async function getModelAccuracyTool(): Promise<string> {
   // has ever run is the only empty case, and is still not an error).
   return dump(wrap('api.prediction_accuracy', rows))
 }
+
+export const getModelAccuracyDescription =
+  'Get backtested accuracy/calibration metrics for the house prediction model(s), broken out by ' +
+  'model_version x season x edge_threshold. Use for "how accurate is the prediction model", ' +
+  '"which model version performs best", "is the model well-calibrated", "how does the model ' +
+  'compare to CFBD\'s own model". Backed by api.prediction_accuracy (~90 rows total covering ' +
+  'every model_version/season/edge_threshold combination -- the caller filters/groups ' +
+  'client-side, e.g. by model_version or a minimum edge_threshold). margin_mae/margin_rmse ' +
+  'measure how far the predicted home margin is from the actual margin (lower is better); ' +
+  'ats_wins/ats_losses/ats_pushes/ats_hit_rate measure against-the-spread performance when ' +
+  "picking with the model's edge; brier is the Brier score for home_win_prob calibration (lower " +
+  'is better -- 0 is perfect, 0.25 is coin-flip-equivalent); cfbd_brier is the same Brier score ' +
+  "computed for CFBD's own published win probability over the same games, included as an " +
+  'external benchmark -- a lower brier than cfbd_brier means the house model out-calibrated ' +
+  'CFBD\'s. n_games/n_with_market/n_scored_win_prob are the sample sizes behind each row (small ' +
+  "samples, e.g. early in a new model_version's life, should be read with more caution). " +
+  'IMPORTANT -- no single version wins on every metric, so do not call one "the best model" ' +
+  `flatly. '${DEFAULT_PREDICTION_MODEL}' is the current house default because it has the lowest ` +
+  'margin_mae/margin_rmse, but on 2025 at edge_threshold=0 it posted a WORSE ats_hit_rate than ' +
+  'both Elo versions and a level brier. Beating the market against the spread and predicting a ' +
+  'margin accurately are different tests: report the metric you actually measured. Takes ' +
+  'no arguments. Returns JSON {"_source": "api.prediction_accuracy", "count", "rows"}, ordered ' +
+  'season descending, then model_version, then edge_threshold ascending.'
+
+export const getModelAccuracyInputShape = {} as const
 
 // ---------------------------------------------------------------------------
 // 16. get_player_leaders
@@ -636,6 +1063,51 @@ export async function getPlayerLeadersTool(args: GetPlayerLeadersArgs): Promise<
   return dump(wrap('api.player_usage_leaders', rows))
 }
 
+export const getPlayerLeadersDescription =
+  "Get a season leaderboard of individual players by opponent-adjusted EPA/PAAR ('wepa') or " +
+  "snap-share usage ('usage'). Use for \"top wepa passers in 2024\", \"who leads the country in " +
+  'rushing wepa", "highest-usage receivers this season". \'wepa\' is served from ' +
+  'api.player_wepa_leaders (wepa, paar, metric, plays, pre-ranked league-wide per category via ' +
+  "season_rank ascending) and can optionally be narrowed to one category ('passing', 'rushing', " +
+  "'kicking') -- omitting category returns all three mixed together, sorted by season_rank within " +
+  "each. 'usage' is served from api.player_usage_leaders (usage_overall plus pass/rush/down-type " +
+  'situational usage splits, sorted usage_overall descending) and has no category breakdown -- ' +
+  '`category` is ignored if passed with type=\'usage\'. Both views are derived from play-by-play ' +
+  'data, so only seasons from 2014 on have coverage. `season` defaults to the current season ' +
+  `(${CURRENT_SEASON}) if omitted. Returns JSON {"_source", "count", "rows"}, or a friendly "No ` +
+  '... leaders found..." string if the season/category combination has no data yet.'
+
+export const getPlayerLeadersInputShape = {
+  season: z
+    .number()
+    .int()
+    .optional()
+    .describe(`Season year, e.g. 2024. Defaults to the current season (${CURRENT_SEASON}) if omitted.`),
+  type: z
+    .enum(['wepa', 'usage'])
+    .describe(
+      "'wepa' for opponent-adjusted EPA/PAAR leaders (api.player_wepa_leaders), or 'usage' for " +
+        'snap-share usage leaders (api.player_usage_leaders).'
+    ),
+  category: z
+    .enum(WEPA_CATEGORIES)
+    .optional()
+    .describe(
+      "Restrict wepa leaders to one category: 'passing', 'rushing', or 'kicking'. Only applies " +
+        "when type='wepa' -- ignored for type='usage', which has no per-category breakdown."
+    ),
+  limit: z
+    .number()
+    .int()
+    .min(1)
+    .max(PLAYER_LEADERS_MAX_LIMIT)
+    .optional()
+    .describe(
+      `Max rows to return. Default ${PLAYER_LEADERS_DEFAULT_LIMIT}, hard-capped at ` +
+        `${PLAYER_LEADERS_MAX_LIMIT}.`
+    ),
+} as const
+
 // ---------------------------------------------------------------------------
 // 17. compare_players
 // ---------------------------------------------------------------------------
@@ -671,6 +1143,39 @@ export async function comparePlayersTool(args: ComparePlayersArgs): Promise<stri
   return dump({ player1, player2 })
 }
 
+export const comparePlayersDescription =
+  'Compare two players side by side: full player_detail stat set plus position-group-relative ' +
+  'percentiles for each. Use for "compare Caleb Williams and Drake Maye", "who has better rushing ' +
+  'stats, player A or player B". Backed by api.player_comparison (one row per player_id x season): ' +
+  'raw counting stats (passing/rushing/receiving/defense) alongside *_pctl columns (0-1 fractions) ' +
+  "giving each stat's percentile rank against the player's position group that same season -- a " +
+  'QB naturally has null receiving/defense stats and vice versa. `season` is part of the grain, so ' +
+  "each player_id has one row per season; if `season` is omitted, each player's LATEST available " +
+  'season is resolved independently -- the two players in the response may end up on different ' +
+  'seasons if their careers don\'t overlap. Use search_players first to resolve a player_id from a ' +
+  'name. Returns JSON {"player1", "player2"} (each the raw api.player_comparison row, or null if ' +
+  'that id had no data), or a friendly "No comparison data found..." string naming which ' +
+  'player_id(s) came back empty if either lookup fails.'
+
+export const comparePlayersInputShape = {
+  player_id_1: z
+    .number()
+    .int()
+    .describe('First player_id (numeric CFBD athlete id, not a name -- resolve via search_players first).'),
+  player_id_2: z
+    .number()
+    .int()
+    .describe('Second player_id (numeric CFBD athlete id, not a name -- resolve via search_players first).'),
+  season: z
+    .number()
+    .int()
+    .optional()
+    .describe(
+      "Season year. Omit to use each player's latest available season independently (they may " +
+        'differ between the two players).'
+    ),
+} as const
+
 // ---------------------------------------------------------------------------
 // 18. get_conference_comparison
 // ---------------------------------------------------------------------------
@@ -705,6 +1210,33 @@ export async function getConferenceComparisonTool(args: GetConferenceComparisonA
   return dump({ season, ...wrap('api.conference_comparison', rows) })
 }
 
+export const getConferenceComparisonDescription =
+  'Get conference-level aggregate metrics for a season: average wins, SP+ rating, EPA/play, ' +
+  'recruiting rank, and non-conference win%, each with a percentile rank against the rest of FBS. ' +
+  'Use for "which conference is strongest by SP+ this year", "how does the Big Ten compare to the ' +
+  'SEC in recruiting", "best non-conference performance by league". Backed by ' +
+  'api.conference_comparison (one row per conference/season, member_count always >= 4), sorted ' +
+  'strongest-first by avg_sp_rating (nulls last). `season` defaults to the current season ' +
+  `(${CURRENT_SEASON}) if omitted. IMPORTANT: early in a season, before enough games have been ` +
+  'played, the requested season may have no computed aggregates yet -- this tool automatically ' +
+  'retries season-1 once in that case (mirroring the /conferences page\'s own offseason fallback) ' +
+  'rather than returning an empty result. Returns JSON {"season", "_source": ' +
+  '"api.conference_comparison", "count", "rows"} where `season` reports which season the returned ' +
+  'rows actually belong to (it may differ from the requested/default season after the fallback), ' +
+  'or a friendly "No conference comparison data found..." string if both the requested season and ' +
+  'season-1 come back empty.'
+
+export const getConferenceComparisonInputShape = {
+  season: z
+    .number()
+    .int()
+    .optional()
+    .describe(
+      `Season year, e.g. 2024. Defaults to the current season (${CURRENT_SEASON}) if omitted; ` +
+        'falls back to season-1 automatically if the season has no computed aggregates yet.'
+    ),
+} as const
+
 // ---------------------------------------------------------------------------
 // 19. get_coaching_history
 // ---------------------------------------------------------------------------
@@ -726,6 +1258,26 @@ export async function getCoachingHistoryTool(args: GetCoachingHistoryArgs): Prom
 
   return dump(wrap('api.coaching_history', rows))
 }
+
+export const getCoachingHistoryDescription =
+  'Get a coach\'s full per-tenure coaching history: one row per school stint, with win/loss ' +
+  'record, conference record, bowl record, and recruiting-talent trajectory (inherited vs ' +
+  'year-3 talent rank) for each. Use for "Nick Saban\'s coaching history", "how did this coach do ' +
+  'at his previous school", "did this coach improve the roster talent level". Backed by ' +
+  'api.coaching_history, ordered chronologically by tenure_start. A coach who left and later ' +
+  'returned to the same school gets two separate rows (distinct tenures), not one merged row -- ' +
+  'unlike api.coach_records\' single career-at-school aggregate. inherited_talent_rank/' +
+  'year3_talent_rank/talent_improvement are null for pre-recruiting-rankings-era tenures -- that ' +
+  'is a normal data gap, not an error. first_name/last_name must match exactly (case-sensitive); ' +
+  'this view has no coach-id or fuzzy-search entry point, so get an exact spelling first (e.g. via ' +
+  'general web knowledge) if unsure. Returns JSON {"_source": "api.coaching_history", "count", ' +
+  '"rows"}, or a friendly "No coaching history found..." string if the name doesn\'t match any ' +
+  'coach on record.'
+
+export const getCoachingHistoryInputShape = {
+  first_name: z.string().describe("Coach's first name, exact match, e.g. 'Nick'."),
+  last_name: z.string().describe("Coach's last name, exact match, e.g. 'Saban'."),
+} as const
 
 // ---------------------------------------------------------------------------
 // 20. run_sql -- public.run_analyst_query (read-only SQL sandbox)
@@ -764,6 +1316,167 @@ export async function runSqlTool(args: RunSqlArgs): Promise<string> {
   if (result.rows.length === 0) return 'No rows returned. The query ran but matched nothing -- check filters/joins.'
   return dump(wrap('public.run_analyst_query', result.rows))
 }
+
+export const runSqlDescription =
+  'Escape hatch for analytical questions the curated tools cannot answer -- cross-domain ' +
+  'joins, custom aggregations, "highest/most/only team that..." questions. Runs ONE ' +
+  'read-only SELECT/WITH statement against the api schema (SELECT-only role, ~8s timeout, ' +
+  '~200-row cap, single statement). Prefer the curated tools when one fits; always include ' +
+  'an explicit LIMIT and ORDER BY.\n\n' +
+  'SCHEMA CARD -- always prefix views with api. All snake_case. Team names are exact and ' +
+  "case-sensitive ('Ohio State', 'Miami (OH)', 'Texas A&M'). season is the fall year; " +
+  "season_type is 'regular' or 'postseason'.\n" +
+  'Core views (key columns):\n' +
+  '- api.team_detail: school, conference, wins, losses, ppg, opp_ppg, sp_rating, sp_rank, elo, fpi, core_overall/core_offense/core_defense (CFBD CORE, NULL = not rated), epa_per_play, recruiting_rank (current season, FBS only)\n' +
+  '- api.team_history: school (column: team), season, wins, losses, ppg, opp_ppg, avg_margin,\n' +
+  '  sp_rating, sp_rank, sp_offense, sp_defense (lower sp_defense is better), elo, fpi,\n' +
+  '  core_overall/core_offense/core_defense (2016+, NULL before = not rated never 0),\n' +
+  '  epa_per_play, success_rate, explosiveness, recruiting_rank -- one row per team-season\n' +
+  "- api.core_ratings: CFBD CORE team ratings (opponent- and situation-adjusted), 2016+ -- one\n" +
+  '  row per (team, season): overall, offense, defense (per-100-qualifying-plays point margins\n' +
+  '  vs average; overall = offense - defense), offense_plays, defense_plays, through_week,\n' +
+  '  through_season_type, model_version, overall_rank/offense_rank/defense_rank (within-season).\n' +
+  "  defense is LOWER-BETTER: best defense = ORDER BY defense_rank ASC or defense ASC, NEVER\n" +
+  '  defense DESC. In-season rows are snapshots advanced in place (through_week says how much\n' +
+  '  the rating has seen) -- label mid-season values as current form, not final\n' +
+  '- api.game_detail: game_id, season, week, season_type, start_date, completed, neutral_site, conference_game, home_team, away_team, home_points, away_points, winner, point_diff, home_spread, over_under, spread_result, ou_result, pregame_home_win_prob, venue, attendance, excitement_index\n' +
+  '- api.team_elo: team, season, season_end_elo, elo_rank, games_played, low_confidence, cfbd_elo -- one row per team-season\n' +
+  '- api.game_elo_history: per-game pregame/postgame elo for both teams, win_prob, margin errors.\n' +
+  '  Use for POINT-IN-TIME Elo: a team\'s elo entering/leaving any week (e.g. end-of-regular-season\n' +
+  '  = postgame elo of its last regular-season game). NOTE: conference championship games are\n' +
+  "  season_type='regular' (usually the final regular week) -- exclude that week for pre-CCG cuts\n" +
+  '- api.game_plays: RAW PLAY-BY-PLAY, 2004+ (~3.6M rows): game_id, season, drive_number,\n' +
+  '  play_number, offense, defense, period, clock_minutes, clock_seconds, down, distance,\n' +
+  '  yards_to_goal, yards_gained, play_type, play_text, ppa, scoring, offense_score,\n' +
+  '  defense_score. Use it to literally count plays (e.g. explosive plays = scrimmage plays\n' +
+  '  with yards_gained >= 20) instead of reaching for a proxy metric. ALWAYS filter season --\n' +
+  '  unfiltered scans hit the timeout. No week/season_type column: JOIN api.game_detail USING\n' +
+  '  (game_id) for week, date, or postseason cuts. EVERY event is a row (penalties, kickoffs,\n' +
+  "  timeouts, period ends), so filter play_type for scrimmage plays: rushes are IN ('Rush',\n" +
+  "  'Rushing Touchdown'); completed passes are IN ('Pass Reception', 'Pass Completion',\n" +
+  "  'Passing Touchdown'); pass attempts also include 'Pass Incompletion', 'Sack',\n" +
+  "  'Interception', 'Pass Interception Return', 'Interception Return Touchdown'\n" +
+  '- api.game_drives: drive-level grain, same era: game_id, season, drive_number, offense,\n' +
+  '  defense, start_period, start_yards_to_goal, end_yards_to_goal, plays, yards, drive_result,\n' +
+  '  scoring, start/end offense_score + defense_score, elapsed_minutes, elapsed_seconds,\n' +
+  '  is_home_offense -- same caveat: no week column, JOIN api.game_detail for week filters\n' +
+  '- api.game_box_score: per-game team stats in LONG format -- one row per (game_id, team,\n' +
+  '  category, stat_value); filter or pivot on category. api.game_player_leaders: same idea at\n' +
+  '  player grain (category, stat_type, player_name, stat)\n' +
+  '- api.game_line_scores: quarter-by-quarter scores (home_q1..away_ot). api.game_win_probability:\n' +
+  '  play-level win-prob curve. api.game_recaps: generated headline + recap text per game (2025+)\n' +
+  '- api.matchup: head-to-head history, ONE row per pair ordered team1 < team2 ALPHABETICALLY --\n' +
+  "  match a school with (team1 = 'X' OR team2 = 'X'), never team1 alone: total_games,\n" +
+  '  team1_wins, team2_wins, ties, first_meeting, last_meeting, recent_results + both teams\'\n' +
+  '  current-season form\n' +
+  '- api.line_movement: betting-line SNAPSHOTS over time (captured_at, provider, spread,\n' +
+  '  formatted_spread, over_under, home/away_moneyline), several rows per game, current season\n' +
+  '  only -- latest line = greatest captured_at per (game_id, provider)\n' +
+  '- api.live_scoreboard: in-progress games only, empty outside live windows -- prefer the\n' +
+  '  get_live_scoreboard tool\n' +
+  '- api.coaching_history: coach_name, team, tenure_start, tenure_end (null = active), seasons_count, total_wins, total_losses, win_pct, avg_sp_rating, peak_sp_rating -- one row per coach-tenure\n' +
+  '- api.coach_records: coach career-at-school grain with ATS splits (ats_wins, ats_losses)\n' +
+  '- api.poll_rankings: season, season_type, week, poll, rank, school, conference, first_place_votes, points\n' +
+  '- api.leaderboard_teams: team, conference, season, wins, losses, ppg, opp_ppg, sp_rating,\n' +
+  '  sp_rank, sp_offense, sp_defense (offense/defense SP+ components -- available for ALL seasons,\n' +
+  '  lower sp_defense is better), elo, fpi, epa_per_play, success_rate, explosiveness,\n' +
+  '  recruiting_rank + *_rank columns. Works for any past season, not just the current one\n' +
+  '- api.team_wepa_season: team, season, epa_total, epa_passing, epa_rushing, epa_allowed_*, success_rate_*, explosiveness\n' +
+  '- api.team_ats: team, season, ats record vs the spread\n' +
+  '- api.scored_matchup_edges / api.game_predictions / api.prediction_accuracy: model predictions vs\n' +
+  `  market. THREE model_versions per game: elo_v1, elo_epa_blend_v1, ${DEFAULT_PREDICTION_MODEL}\n` +
+  '  (the current house model). ALWAYS filter model_version or every game appears three times\n' +
+  '- api.matchup_forecast: ONE row per game, 2000+ -- blended pregame forecast + result:\n' +
+  '  home/away_win_probability, projected_winner, projected_margin, confidence_tier, component\n' +
+  '  probs (cfbd/market/elo/sp_home_win_prob), market_spread, market_over_under, actual result\n' +
+  '  (home/away_points, actual_winner, brier_loss), and season context (home/away_expected_wins,\n' +
+  '  home/away_bowl_eligibility_prob, home/away_ten_plus_win_prob)\n' +
+  '- api.season_outlook: season, team, conference, classification, is_projection, model_version,\n' +
+  '  projected_wins, projected_losses, median_wins, wins_p10/p25/p75/p90, p_win_dist (jsonb\n' +
+  '  {"0":p,...}), p_bowl_eligible, p_ten_plus, sos_rating, sos_rank, conf_title_prob,\n' +
+  '  games_scheduled/simulated/unscored/completed, actual_wins, schedule_complete, n_sims --\n' +
+  '  latest Monte Carlo snapshot per (season, team, model_version); pin model_version or teams\n' +
+  '  appear once per version. Prefer get_season_outlook, which attaches the backtest error and\n' +
+  '  the per-result caveats. NOT FBS-only -- ALWAYS add classification = \'fbs\' before ranking, or\n' +
+  '  you compare teams playing different-length seasons (2026: 138 fbs / 128 fcs / 38 ii / 33 iii\n' +
+  '  / 13 NULL, and NULL means unplaceable, not FBS). is_projection = false means the season is\n' +
+  '  already played and the row is a final record, not a forecast -- check it before calling\n' +
+  '  anything a projection. playoff_prob is NULL everywhere by design; p_bowl_eligible is NULL\n' +
+  '  outside FBS by design. Projected quantities are over games_simulated, NOT games_scheduled\n' +
+  '- api.model_backtest: model_version, scope, run_date, season_start/end, n, win_mae, rmse, bias,\n' +
+  '  coverage, resid_p05..p95, baseline_prior_mae, baseline_flat_mae, ten_plus_brier, bowl_brier --\n' +
+  '  how wrong the season projections usually are. FILTER scope = \'fbs\'; \'all_divisions\' is a\n' +
+  '  different measurement, not a superset, and the grain is one row per (model, scope, window),\n' +
+  '  so an unpinned scope returns several. `n` counts TEAM-SEASONS, not games. For an interval use\n' +
+  '  resid_p10/resid_p90 (asymmetric) -- never +/- win_mae, which spans only ~58% of outcomes.\n' +
+  '  No row means never backtested: report unmeasured, never zero error\n' +
+  '- api.player_season_leaders (LONG: one row per player-category, e.g. passing/rushing),\n' +
+  '  api.player_wepa_leaders, api.player_usage_leaders: player-season leaderboards\n' +
+  '- api.player_detail: one row per player-season, 2004+ (~340k rows): bio, recruit pedigree\n' +
+  '  (stars, recruit_rating, national_ranking), raw counting stats (pass_*, rush_*, rec_*,\n' +
+  '  tackles, sacks, tfl), ppa_avg/ppa_total. api.player_comparison is the same grain plus\n' +
+  '  *_pctl percentile columns\n' +
+  '- api.roster_lookup: roster rows per team-season 2004+ (first/last_name, team, position,\n' +
+  '  height, weight, year = season, jersey, home_city, home_state, home_country)\n' +
+  '- api.recruit_lookup: individual recruits 2000+ (name, year, stars, rating, ranking,\n' +
+  '  position, school = HIGH SCHOOL, committed_to = college)\n' +
+  '- api.recruiting_roi, api.transfer_portal_impact, api.team_returning_production, api.conference_comparison\n' +
+  '- api.team_week_features: one row per (team, season, week_index), 2015+ -- POINT-IN-TIME weekly\n' +
+  '  features: week, games_played_to_date, elo_pregame, adj_epa_off/def/net (walk-forward\n' +
+  '  opponent-adjusted, fit only on data through that week), off/def EPA + success +\n' +
+  '  explosiveness rates, havoc_rate_defense, havoc_rate_offense_allowed, returning production,\n' +
+  '  preseason SP+. The go-to join for "as of week N" strength cuts; week_index is a dense 1..N\n' +
+  '  within-season index, not the raw week. Prefer get_adjusted_epa for one team\'s trend\n' +
+  '- api.adjusted_epa_week: ridge-fit model internals behind those adjustments (team, season,\n' +
+  '  week_index, off_coef, def_coef, hfa_coef, mu, plays), 2004+ -- prefer team_week_features\n' +
+  '- api.team_playcalling_profile: one row per team-season, 2004+: overall/early-down/red-zone\n' +
+  '  run rates, third_down_pass_rate, leading/trailing run rates + run_rate_delta,\n' +
+  '  pace_plays_per_game, success/EPA splits, *_pctl percentile columns\n' +
+  '- api.expected_points: the house EP model -- one row per (era, state), NO team column:\n' +
+  "  era ('2004-2013'|'2014-2020'|'2021+' -- NEVER average eras), state ('d1|standard|z8'),\n" +
+  '  down, distance_bucket (down-aware: d1 = standard(=10)/short(<10)/long(>10)/goal; d2-4 =\n' +
+  '  short(<=3)/med(4-6)/long(7-10)/xlong(>10)/goal), field_zone (1 = 1-10 yards FROM THE\n' +
+  '  GOAL, 10 = backed up), yards_to_goal_min/max, n_obs, ep_drive (drive-scoring basis),\n' +
+  '  ep_net (net next-score basis, CFBD-ppa-comparable, can be NEGATIVE, NULL = not computed\n' +
+  '  never 0), p_td, p_fg, p_punt, p_turnover, se_boot (NULLABLE -- no interval, not +/-0).\n' +
+  '  down=4 rows are GO-FOR-IT-CONDITIONAL (can price above d3), and sparse cells (n_obs can\n' +
+  '  be 1) are anecdotes -- check n_obs. Prefer get_expected_points, which attaches the basis\n' +
+  '  definitions and per-result caveats\n' +
+  '- api.team_penalties: game_id, season, week, season_type, team, opponent, home_away, penalties,\n' +
+  '  penalty_yards, opponent_penalties, opponent_penalty_yards -- two rows per game (one per team);\n' +
+  "  the scorer's OFFICIAL box-score tally -- prefer it for totals and GROUP BY team for season\n" +
+  '  discipline leaderboards. Per-game averages: use ALL of a team\'s games as the denominator\n' +
+  '  (COUNT(DISTINCT game_id) from this view), never just the games where a call happened\n' +
+  '- api.penalty_log: play-level penalties (2004+) parsed BEST-EFFORT from free-text play_text:\n' +
+  '  game_id, season, week, offense, defense, penalized_team, benefiting_team, infraction (~30\n' +
+  "  labels incl 'Unknown'), penalty_yards, declined, offsetting, no_play, down, distance, period,\n" +
+  "  ppa, parse_ok. 'Unknown'/NULL team = UNCLASSIFIED not absent, so filtered counts are floors\n" +
+  '  (attribution validated >= 50% only for seasons >= 2022) -- say so when reporting. For\n' +
+  '  cross-metric combos (e.g. havoc rate vs holding penalties drawn), join api.team_week_features\n' +
+  '  (havoc_rate_defense) with penalty_log GROUPed BY benefiting_team. NOTE: ORDER BY ... DESC\n' +
+  '  sorts NULLs first -- filter them out\n\n' +
+  'Worked example -- "which coach can claim the highest Elo at two different schools":\n' +
+  'WITH tenure_elo AS (\n' +
+  '  SELECT ch.coach_name, ch.team, MAX(te.season_end_elo) AS peak_elo\n' +
+  '  FROM api.coaching_history ch\n' +
+  '  JOIN api.team_elo te ON te.team = ch.team\n' +
+  '    AND te.season BETWEEN ch.tenure_start AND COALESCE(ch.tenure_end, 2100)\n' +
+  '  GROUP BY ch.coach_name, ch.team\n' +
+  ')\n' +
+  'SELECT coach_name, COUNT(*) AS schools, MIN(peak_elo) AS weaker_school_peak\n' +
+  'FROM tenure_elo GROUP BY coach_name HAVING COUNT(*) >= 2\n' +
+  'ORDER BY weaker_school_peak DESC LIMIT 10;\n\n' +
+  'Returns {"_source", "count", "rows"} JSON, a "No rows returned" note, or an "Error: ..." ' +
+  'string (never throws).'
+
+export const runSqlInputShape = {
+  sql: z
+    .string()
+    .describe(
+      'One read-only SELECT or WITH statement over the api.* views. No DDL/DML, no multiple ' +
+        'statements. Include ORDER BY and LIMIT (server caps rows regardless).'
+    ),
+} as const
 
 // ---------------------------------------------------------------------------
 // 21. get_penalty_profile
@@ -894,6 +1607,47 @@ export async function getPenaltyProfileTool(args: GetPenaltyProfileArgs): Promis
   })
 }
 
+export const getPenaltyProfileDescription =
+  "Get a team's discipline profile for a season: penalty totals and per-game rates, the " +
+  'differential vs its opponents, a breakdown of which infractions it commits, a breakdown of ' +
+  'which infractions it DRAWS from opponents, and its most costly individual penalties. Use for ' +
+  '"how undisciplined is Oklahoma this year", "what penalties does this team commit most", "does ' +
+  'this defense draw a lot of holding calls", "who wins the penalty battle in their games". ' +
+  'Combines api.team_penalties (per-game totals for the team and its opponents, aggregated to a ' +
+  'season summary in the "summary" key -- penalty_margin_per_game and penalty_yards_margin_per_game ' +
+  'are opponent minus own, so POSITIVE means more disciplined than the opposition) and ' +
+  'api.penalty_log (play-level penalties parsed from play text): "infraction_breakdown" groups the ' +
+  "penalties the team COMMITTED (penalized_team = team) by infraction label, \"drawn_breakdown\" " +
+  'groups the penalties opponents committed that BENEFITED the team (benefiting_team = team -- e.g. ' +
+  'holding calls a good pass rush generates), and "most_costly" lists the top accepted penalties by ' +
+  'yardage. In each breakdown, accepted/declined/offsetting are disjoint counts summing to total, ' +
+  'and accepted_yards only counts enforced yardage. IMPORTANT data honesty: api.penalty_log is ' +
+  "parsed from CFBD's free-text play descriptions, so an 'Unknown' infraction or an unattributed " +
+  'team means UNCLASSIFIED, not absent -- the two breakdowns silently exclude unattributed plays ' +
+  'and are therefore FLOORS, not exact officiating counts; relay that when answering. The "summary" ' +
+  "key is the scorer's official box-score tally and is the authoritative source for totals (which " +
+  'is also why breakdown totals run below the summary counts); use the breakdowns for the ' +
+  'infraction MIX only. Coverage runs from 2004; parse quality is validated for seasons >= 2022 ' +
+  '(>= 90% of penalties get an infraction label, >= 50% get a team attribution) and degrades in ' +
+  `older seasons. \`season\` defaults to the current season (${CURRENT_SEASON}) if omitted. For ` +
+  'league-wide discipline leaderboards or cross-metric combos (e.g. havoc rate vs penalties drawn), ' +
+  'use run_sql over api.team_penalties / api.penalty_log instead. Returns JSON with "team", ' +
+  '"season", "summary", "infraction_breakdown", "drawn_breakdown", "most_costly", and "game_log" ' +
+  'keys (envelope keys are {"_source", "count", "rows"}; a failed secondary lookup degrades to an ' +
+  '"..._error" key without discarding the rest), or a friendly "No penalty data found..." string.'
+
+export const getPenaltyProfileInputShape = {
+  team: z.string().describe("Exact school name as used by CFBD, e.g. 'Oklahoma'. Case-sensitive."),
+  season: z
+    .number()
+    .int()
+    .optional()
+    .describe(
+      `Season year, e.g. 2024. Defaults to the current season (${CURRENT_SEASON}) if omitted. ` +
+        'Penalty data covers 2004+; parse quality is best for seasons >= 2022.'
+    ),
+} as const
+
 // ---------------------------------------------------------------------------
 // 22. get_penalty_log
 // ---------------------------------------------------------------------------
@@ -936,6 +1690,61 @@ export async function getPenaltyLogTool(args: GetPenaltyLogArgs): Promise<string
   }
   return dump(wrap('api.penalty_log', result.rows))
 }
+
+export const getPenaltyLogDescription =
+  'Search the play-level penalty log by penalized team, season, week, game, and/or infraction ' +
+  'type. Use for drill-downs the profile aggregates hide -- "what penalties did Oklahoma commit ' +
+  'against Texas", "show every targeting call in 2024", "which penalties killed that drive". ' +
+  'Backed by api.penalty_log (2004+), one row per play carrying penalty text, parsed BEST-EFFORT ' +
+  "from CFBD's free-text play descriptions: offense/defense, penalized_team and benefiting_team, " +
+  'infraction label, penalty_yards, declined/offsetting/no_play/multi_penalty flags, ' +
+  'down/distance/period situation, ppa, the raw play_text, plus is_penalty_play_type (the penalty ' +
+  'WAS the play, vs. tacked onto another play) and parse_ok (both infraction and team attribution ' +
+  "succeeded). 'Unknown' infractions and unattributed teams mean UNCLASSIFIED, not absent -- " +
+  'filtered counts are floors (team attribution is validated >= 50% for seasons >= 2022 and worse ' +
+  'earlier), so relay that; use api.team_penalties or get_penalty_profile for official totals. ' +
+  'All filters combine with AND; `team` matches the PENALIZED team (who committed it -- to find ' +
+  'penalties a team drew, filter by its opponent or use get_penalty_profile\'s drawn_breakdown). ' +
+  "`infraction` is an exact label match (~30 distinct values, e.g. 'Holding', 'False Start', " +
+  "'Pass Interference', 'Targeting'; unparseable penalties are labeled 'Unknown'). Requires at " +
+  'least one of team/game_id/season/infraction. Ordered most recent first. Returns JSON ' +
+  '{"_source": "api.penalty_log", "count", "rows"}, or "No penalties found..." if nothing matches.'
+
+export const getPenaltyLogInputShape = {
+  team: z
+    .string()
+    .optional()
+    .describe('Exact school name; matches the PENALIZED team (who committed the penalty).'),
+  season: z
+    .number()
+    .int()
+    .optional()
+    .describe('Season year, e.g. 2024. Coverage is 2004+; parse quality is best for seasons >= 2022.'),
+  week: z
+    .number()
+    .int()
+    .optional()
+    .describe('Week number within the season. Not selective on its own -- combine with season or team.'),
+  game_id: z
+    .number()
+    .int()
+    .optional()
+    .describe('Restrict to a single game (same id as api.game_detail).'),
+  infraction: z
+    .string()
+    .optional()
+    .describe(
+      "Exact infraction label, e.g. 'Holding', 'False Start', 'Pass Interference', 'Personal " +
+        "Foul', 'Targeting'. Case-sensitive; unparseable penalties are labeled 'Unknown'."
+    ),
+  limit: z
+    .number()
+    .int()
+    .min(1)
+    .max(DEFAULT_ROW_CAP)
+    .optional()
+    .describe(`Max rows to return (default 50, hard-capped at ${DEFAULT_ROW_CAP}).`),
+} as const
 
 // ---------------------------------------------------------------------------
 // 23. render_chart
@@ -1267,6 +2076,161 @@ export async function renderChartTool(args: RenderChartArgs): Promise<string> {
       "For chart='team-metric-scatter', get_leaderboard or query_team gives the figures behind the field.",
   })
 }
+
+export const renderChartDescription =
+  'Mint a signed, ready-to-post PNG chart URL for a team -- without querying the database. Use ' +
+  'this whenever the user asks to *see*, *show*, *chart*, *plot*, or *visualize* something, or ' +
+  'whenever the answer would otherwise be more than a handful of numbers spread across several ' +
+  'categories (e.g. a run/pass split across five situations reads far faster as bars than as a ' +
+  'list of percentages in a chat reply). This tool is effectively instant (~1ms, no Supabase ' +
+  'round trip) and safe to call speculatively alongside a data tool without adding latency to an ' +
+  'already-slow /ask -- it can never fail on missing data: an unrecognized team, or a team/season ' +
+  'with nothing to chart, still returns a valid URL, and the image itself renders a friendly ' +
+  'empty-state card rather than a broken link. Because this tool never touches the database, ' +
+  'ALWAYS also call the matching data tool for the actual figures (e.g. get_playcalling_profile ' +
+  "for chart='team-playcalling', query_team for the team-metric-* charts) -- this tool's " +
+  "response carries a URL and a usage note, never the chart's underlying numbers.\n\n" +
+  'CHARTS:\n' +
+  "- 'team-metric-trend' -- ONE metric plotted season by season for 1-4 teams, as hand-drawn " +
+  'lines. Reach for it for any "over time", "since 20xx", "last decade", "trend", "trajectory", ' +
+  'or "team A vs team B historically" question. Needs `metric` and `teams`; `from`/`to` default ' +
+  'to the last ten seasons. Metrics where smaller is better (sp_defense, sp_rank, losses, ' +
+  'opp_ppg, recruiting_rank) are drawn on an inverted axis so better is always up, and the ' +
+  'chart says so. Optional `annotations` mark a season with a labelled vertical rule (e.g. a ' +
+  'coaching change).\n' +
+  "- 'team-metric-bars' -- the SAME metric enum for 1-4 teams in ONE season, as ranked " +
+  'horizontal bars. Reach for it when the question is "who is best/worst right now", "compare ' +
+  'these teams this season", or any single-season comparison across teams -- a line chart of ' +
+  'one season is a dot. Needs `metric` and `teams`; `season` defaults to the current one. Rows ' +
+  'are always sorted best-first whichever way the metric runs, and the chart states which end ' +
+  'is good.\n' +
+  "- 'team-metric-scatter' -- TWO metrics plotted against each other for ONE season, as team " +
+  'logos across roughly the top 25 of that season. Reach for it when the question relates two ' +
+  'different things ("offense vs defense", "does recruiting buy wins", "who is efficient AND ' +
+  'explosive") or asks where a team sits in the wider landscape rather than against a handful ' +
+  'of named rivals. Needs `x` and `y` (two DIFFERENT metrics); `season` defaults to the current ' +
+  'one, `rank_by` (which metric picks the 25) defaults to sp_rating. `teams` is OPTIONAL here ' +
+  'and highlights those teams against the field -- a named team outside the top 25 is drawn ' +
+  'anyway, with its placing. The top-right corner is ALWAYS the good one: an axis whose metric ' +
+  'is better when smaller is drawn reversed, and the chart says so.\n' +
+  'All three team-metric-* charts share one fixed metric enum ' +
+  `(${METRIC_IDS.join(', ')}) mapped to real api.team_history columns -- pick the closest one ` +
+  'rather than inventing a name.\n' +
+  "- 'team-playcalling' -- one team's run/pass play-call split by situation (overall, early " +
+  'downs, 3rd down, red zone, leading vs trailing) as diverging hand-drawn bars, for a single ' +
+  'season; backed by the same api.team_playcalling_profile view as get_playcalling_profile. ' +
+  'Needs `team`, optionally `season`.\n\n' +
+  'Post the returned URL on its own line in the reply so it renders as ' +
+  'an image, and still state the key numbers in prose alongside it; include at most one chart per ' +
+  'answer. Returns JSON {"_source": "chart-renderer", "chart", "url", "alt", "width", "height", ' +
+  '"usage"}, a short sentence explaining what is missing if the arguments do not describe a ' +
+  'chart (e.g. no metric, or more than four teams), or a plain "Chart rendering is not configured ' +
+  'on this deployment..." string if the deployment is missing required signing configuration -- ' +
+  'in either case just answer in text and, for the former, fix the arguments if a chart still helps.'
+
+export const renderChartInputShape = {
+  chart: z
+    .enum(RENDER_CHART_IDS)
+    .describe(
+      "Which chart to render. 'team-metric-trend' for a metric across multiple seasons; " +
+        "'team-metric-bars' for the same metric compared across teams within ONE season; " +
+        "'team-metric-scatter' for TWO metrics against each other across a whole season's " +
+        "field; 'team-playcalling' for one team's single-season run/pass situational split."
+    ),
+  team: z
+    .string()
+    .optional()
+    .describe(
+      "Required for chart='team-playcalling': exact school name as used by CFBD, e.g. 'Oklahoma', " +
+        "'Ohio State', 'Texas A&M'. Exact, case-sensitive -- not a fuzzy search. Also accepted as a " +
+        'one-team shorthand for the team-metric-* charts.'
+    ),
+  season: z
+    .number()
+    .int()
+    .optional()
+    .describe(
+      "The single season to draw, for chart='team-playcalling', chart='team-metric-bars' and " +
+        `chart='team-metric-scatter', e.g. 2024. Defaults to the current season ` +
+        `(${CURRENT_SEASON}) if omitted. Use from/to for chart='team-metric-trend' instead.`
+    ),
+  teams: z
+    .array(z.string())
+    .optional()
+    .describe(
+      "For the team-metric-* charts: 1 to 4 exact school names, e.g. ['Oklahoma', 'Clemson']. " +
+        "The order given decides each team's color (and, on the trend chart, its marker); the " +
+        'bars chart additionally sorts its rows best-first. More than four is refused rather ' +
+        'than truncated -- a dropped team would be a wrong answer. Required for the trend and ' +
+        "bars charts; OPTIONAL for chart='team-metric-scatter', where it highlights teams " +
+        'against the season field rather than being the whole chart.'
+    ),
+  metric: z
+    .enum(METRIC_IDS)
+    .optional()
+    .describe(
+      'Required for chart=\'team-metric-trend\' and chart=\'team-metric-bars\': which ' +
+        'api.team_history column to plot. ' +
+        METRIC_IDS.map(id => `${id} (${METRICS[id].blurb})`).join('; ') +
+        ". For chart='team-metric-scatter' use x and y instead."
+    ),
+  x: z
+    .enum(METRIC_IDS)
+    .optional()
+    .describe(
+      "Required for chart='team-metric-scatter': the horizontal metric, from the same enum as " +
+        "`metric`. Must differ from `y`. The axis is drawn reversed when smaller is better, so " +
+        'the right-hand side is always the good side.'
+    ),
+  y: z
+    .enum(METRIC_IDS)
+    .optional()
+    .describe(
+      "Required for chart='team-metric-scatter': the vertical metric, from the same enum as " +
+        '`metric`. Must differ from `x`. The axis is drawn reversed when smaller is better, so ' +
+        'the top is always the good side.'
+    ),
+  rank_by: z
+    .enum(METRIC_IDS)
+    .optional()
+    .describe(
+      "For chart='team-metric-scatter': which metric chooses the ~25 teams drawn as the field. " +
+        "Defaults to sp_rating (the closest thing to an overall 'top 25'). Teams named in " +
+        '`teams` are always drawn, even when they fall outside it.'
+    ),
+  from: z
+    .number()
+    .int()
+    .optional()
+    .describe(
+      "First season, inclusive, for chart='team-metric-trend'. Defaults to nine seasons before " +
+        '`to`, i.e. the last decade. At most 40 seasons per chart.'
+    ),
+  to: z
+    .number()
+    .int()
+    .optional()
+    .describe(
+      `Last season, inclusive, for chart='team-metric-trend'. Defaults to the current season (${CURRENT_SEASON}).`
+    ),
+  annotations: z
+    .array(
+      z.object({
+        season: z.number().int().describe('Season the event belongs to, e.g. 2022.'),
+        label: z.string().describe("Short phrase, e.g. 'Venables hired'. Max 40 characters."),
+      })
+    )
+    .optional()
+    .describe(
+      "For chart='team-metric-trend': up to 3 dated events, each drawn as a labelled vertical " +
+        'rule. Use for coaching changes, conference moves, or a rule change worth marking. ' +
+        'Annotations outside the season range are dropped.'
+    ),
+  mode: z
+    .enum(['light', 'dark'])
+    .optional()
+    .describe("Color palette to render in, matching the site's light/dark themes. Defaults to 'light'."),
+} as const
 
 // ---------------------------------------------------------------------------
 // 24. get_season_outlook -- api.season_outlook + api.model_backtest
@@ -1615,6 +2579,113 @@ export async function getSeasonOutlookTool(args: GetSeasonOutlookArgs): Promise<
   })
 }
 
+export const getSeasonOutlookDescription =
+  'Get the simulated season win-total outlook for one team or a whole conference: projected ' +
+  'wins/losses, the percentile band around them, bowl-eligibility and ten-win probabilities, ' +
+  'strength of schedule, and conference-title odds. Use for "projected final SEC standings", ' +
+  '"how many games does Oklahoma win this year", "who is favored to win the Big 12", "what is ' +
+  "this team's ceiling and floor\". These are real simulated projections -- answering a " +
+  'season-outlook question from them is grounded, not invented. Backed by api.season_outlook: ' +
+  `one row per (season, team) at model_version '${DEFAULT_PREDICTION_MODEL}', already ` +
+  'latest-snapshot per team-season, each row summarizing n_sims Monte Carlo seasons drawn from ' +
+  'the same game-level model get_game_prediction serves. Pass `conference` for standings-style ' +
+  'questions, `team` for one team, or neither for a national ranking. Rows come back sorted by ' +
+  'projected_wins descending. NOTE that this is TOTAL wins, not a conference table: real ' +
+  'standings are decided on conference record, and two teams with identical league form can ' +
+  'separate here on nonconference schedule alone. The view does not expose a projected ' +
+  'conference record, so answer a "projected standings" question as a projected-wins ranking ' +
+  'and say which it is. Results are ' +
+  "filtered to `classification` (default 'fbs') because this view is NOT FBS-only -- it also " +
+  'carries FCS/DII/DIII teams playing different-length seasons, so an unfiltered ranking by ' +
+  'projected wins compares teams that are not comparable.\n\n' +
+  'HOW TO REPORT IT. projected_wins is the MEAN of the simulated distribution; median_wins and ' +
+  'wins_p10/p25/p75/p90 are its spread. A standings table with no error band is overconfidence ' +
+  'in a nicer suit -- always pair the point estimate with either the percentile band or the ' +
+  'response\'s "accuracy" block, which is read live from api.model_backtest and carries the ' +
+  'model\'s measured error (win_mae plus an ASYMMETRIC 80% interval in interval_80_pct; quote ' +
+  'that interval, never +/- the MAE, which spans only ~58% of outcomes while reading like a ' +
+  'range). n_team_seasons counts TEAM-SEASONS, not games. If "accuracy" is null the model has ' +
+  'not been backtested: say the typical error is unmeasured -- do NOT treat null as zero error ' +
+  'and do not substitute a figure you remember. The response also carries a "caveats" array ' +
+  'computed from the rows actually returned -- it flags an already-played season, partially ' +
+  'loaded schedules, unscored games and mixed divisions. Relay every caveat that bears on the ' +
+  'answer.\n\n' +
+  'THINGS THAT ARE EASY TO GET WRONG: playoff_prob is NULL on every row BY DESIGN -- there is ' +
+  'no playoff projection here, never state or estimate one. is_projection is the authoritative ' +
+  'flag for whether a row is a forecast at all; when it is false the season is already played ' +
+  'and the row is a final record with a collapsed band. Projected quantities are over ' +
+  'games_simulated, NEVER games_scheduled: a game the model could not score is excluded from ' +
+  'the simulation, not counted as a loss, so check games_unscored before quoting ' +
+  'projected_losses. schedule_complete=false means the slate is still filling in and the win ' +
+  'total is a floor over listed games only. p_bowl_eligible is NULL outside FBS by design -- ' +
+  'those divisions have no bowls; p_ten_plus still applies everywhere. conf_title_prob is a ' +
+  'naive v1 that models no tiebreakers and no championship game -- prefer projected wins and ' +
+  'call title odds approximate. Do not rank teams of different classifications against each ' +
+  'other on projected_wins.\n\n' +
+  'ON COACHING CHANGES, if you narrate one: the model does NOT believe "new coach, therefore ' +
+  'worse". The first-year effect belongs entirely to hiring an UNPROVEN coach; a hire with a ' +
+  'track record at previous stops is projected roughly as though nothing happened (a measured ' +
+  'null, not an absence of evidence). Separately, the coaching feature is still empty for any ' +
+  'season CFBD has not yet published coaching records for -- typically the upcoming one until ' +
+  'late summer -- so for that season every team is projected as though its staff were ' +
+  'unchanged, new hires included. Say so if coaching comes up.\n\n' +
+  'Returns JSON with "season", "season_source", "model_version", "projection_date", "scope", ' +
+  '"n_sims", "residual_sigma", "accuracy" (or null), "caveats", plus {"_source": ' +
+  '"api.season_outlook", "count", "rows"} -- or a friendly "No season outlook found..." ' +
+  'string. p_win_dist (the full win distribution) is included only in single-team mode.'
+
+export const getSeasonOutlookInputShape = {
+  team: z
+    .string()
+    .optional()
+    .describe(
+      "Exact school name as used by CFBD, e.g. 'Oklahoma'. Case-sensitive. Returns one row, " +
+        'including p_win_dist (the full win distribution). Combine with `classification` if ' +
+        "the team is not FBS -- the default filter would otherwise exclude it."
+    ),
+  conference: z
+    .string()
+    .optional()
+    .describe(
+      "Exact conference name, e.g. 'SEC', 'Big Ten', 'American Athletic'. Case-sensitive. " +
+        'Returns every team in it sorted by TOTAL projected wins descending -- a win ranking, ' +
+        'not a conference table (standings go by conference record, which this view does not ' +
+        "expose). For an FCS conference (e.g. 'Ivy') also pass classification='fcs'."
+    ),
+  classification: z
+    .enum(SEASON_OUTLOOK_CLASSIFICATIONS)
+    .optional()
+    .describe(
+      "Division filter. Defaults to 'fbs'. Use 'all' to span every division -- but note the " +
+        'divisions play different-length seasons, so a mixed ranking by projected_wins is not ' +
+        "meaningful. A NULL classification in the data means CFBD could not place the team; " +
+        "those rows are unplaceable rather than FBS, and every filter except 'all' drops them."
+    ),
+  season: z
+    .number()
+    .int()
+    .optional()
+    .describe(
+      'Season year, e.g. 2026. Defaults to the NEWEST season present in api.season_outlook, ' +
+        `which is normally the upcoming season and NOT the app's current-season constant ` +
+        `(${CURRENT_SEASON}). Pass a season only if the user named one -- the resolved season ` +
+        'comes back as "season" with "season_source" saying where it came from. Older seasons ' +
+        'are present but already played, so their "projections" are final records.'
+    ),
+  limit: z
+    .number()
+    .int()
+    .min(1)
+    .max(DEFAULT_ROW_CAP)
+    .optional()
+    .describe(
+      `Max rows (default ${SEASON_OUTLOOK_DEFAULT_LIMIT}, hard-capped at ${DEFAULT_ROW_CAP}). ` +
+        'A conference is at most ~18 teams, so the default covers any single conference. A ' +
+        'national query spans ~138 FBS teams and will be truncated -- the caveats say so when ' +
+        'that happens.'
+    ),
+} as const
+
 // ---------------------------------------------------------------------------
 // 25. get_expected_points -- api.expected_points
 // ---------------------------------------------------------------------------
@@ -1892,6 +2963,127 @@ export async function getExpectedPointsTool(args: GetExpectedPointsArgs): Promis
   })
 }
 
+export const getExpectedPointsDescription =
+  'Get the house expected-points value of a game SITUATION: what a down, distance bucket and ' +
+  'field position are worth in points, plus how the possession tends to end. Use for "what is ' +
+  'a 1st-and-10 at midfield worth", "how much did that holding penalty cost in expected ' +
+  'points", "should they have gone for it -- what was 4th-and-short at the 40 worth", "how ' +
+  'often does a drive from your own 5 end in a touchdown". Backed by api.expected_points: the ' +
+  'solved play-by-play Markov chain, one row per (era, state) where state = down x distance ' +
+  'bucket x field-position decile, three eras (2004-2013, 2014-2020, 2021+), ~483 rows total. ' +
+  'This is a STATE lookup, NOT a team stat -- there is no team column, and "expected points ' +
+  'FOR Ohio State" is not answerable here (use query_team / get_adjusted_epa for team ' +
+  'strength). The era resolves from `season` when given, else the current era -- states move ' +
+  'materially between eras (1st-and-10 at own 25: ~1.58 in 2004-2013 vs ~1.80 in 2021+), so ' +
+  'NEVER average eras; compare them explicitly instead. Pass `yards_to_goal` (1-99, distance ' +
+  'to the goal line, NOT yard-line-on-the-field) and it maps to the right decile for you; ' +
+  'pass `distance` (yards to go) with `down` and it maps to the right bucket for you. With ' +
+  'neither `distance` nor `distance_bucket`, every bucket for the state comes back, and the ' +
+  'spread across buckets IS the answer to "how much does distance matter here".\n\n' +
+  'HOW TO REPORT IT. ep_drive is the drive-scoring basis (absorption probabilities x values ' +
+  '{TD 6.97, FG 3, SAFETY -2, TURNOVER_TD -6.97}) -- what THIS possession is worth. ep_net is ' +
+  'the net next-score basis, the number comparable to CFBD ppa / nflfastR EP -- lower, and ' +
+  'legitimately NEGATIVE deep in own territory; never clamp or abs() it, and build EPA-style ' +
+  'deltas only from ep_net. Say which basis you are quoting; for "cost of a penalty in EP" ' +
+  'subtract two states on the SAME basis. Intervals, not verdicts: quote ep_drive +/- ' +
+  '2*se_boot, and pair any cell-level claim with n_obs. The payload carries a "basis" block ' +
+  "(including the model's validation stats) and a \"caveats\" array computed from the rows " +
+  'actually returned -- relay every caveat that bears on the answer. p_td/p_fg/p_punt/' +
+  'p_turnover are drive-outcome absorption probabilities from this state (p_turnover ' +
+  'includes defensive-TD turnovers).\n\n' +
+  'THINGS THAT ARE EASY TO GET WRONG: down=4 rows are GO-FOR-IT-CONDITIONAL -- a 4th-down ' +
+  'state exists in the chain only when the offense lined up to go (punts and FGs exit from ' +
+  'the 3rd-down play), so EP(d4) answers "what is this worth GIVEN they go" and can ' +
+  'legitimately price ABOVE d3. Never quote it as the unconditional value of facing 4th ' +
+  'down, and keep d4 out of down-ladder comparisons or caveat it. The bucket vocabulary is ' +
+  "down-aware: down 1 uses 'standard' (=10) / 'short' (<10) / 'long' (>10) / 'goal' and has " +
+  "NO 'med'/'xlong'; downs 2-4 use 'short' (<=3) / 'med' (4-6) / 'long' (7-10) / 'xlong' " +
+  "(>10) / 'goal' and have NO 'standard'; 'goal' means goal-to-go at any down. NULL ep_net " +
+  'means not computed (never 0); NULL se_boot means no interval (never +/- 0). Sparse cells ' +
+  'are real: oddball states can rest on a single observed play (the caveats flag anything ' +
+  'under 100), and their EP is an anecdote. field_zone counts from the GOAL LINE: zone 1 = ' +
+  '1-10 yards out (about to score), zone 10 = 91-99 (backed up).\n\n' +
+  'FOURTH-DOWN DECISIONS: ask with down=4 + distance + yards_to_goal and the response ' +
+  'attaches a "fourth_down_decision" block -- EP(go) (the state\'s own ep_net; d4 rows are ' +
+  'go-conditional, exactly the "given they go" number) vs EP(punt) (the distribution-' +
+  'weighted E[EP] over real punt outcomes from this zone and era: every resulting opponent ' +
+  'starting zone valued at its own -ep_net, punts returned/blocked for TDs at -6.97, ' +
+  'kicking-team recoveries at the retained spot -- outcome-weighted, never EP of the ' +
+  'average spot), plus ep_delta_go_minus_punt and an assumptions list. All of it is on the ' +
+  'ep_net basis. The FG option is NOT modeled -- inside plausible FG range say the ' +
+  'comparison is incomplete. Relay the assumptions when you use the block.\n\n' +
+  'Returns JSON with "era", "era_source", optional "season"/"yards_to_goal"/"field_zone"/' +
+  '"distance"/"distance_bucket"/"distance_bucket_source"/"fourth_down_decision", "basis", ' +
+  '"caveats", plus {"_source": "api.expected_points", "count", "rows"} -- or a friendly ' +
+  '"No expected-points cell matches..." string naming the bucket-vocabulary trap.'
+
+export const getExpectedPointsInputShape = {
+  down: z
+    .number()
+    .int()
+    .min(1)
+    .max(4)
+    .optional()
+    .describe(
+      'Down, 1-4. Omit to span all downs at the given spot. Remember down=4 rows are ' +
+        'conditional on going for it.'
+    ),
+  distance: z
+    .number()
+    .int()
+    .min(1)
+    .optional()
+    .describe(
+      'Yards to go for a first down (the "7" in 3rd-and-7). Requires `down` to map to a ' +
+        'bucket -- the boundaries are down-aware. Pass `yards_to_goal` too when known, so ' +
+        'goal-to-go is detected. When both this and `distance_bucket` are passed and they ' +
+        'disagree, the numbers win and a caveat says so. Ignored entirely without `down`.'
+    ),
+  yards_to_goal: z
+    .number()
+    .int()
+    .min(1)
+    .max(99)
+    .optional()
+    .describe(
+      'Distance to the GOAL LINE in yards, 1-99 -- not the painted yard line. "At midfield" ' +
+        'is 50, "at their own 25" is 75, "at the opponent 25" is 25. Mapped to the ' +
+        "view's field-position decile server-side; the resolved zone comes back as " +
+        '"field_zone".'
+    ),
+  distance_bucket: z
+    .enum(EXPECTED_POINTS_DISTANCE_BUCKETS)
+    .optional()
+    .describe(
+      "Distance-to-go bucket, if you'd rather pick it than pass `distance`. Down-aware " +
+        "boundaries: down 1 has 'standard' (=10) / 'short' (<10) / 'long' (>10) / 'goal'; " +
+        "downs 2-4 have 'short' (<=3) / 'med' (4-6) / 'long' (7-10) / 'xlong' (>10) / " +
+        "'goal'. Prefer `distance` + `down` (the tool maps it), or omit both to read the " +
+        'spread across buckets.'
+    ),
+  season: z
+    .number()
+    .int()
+    .optional()
+    .describe(
+      `Season year the question is about, e.g. 2015. Selects the model era ` +
+        `(${EXPECTED_POINTS_ERAS.join(', ')}); defaults to the current era ('2021+'). ` +
+        `Seasons before ${EXPECTED_POINTS_FIRST_SEASON} are not covered and return a ` +
+        'friendly error.'
+    ),
+  limit: z
+    .number()
+    .int()
+    .min(1)
+    .max(DEFAULT_ROW_CAP)
+    .optional()
+    .describe(
+      `Max rows (default ${EXPECTED_POINTS_DEFAULT_LIMIT}, hard-capped at ${DEFAULT_ROW_CAP}). ` +
+        'A fully-specified state returns at most 6 rows (one per bucket); a whole era is ' +
+        '~165 and will truncate -- the caveats say so when that happens.'
+    ),
+} as const
+
 // ---------------------------------------------------------------------------
 // Tool registration (MCP SDK wiring).
 // ---------------------------------------------------------------------------
@@ -1905,36 +3097,8 @@ export function registerMcpTools(server: McpServer): void {
     'query_team',
     {
       title: 'Query Team',
-      description:
-        "Get a team's current-season snapshot plus its full multi-season history. Use for any " +
-        'question about a single team -- "how good is Oklahoma this year", "show Oklahoma\'s ' +
-        'history since 2014", ratings/EPA trends over time. Combines api.team_detail (current-season ' +
-        'snapshot: record, SP+/Elo/FPI/CORE ratings (core_defense is lower-better; NULL CORE = not ' +
-        'rated, never 0), EPA/success rate/explosiveness, recruiting rank -- at ' +
-        'most one row) and api.team_history (one row per season, ordered season DESC, up to 100 rows). ' +
-        "Team names must match CFBD's convention exactly (case-sensitive) -- 'oklahoma' or 'OU' will " +
-        'not match \'Oklahoma\'. api.team_detail only includes FBS-classification teams. The ' +
-        '"core_snapshot" key carries the as-of markers behind the embedded CORE values ' +
-        '(through_week/through_season_type, model_version, and the within-season ranks): an ' +
-        'in-season CORE value is a SNAPSHOT of current form advanced in place by the daily load, ' +
-        'not a final rating -- check through_week/through_season_type before presenting it as ' +
-        "final, and say \"through week N\" when it is mid-season. core_snapshot is null ONLY when " +
-        'the team has no CORE row (the model starts in 2016); if the as-of lookup itself failed ' +
-        'it is {"unavailable": true} instead -- embedded core_* values may still be present then, ' +
-        'and their finality is UNKNOWN: do not present them as final and do not call the team ' +
-        'unrated. Returns JSON ' +
-        'with "team_detail", "team_history" (each {"_source", "count", "rows"}) and ' +
-        '"core_snapshot" (markers object, null, or {"unavailable": true}) keys, or a plain ' +
-        '"No team found..." string if nothing matches.',
-      inputSchema: {
-        team: z
-          .string()
-          .describe(
-            "Exact school name as used by CFBD, e.g. 'Oklahoma', 'Ohio State', 'Texas A&M'. This is " +
-              'an exact, case-sensitive match, not a fuzzy search -- if unsure of the exact spelling, ' +
-              'try get_leaderboard or query_games first to confirm it.'
-          ),
-      },
+      description: queryTeamDescription,
+      inputSchema: queryTeamInputShape,
       annotations: { title: 'Query Team', ...READ_ONLY_ANNOTATIONS },
     },
     async args => textResult(await queryTeamTool(args))
@@ -1944,47 +3108,8 @@ export function registerMcpTools(server: McpServer): void {
     'query_games',
     {
       title: 'Query Games',
-      description:
-        'Search games by season, week, team, and/or minimum excitement. Use for "what happened in ' +
-        'Oklahoma\'s week 5 game", "show close games in the 2023 season", "list Oklahoma\'s 2024 ' +
-        'schedule". Backed by api.game_detail: teams, scores, winner, betting lines (spread/over-under ' +
-        'and whether they hit), EPA, pregame win probability, venue, attendance, excitement_index. ' +
-        'Ordered by start_date descending (most recent first). All filters combine with AND ' +
-        '(min_excitement is a floor, not a range). Calling with no filters returns the 100 most recent ' +
-        'games across all of CFBD history -- always pass at least `season` or `team`. `team` matches ' +
-        'home OR away (use query_matchup for head-to-head). Results are capped at 100 rows; a full ' +
-        'season across all FBS teams is ~800 games, so pair `season` with `team` or `week` to stay ' +
-        'under the cap. Uncompleted/future games have NULL scores, winner, and EPA. Returns JSON ' +
-        '{"_source": "api.game_detail", "count", "rows"}, or "No games found..." if nothing matches.',
-      inputSchema: {
-        season: z.number().int().optional().describe('Season year, e.g. 2024. Strongly recommended.'),
-        week: z
-          .number()
-          .int()
-          .optional()
-          .describe(
-            'Week number within the season (regular season roughly 1-15; bowls/playoff weeks follow ' +
-              "CFBD's season_type/week scheme)."
-          ),
-        team: z
-          .string()
-          .optional()
-          .describe('Exact school name. Matches games where this team played either home or away.'),
-        min_excitement: z
-          .number()
-          .optional()
-          .describe(
-            "Minimum excitement_index (CFBD's game-excitement score, roughly 0-10; >6 is generally a " +
-              'thrilling finish). Use to find close or dramatic games.'
-          ),
-        limit: z
-          .number()
-          .int()
-          .min(1)
-          .max(DEFAULT_ROW_CAP)
-          .optional()
-          .describe(`Max rows to return. Hard-capped at ${DEFAULT_ROW_CAP} server-side regardless of this value.`),
-      },
+      description: queryGamesDescription,
+      inputSchema: queryGamesInputShape,
       annotations: { title: 'Query Games', ...READ_ONLY_ANNOTATIONS },
     },
     async args => textResult(await queryGamesTool(args))
@@ -1994,24 +3119,8 @@ export function registerMcpTools(server: McpServer): void {
     'query_matchup',
     {
       title: 'Query Head-to-Head Matchup',
-      description:
-        'Get head-to-head history and current-season comparison between two teams. Use for "Oklahoma ' +
-        'vs Texas all-time record", "how do these two teams compare this season" (rivalry games, bowl ' +
-        'previews). Backed by api.matchup (one row per unordered team pair; order of team_a/team_b ' +
-        "doesn't matter) plus the full api.game_detail game log between the pair. Returns all-time " +
-        'record (total games, wins for each side, ties, first/last meeting), recent results, and each ' +
-        "team's current-season record/SP+ rank/EPA for context. Returns JSON with \"matchup\" and " +
-        '"games" keys, each {"_source", "count", "rows"}, or "No matchup history found..." if the teams ' +
-        'have never played or a name is misspelled.',
-      inputSchema: {
-        team_a: z.string().describe("First team's exact school name."),
-        team_b: z
-          .string()
-          .describe(
-            "Second team's exact school name. Order relative to team_a doesn't matter -- results are " +
-              'identical either way.'
-          ),
-      },
+      description: queryMatchupDescription,
+      inputSchema: queryMatchupInputShape,
       annotations: { title: 'Query Head-to-Head Matchup', ...READ_ONLY_ANNOTATIONS },
     },
     async args => textResult(await queryMatchupTool(args))
@@ -2021,42 +3130,8 @@ export function registerMcpTools(server: McpServer): void {
     'get_rankings',
     {
       title: 'Get Poll Rankings',
-      description:
-        'Get weekly or final poll rankings (AP Top 25, Coaches Poll, CFP committee, etc). Use for "who ' +
-        'was #1 in the AP poll in week 8 of 2024", "show the final CFP rankings for 2023", "was ' +
-        'Oklahoma ranked in week 3". Backed by api.poll_rankings, ordered week/poll/rank ascending. ' +
-        'IMPORTANT: tied teams share the same rank value and the next rank is skipped (e.g. two teams ' +
-        'at #11 means no #12 that week) -- do not assume rank values are contiguous or one row per ' +
-        'rank. To get the END-OF-SEASON final poll, set season_type=\'postseason\' (week is reported ' +
-        "as 1, identical to the regular-season week-1 poll's week number -- season_type is the only " +
-        'disambiguator). Omitting both `week` and `poll` for a full season can return a lot of rows ' +
-        '(many weeks x several polls x ~25 teams); the 100-row cap may truncate results, so prefer ' +
-        'narrowing with `poll` and/or `week`. Returns JSON {"_source": "api.poll_rankings", "count", ' +
-        '"rows"}, or "No rankings found..." if nothing matches.',
-      inputSchema: {
-        season: z.number().int().describe('Season year, e.g. 2024.'),
-        week: z
-          .number()
-          .int()
-          .optional()
-          .describe('Week number. Omit to get every week of the season (subject to the 100-row cap).'),
-        poll: z
-          .string()
-          .optional()
-          .describe(
-            "Exact poll name, e.g. 'AP Top 25', 'Coaches Poll', 'Playoff Committee Rankings'. Omit to " +
-              'get all polls for the given week(s).'
-          ),
-        season_type: z
-          .enum(POLL_SEASON_TYPES)
-          .optional()
-          .describe(
-            "'regular' (default) for weekly in-season polls, or 'postseason' for the final poll of the " +
-              'season. CFBD reports the final poll as week=1, the same week number as the ' +
-              'regular-season week-1 poll -- season_type is what tells them apart.'
-          ),
-        limit: z.number().int().min(1).max(DEFAULT_ROW_CAP).optional().describe('Max rows to return.'),
-      },
+      description: getRankingsDescription,
+      inputSchema: getRankingsInputShape,
       annotations: { title: 'Get Poll Rankings', ...READ_ONLY_ANNOTATIONS },
     },
     async args => textResult(await getRankingsTool(args))
@@ -2066,35 +3141,8 @@ export function registerMcpTools(server: McpServer): void {
     'get_leaderboard',
     {
       title: 'Get Team Leaderboard',
-      description:
-        'Get a ranked leaderboard of teams for a season by a chosen metric. Use for "top 10 teams by ' +
-        'EPA in 2024", "best scoring defense last season", "who led the country in wins". Ranks are ' +
-        'FBS-scoped (FCS teams are excluded and do not count toward rank position). All metrics ' +
-        'except \'wepa\' are served from api.leaderboard_teams, which pre-computes rank columns ' +
-        "(wins_rank, ppg_rank, defense_ppg_rank, epa_rank) via SQL window functions -- ties are " +
-        "possible. 'wepa' (opponent-adjusted EPA) is served from the separate api.team_wepa_season " +
-        'view. Returns JSON {"_source", "count", "rows"} ordered best-to-worst, or "No leaderboard data ' +
-        'found..." if the season has no data.',
-      inputSchema: {
-        season: z.number().int().describe('Season year, e.g. 2024.'),
-        metric: z
-          .enum(LEADERBOARD_METRICS)
-          .describe(
-            "Ranking metric: 'wins' (most wins), 'ppg' (points per game), 'scoring_defense' (fewest " +
-              "points allowed per game), 'epa' (EPA/play), 'sp_rating' (best SP+ rank), or 'wepa' " +
-              '(opponent-adjusted EPA -- pulled from api.team_wepa_season).'
-          ),
-        limit: z
-          .number()
-          .int()
-          .min(1)
-          .max(DEFAULT_ROW_CAP)
-          .optional()
-          .describe(
-            'Max rows. Capped at 100; there are ~130 FBS teams so a full-season list may be truncated ' +
-              '-- lower this or treat results as top-N, not exhaustive.'
-          ),
-      },
+      description: getLeaderboardDescription,
+      inputSchema: getLeaderboardInputShape,
       annotations: { title: 'Get Team Leaderboard', ...READ_ONLY_ANNOTATIONS },
     },
     async args => textResult(await getLeaderboardTool(args))
@@ -2104,27 +3152,8 @@ export function registerMcpTools(server: McpServer): void {
     'situational_splits',
     {
       title: 'Get Situational Splits',
-      description:
-        'Get a team\'s situational performance splits for a season. Use for "how does Oklahoma perform ' +
-        'on 3rd down", "home vs away splits for Oklahoma in 2023", "red zone efficiency", "conference ' +
-        'vs non-conference performance". Fans out to one of five public RPCs based on split_type: ' +
-        'get_home_away_splits, get_conference_splits, get_red_zone_splits, get_down_distance_splits, ' +
-        'get_field_position_splits -- each called as (p_team=team, p_season=season). All five exclude ' +
-        'garbage-time plays. Play-by-play data is available from the 2014 season on; earlier seasons ' +
-        'will return empty or partial results. Returns JSON {"_source": "public.<rpc_name>", "count", ' +
-        '"rows"}, or "No <split_type> splits found..." if the team/season has no matching plays.',
-      inputSchema: {
-        team: z.string().describe('Exact school name.'),
-        season: z.number().int().describe('Season year, e.g. 2024.'),
-        split_type: z
-          .enum(SPLIT_TYPES)
-          .describe(
-            "Which breakdown to compute: 'home_away' (home vs away performance), 'conference' " +
-              "(conference vs non-conference opponents), 'red_zone' (trips inside the opponent 20: " +
-              "TD/FG/turnover rates), 'down_distance' (success rate/EPA by down and distance bucket), " +
-              "or 'field_position' (EPA/success rate by field-position zone)."
-          ),
-      },
+      description: situationalSplitsDescription,
+      inputSchema: situationalSplitsInputShape,
       annotations: { title: 'Get Situational Splits', ...READ_ONLY_ANNOTATIONS },
     },
     async args => textResult(await situationalSplitsTool(args))
@@ -2134,36 +3163,8 @@ export function registerMcpTools(server: McpServer): void {
     'search_players',
     {
       title: 'Search Players',
-      description:
-        'Search for a player by name, then fetch full detail for the best match. Use anytime the ' +
-        'caller has a name but not an exact player_id -- "find Caleb Williams\' stats", "search for a ' +
-        'player named Bijan on Texas". Two-step workflow: (1) get_player_search(p_query, p_team, ' +
-        'p_season, p_limit) -- fuzzy name match via pg_trgm, ranked by similarity_score descending; (2) ' +
-        'get_player_detail(p_player_id, p_season) is then called automatically for the single ' +
-        'top-ranked hit, returning full bio/recruiting/season stats/PPA/WEPA/PAAR. If multiple players ' +
-        'share a similar name, only the top hit gets full detail -- inspect the "search" rows for other ' +
-        'candidates and call again with a more specific query/team/season if the top hit is wrong. If ' +
-        '`season` is omitted, get_player_detail returns that player\'s most recent season on record, ' +
-        'which may not be the season implied by the query. Returns JSON with "search" and ' +
-        '"top_hit_detail" keys (or "top_hit_detail_error" if the detail lookup itself fails -- search ' +
-        'results are never discarded), or "No players found..." if the search itself is empty.',
-      inputSchema: {
-        query: z
-          .string()
-          .describe(
-            "Player name to search, full or partial, typo-tolerant (trigram similarity match). E.g. " +
-              "'Caleb Williams', 'Bijan', or a misspelling like 'Calib Williams'."
-          ),
-        team: z.string().optional().describe('Restrict search to an exact school name.'),
-        season: z.number().int().optional().describe('Restrict search to a season year.'),
-        limit: z
-          .number()
-          .int()
-          .min(1)
-          .max(DEFAULT_ROW_CAP)
-          .optional()
-          .describe('Max search results (default 25, hard-capped at 100).'),
-      },
+      description: searchPlayersDescription,
+      inputSchema: searchPlayersInputShape,
       annotations: { title: 'Search Players', ...READ_ONLY_ANNOTATIONS },
     },
     async args => textResult(await searchPlayersTool(args))
@@ -2173,15 +3174,8 @@ export function registerMcpTools(server: McpServer): void {
     'get_data_freshness',
     {
       title: 'Get Data Freshness',
-      description:
-        'Get freshness/staleness status for all tracked warehouse tables. Use before answering ' +
-        'questions about very recent games/stats, to qualify how current the data is -- e.g. "as of ' +
-        'the last refresh (X days ago), ...". Also useful if a query returns unexpectedly few/no rows ' +
-        'for the current week, to check whether the pipeline has run yet. Takes no arguments. Backed by ' +
-        'the public.get_data_freshness() RPC, which reports row_count, expected_refresh_frequency, ' +
-        'days_since_activity, and is_stale for each of ~23 tracked tables, ordered stale-first. Returns ' +
-        'JSON {"_source": "public.get_data_freshness", "count", "rows"}.',
-      inputSchema: {},
+      description: getDataFreshnessDescription,
+      inputSchema: getDataFreshnessInputShape,
       annotations: { title: 'Get Data Freshness', ...READ_ONLY_ANNOTATIONS },
     },
     async () => textResult(await getDataFreshnessTool())
@@ -2191,43 +3185,8 @@ export function registerMcpTools(server: McpServer): void {
     'get_game_prediction',
     {
       title: 'Get Game Prediction',
-      description:
-        'Get the house model\'s prediction for a single game, plus how it stacks up against the market ' +
-        'line. Use for "what does the model predict for the Oklahoma vs Texas game", "is there value on ' +
-        'this line", "how confident is the model in this matchup". Backed by api.game_predictions, which ' +
-        'is already latest-snapshot per (game_id, model_version) -- at most one row. Three model versions ' +
-        "are written per game: 'fitted_v1' (default -- the current house model, a fitted 20-feature ridge), " +
-        "'elo_v1' (Elo rating differential only), and 'elo_epa_blend_v1' (blends Elo with recent EPA form). " +
-        'The two Elo versions share one Elo-derived home_win_prob and differ only in expected_home_margin; ' +
-        "'fitted_v1' carries its OWN Platt-scaled win probability, so BOTH expected_home_margin and " +
-        'home_win_prob change when you switch to or from it -- never quote a win probability without saying ' +
-        "which version produced it. 'fitted_v1' also leaves elo_margin and epa_margin NULL (the fitted " +
-        'ridge does not decompose its margin into those components) and covers 2018+ only, while the two ' +
-        'Elo versions cover 2015+ -- those nulls are the normal shape of a fitted_v1 row, not missing data. ' +
-        '`edge` = expected_home_margin + market_spread: a ' +
-        'positive edge means the model favors the home team more than the market does (vs. the number); a ' +
-        'negative edge means the model favors the away team relative to the market. market_provider, ' +
-        'market_spread, market_home_margin, market_captured_at, edge, and edge_pick are all null when no ' +
-        'betting line has been posted for this game -- that is a normal state (e.g. very early in the week, ' +
-        'or a game with no market coverage), not an error. Returns JSON {"_source": "api.game_predictions", ' +
-        '"count", "rows"} with at most one row, or a friendly "No prediction found..." string if the model ' +
-        "hasn't run for this game_id/model_version combination or the game_id doesn't exist.",
-      inputSchema: {
-        game_id: z
-          .number()
-          .int()
-          .describe('The game_id to fetch a prediction for (same id as api.game_detail/api.game_predictions).'),
-        model_version: z
-          .enum(PREDICTION_MODEL_VERSIONS)
-          .optional()
-          .describe(
-            `Which model version to fetch. Defaults to '${DEFAULT_PREDICTION_MODEL}', the current house ` +
-              "model (fitted 20-feature ridge with its own win-probability fit). 'elo_v1' is Elo-only and " +
-              "'elo_epa_blend_v1' is the Elo + recent-EPA blend; those two share a win probability and " +
-              'differ only in expected_home_margin, but switching between an Elo version and the fitted ' +
-              'model moves home_win_prob as well as expected_home_margin (and therefore edge).'
-          ),
-      },
+      description: getGamePredictionDescription,
+      inputSchema: getGamePredictionInputShape,
       annotations: { title: 'Get Game Prediction', ...READ_ONLY_ANNOTATIONS },
     },
     async args => textResult(await getGamePredictionTool(args))
@@ -2237,27 +3196,8 @@ export function registerMcpTools(server: McpServer): void {
     'get_team_elo',
     {
       title: 'Get Team Elo',
-      description:
-        'Get a team\'s season-end Elo rating/rank plus its full game-by-game Elo trajectory for a season. ' +
-        'Use for "how strong is Oklahoma by Elo this year", "show Oklahoma\'s Elo trend through the ' +
-        'season", "was this team\'s rating built on a small sample". Combines api.team_elo (season-end ' +
-        'summary: season_end_elo, elo_rank, games_played, a low_confidence flag, and cfbd_elo as a ' +
-        'cross-check against CFBD\'s own published Elo -- at most one row) and api.game_elo_history (one ' +
-        "row per game the team played that season: pregame -> postgame Elo, opponent, home/away, and the " +
-        "team's own win probability for that game, ordered by start_date ascending). low_confidence=true " +
-        'means the season-end rating rests on too few games to be reliable (e.g. an incomplete or just-' +
-        "started season) -- treat it as a caveat, not a data error. Team names must match CFBD's exact, " +
-        'case-sensitive convention. `season` defaults to the current season if omitted. Returns JSON with ' +
-        '"elo" and "history" keys, each {"_source", "count", "rows"} ("elo".rows has 0 or 1 entries), or a ' +
-        'friendly "No Elo data found..." string if the team/season combination has no coverage at all.',
-      inputSchema: {
-        team: z.string().describe("Exact school name as used by CFBD, e.g. 'Oklahoma'. Case-sensitive."),
-        season: z
-          .number()
-          .int()
-          .optional()
-          .describe(`Season year, e.g. 2024. Defaults to the current season (${CURRENT_SEASON}) if omitted.`),
-      },
+      description: getTeamEloDescription,
+      inputSchema: getTeamEloInputShape,
       annotations: { title: 'Get Team Elo', ...READ_ONLY_ANNOTATIONS },
     },
     async args => textResult(await getTeamEloTool(args))
@@ -2267,47 +3207,8 @@ export function registerMcpTools(server: McpServer): void {
     'get_matchup_edges',
     {
       title: 'Get Matchup Edges',
-      description:
-        'Get the scored slate of upcoming games where the house model\'s prediction diverges most from the ' +
-        'market line, ranked by conviction. Use for "which games have the biggest edge this week", "where ' +
-        'does the model disagree with Vegas", "best value on the board". Backed by ' +
-        'api.scored_matchup_edges (upcoming/scheduled games only -- a game drops off this view once it ' +
-        "completes), ordered by abs_edge descending (biggest model-vs-market disagreement first; rows with " +
-        'no posted market line have a null edge and sort last, but are still included, not filtered out). ' +
-        '`edge` = expected_home_margin + market_spread: positive favors the home team vs. the market, ' +
-        'negative favors the away team. Three model versions are written per game; pass `model_version` ' +
-        `explicitly to pin one, otherwise the current house model ('${DEFAULT_PREDICTION_MODEL}') is used. ` +
-        'IMPORTANT: this view only ever contains games that have not yet been played, so during the ' +
-        'off-season, or after a season\'s full slate has already locked in and completed, an EMPTY result ' +
-        '({"count": 0, "rows": []}) is the expected, correct response -- not an error and not a sign the ' +
-        'query is broken. Returns JSON {"_source": "api.scored_matchup_edges", "count", "rows"}, sliced to ' +
-        'at most `limit` rows (default 25, hard-capped at 100) after sorting by conviction.',
-      inputSchema: {
-        season: z
-          .number()
-          .int()
-          .optional()
-          .describe(`Season year, e.g. 2024. Defaults to the current season (${CURRENT_SEASON}) if omitted.`),
-        week: z
-          .number()
-          .int()
-          .optional()
-          .describe('Restrict to a single week. Omit to get the full season slate (subject to `limit`).'),
-        model_version: z
-          .enum(PREDICTION_MODEL_VERSIONS)
-          .optional()
-          .describe(`Which model version to score edges against. Defaults to '${DEFAULT_PREDICTION_MODEL}'.`),
-        limit: z
-          .number()
-          .int()
-          .min(1)
-          .max(MATCHUP_EDGES_MAX_LIMIT)
-          .optional()
-          .describe(
-            `Max rows to return, taken from the top of the abs_edge-sorted slate. Default ` +
-              `${MATCHUP_EDGES_DEFAULT_LIMIT}, hard-capped at ${MATCHUP_EDGES_MAX_LIMIT}.`
-          ),
-      },
+      description: getMatchupEdgesDescription,
+      inputSchema: getMatchupEdgesInputShape,
       annotations: { title: 'Get Matchup Edges', ...READ_ONLY_ANNOTATIONS },
     },
     async args => textResult(await getMatchupEdgesTool(args))
@@ -2317,28 +3218,8 @@ export function registerMcpTools(server: McpServer): void {
     'get_playcalling_profile',
     {
       title: 'Get Playcalling Profile',
-      description:
-        "Get a team's situational run/pass identity for a season, with percentile ranks against the " +
-        'rest of FBS. Use for "how run-heavy is Oklahoma on early downs", "does this team pass more on ' +
-        '3rd down than average", "red zone tendencies", "pace of play". Backed by ' +
-        'api.team_playcalling_profile (one row per team/season): overall/early-down/3rd-down/red-zone ' +
-        'run and pass rates, success rates, avg EPA, run-rate deltas when leading vs trailing, ' +
-        'plays-per-game pace, plus a matching set of *_pctl columns giving each rate\'s percentile rank ' +
-        '(0-100) against the rest of FBS that same season -- a higher percentile means more extreme ' +
-        "relative to the league, not necessarily 'better' (e.g. a very high third_down_pass_rate_pctl " +
-        'just means this team passes on 3rd down far more than most FBS teams). `season` defaults to ' +
-        `the current season (${CURRENT_SEASON}) if omitted. Returns JSON {"_source": ` +
-        '"api.team_playcalling_profile", "count", "rows"} with at most one row, or a friendly "No ' +
-        'playcalling profile found..." string if the team/season combination has too few qualifying ' +
-        'plays for the view to emit a row.',
-      inputSchema: {
-        team: z.string().describe("Exact school name as used by CFBD, e.g. 'Oklahoma'. Case-sensitive."),
-        season: z
-          .number()
-          .int()
-          .optional()
-          .describe(`Season year, e.g. 2024. Defaults to the current season (${CURRENT_SEASON}) if omitted.`),
-      },
+      description: getPlaycallingProfileDescription,
+      inputSchema: getPlaycallingProfileInputShape,
       annotations: { title: 'Get Playcalling Profile', ...READ_ONLY_ANNOTATIONS },
     },
     async args => textResult(await getPlaycallingProfileTool(args))
@@ -2348,32 +3229,8 @@ export function registerMcpTools(server: McpServer): void {
     'get_adjusted_epa',
     {
       title: 'Get Adjusted EPA',
-      description:
-        "Get a team's week-by-week walk-forward opponent-adjusted EPA alongside the matching raw " +
-        '(unadjusted) EPA and success-rate columns for the same weeks. Use for "how has Oklahoma\'s ' +
-        'adjusted offense trended this season", "is this team\'s raw EPA inflated by weak opponents", ' +
-        '"walk-forward EPA trajectory". Backed by api.team_week_features, one row per (team, season, ' +
-        'week_index) -- week_index is a dense 1..N index within the season (some weeks/teams are ' +
-        'skipped by the model), not the raw `week` column, though `week` is also included for ' +
-        'reference. adj_epa_off/adj_epa_def/adj_epa_net are WALK-FORWARD opponent-adjusted EPA (each ' +
-        "week's coefficients are fit only on data available up to that point in the season, so these " +
-        'are not hindsight-adjusted using the full season) computed via ridge regression against ' +
-        'opponent strength; off_epa_per_play and def_epa_per_play_allowed are the corresponding RAW, ' +
-        "unadjusted per-play EPA for the same team/week -- compare adj vs raw to see how much of a " +
-        "team's raw EPA is opponent-strength noise versus real performance. Also includes elo_pregame, " +
-        'games_played_to_date, off_success_rate, and both havoc-rate columns (havoc_rate_defense, ' +
-        'havoc_rate_offense_allowed). `season` defaults to the current season ' +
-        `(${CURRENT_SEASON}) if omitted. Returns JSON {"_source": "api.team_week_features", "count", ` +
-        '"rows"} ordered week_index ascending, or a friendly "No adjusted-EPA data found..." string if ' +
-        "the feature build hasn't run yet for this team/season.",
-      inputSchema: {
-        team: z.string().describe("Exact school name as used by CFBD, e.g. 'Oklahoma'. Case-sensitive."),
-        season: z
-          .number()
-          .int()
-          .optional()
-          .describe(`Season year, e.g. 2024. Defaults to the current season (${CURRENT_SEASON}) if omitted.`),
-      },
+      description: getAdjustedEpaDescription,
+      inputSchema: getAdjustedEpaInputShape,
       annotations: { title: 'Get Adjusted EPA', ...READ_ONLY_ANNOTATIONS },
     },
     async args => textResult(await getAdjustedEpaTool(args))
@@ -2383,19 +3240,8 @@ export function registerMcpTools(server: McpServer): void {
     'get_live_scoreboard',
     {
       title: 'Get Live Scoreboard',
-      description:
-        'Get the current live scoreboard slate: in-progress/pregame/final game state for the day\'s ' +
-        'tracked games (score, period/clock, possession, live win probability vs market). Use for ' +
-        '"what\'s the score of the Oklahoma game right now", "who has the ball", "live win probability ' +
-        'for this game". Backed by api.live_scoreboard, ordered by game_id (the view has no start-time ' +
-        'column to order by). IMPORTANT: this view is only populated during Saturday polling windows ' +
-        "during the season -- cfb-database's live poller writes/refreshes rows only while games are " +
-        'scheduled or in progress that day, and the table is otherwise empty. An EMPTY result ' +
-        '({"count": 0, "rows": []}) is the normal state most of the time -- any weekday, the ' +
-        'off-season, or any moment outside an active polling window -- not an error and not a sign the ' +
-        'query is broken. Takes no arguments. Returns JSON {"_source": "api.live_scoreboard", "count", ' +
-        '"rows"}.',
-      inputSchema: {},
+      description: getLiveScoreboardDescription,
+      inputSchema: getLiveScoreboardInputShape,
       annotations: { title: 'Get Live Scoreboard', ...READ_ONLY_ANNOTATIONS },
     },
     async () => textResult(await getLiveScoreboardTool())
@@ -2405,29 +3251,8 @@ export function registerMcpTools(server: McpServer): void {
     'get_model_accuracy',
     {
       title: 'Get Model Accuracy',
-      description:
-        'Get backtested accuracy/calibration metrics for the house prediction model(s), broken out by ' +
-        'model_version x season x edge_threshold. Use for "how accurate is the prediction model", ' +
-        '"which model version performs best", "is the model well-calibrated", "how does the model ' +
-        'compare to CFBD\'s own model". Backed by api.prediction_accuracy (~90 rows total covering ' +
-        'every model_version/season/edge_threshold combination -- the caller filters/groups ' +
-        'client-side, e.g. by model_version or a minimum edge_threshold). margin_mae/margin_rmse ' +
-        'measure how far the predicted home margin is from the actual margin (lower is better); ' +
-        'ats_wins/ats_losses/ats_pushes/ats_hit_rate measure against-the-spread performance when ' +
-        "picking with the model's edge; brier is the Brier score for home_win_prob calibration (lower " +
-        'is better -- 0 is perfect, 0.25 is coin-flip-equivalent); cfbd_brier is the same Brier score ' +
-        "computed for CFBD's own published win probability over the same games, included as an " +
-        'external benchmark -- a lower brier than cfbd_brier means the house model out-calibrated ' +
-        'CFBD\'s. n_games/n_with_market/n_scored_win_prob are the sample sizes behind each row (small ' +
-        "samples, e.g. early in a new model_version's life, should be read with more caution). " +
-        'IMPORTANT -- no single version wins on every metric, so do not call one "the best model" ' +
-        `flatly. '${DEFAULT_PREDICTION_MODEL}' is the current house default because it has the lowest ` +
-        'margin_mae/margin_rmse, but on 2025 at edge_threshold=0 it posted a WORSE ats_hit_rate than ' +
-        'both Elo versions and a level brier. Beating the market against the spread and predicting a ' +
-        'margin accurately are different tests: report the metric you actually measured. Takes ' +
-        'no arguments. Returns JSON {"_source": "api.prediction_accuracy", "count", "rows"}, ordered ' +
-        'season descending, then model_version, then edge_threshold ascending.',
-      inputSchema: {},
+      description: getModelAccuracyDescription,
+      inputSchema: getModelAccuracyInputShape,
       annotations: { title: 'Get Model Accuracy', ...READ_ONLY_ANNOTATIONS },
     },
     async () => textResult(await getModelAccuracyTool())
@@ -2437,49 +3262,8 @@ export function registerMcpTools(server: McpServer): void {
     'get_player_leaders',
     {
       title: 'Get Player Leaders',
-      description:
-        "Get a season leaderboard of individual players by opponent-adjusted EPA/PAAR ('wepa') or " +
-        "snap-share usage ('usage'). Use for \"top wepa passers in 2024\", \"who leads the country in " +
-        'rushing wepa", "highest-usage receivers this season". \'wepa\' is served from ' +
-        'api.player_wepa_leaders (wepa, paar, metric, plays, pre-ranked league-wide per category via ' +
-        "season_rank ascending) and can optionally be narrowed to one category ('passing', 'rushing', " +
-        "'kicking') -- omitting category returns all three mixed together, sorted by season_rank within " +
-        "each. 'usage' is served from api.player_usage_leaders (usage_overall plus pass/rush/down-type " +
-        'situational usage splits, sorted usage_overall descending) and has no category breakdown -- ' +
-        '`category` is ignored if passed with type=\'usage\'. Both views are derived from play-by-play ' +
-        'data, so only seasons from 2014 on have coverage. `season` defaults to the current season ' +
-        `(${CURRENT_SEASON}) if omitted. Returns JSON {"_source", "count", "rows"}, or a friendly "No ` +
-        '... leaders found..." string if the season/category combination has no data yet.',
-      inputSchema: {
-        season: z
-          .number()
-          .int()
-          .optional()
-          .describe(`Season year, e.g. 2024. Defaults to the current season (${CURRENT_SEASON}) if omitted.`),
-        type: z
-          .enum(['wepa', 'usage'])
-          .describe(
-            "'wepa' for opponent-adjusted EPA/PAAR leaders (api.player_wepa_leaders), or 'usage' for " +
-              'snap-share usage leaders (api.player_usage_leaders).'
-          ),
-        category: z
-          .enum(WEPA_CATEGORIES)
-          .optional()
-          .describe(
-            "Restrict wepa leaders to one category: 'passing', 'rushing', or 'kicking'. Only applies " +
-              "when type='wepa' -- ignored for type='usage', which has no per-category breakdown."
-          ),
-        limit: z
-          .number()
-          .int()
-          .min(1)
-          .max(PLAYER_LEADERS_MAX_LIMIT)
-          .optional()
-          .describe(
-            `Max rows to return. Default ${PLAYER_LEADERS_DEFAULT_LIMIT}, hard-capped at ` +
-              `${PLAYER_LEADERS_MAX_LIMIT}.`
-          ),
-      },
+      description: getPlayerLeadersDescription,
+      inputSchema: getPlayerLeadersInputShape,
       annotations: { title: 'Get Player Leaders', ...READ_ONLY_ANNOTATIONS },
     },
     async args => textResult(await getPlayerLeadersTool(args))
@@ -2489,37 +3273,8 @@ export function registerMcpTools(server: McpServer): void {
     'compare_players',
     {
       title: 'Compare Players',
-      description:
-        'Compare two players side by side: full player_detail stat set plus position-group-relative ' +
-        'percentiles for each. Use for "compare Caleb Williams and Drake Maye", "who has better rushing ' +
-        'stats, player A or player B". Backed by api.player_comparison (one row per player_id x season): ' +
-        'raw counting stats (passing/rushing/receiving/defense) alongside *_pctl columns (0-1 fractions) ' +
-        "giving each stat's percentile rank against the player's position group that same season -- a " +
-        'QB naturally has null receiving/defense stats and vice versa. `season` is part of the grain, so ' +
-        "each player_id has one row per season; if `season` is omitted, each player's LATEST available " +
-        'season is resolved independently -- the two players in the response may end up on different ' +
-        'seasons if their careers don\'t overlap. Use search_players first to resolve a player_id from a ' +
-        'name. Returns JSON {"player1", "player2"} (each the raw api.player_comparison row, or null if ' +
-        'that id had no data), or a friendly "No comparison data found..." string naming which ' +
-        'player_id(s) came back empty if either lookup fails.',
-      inputSchema: {
-        player_id_1: z
-          .number()
-          .int()
-          .describe('First player_id (numeric CFBD athlete id, not a name -- resolve via search_players first).'),
-        player_id_2: z
-          .number()
-          .int()
-          .describe('Second player_id (numeric CFBD athlete id, not a name -- resolve via search_players first).'),
-        season: z
-          .number()
-          .int()
-          .optional()
-          .describe(
-            "Season year. Omit to use each player's latest available season independently (they may " +
-              'differ between the two players).'
-          ),
-      },
+      description: comparePlayersDescription,
+      inputSchema: comparePlayersInputShape,
       annotations: { title: 'Compare Players', ...READ_ONLY_ANNOTATIONS },
     },
     async args => textResult(await comparePlayersTool(args))
@@ -2529,31 +3284,8 @@ export function registerMcpTools(server: McpServer): void {
     'get_conference_comparison',
     {
       title: 'Get Conference Comparison',
-      description:
-        'Get conference-level aggregate metrics for a season: average wins, SP+ rating, EPA/play, ' +
-        'recruiting rank, and non-conference win%, each with a percentile rank against the rest of FBS. ' +
-        'Use for "which conference is strongest by SP+ this year", "how does the Big Ten compare to the ' +
-        'SEC in recruiting", "best non-conference performance by league". Backed by ' +
-        'api.conference_comparison (one row per conference/season, member_count always >= 4), sorted ' +
-        'strongest-first by avg_sp_rating (nulls last). `season` defaults to the current season ' +
-        `(${CURRENT_SEASON}) if omitted. IMPORTANT: early in a season, before enough games have been ` +
-        'played, the requested season may have no computed aggregates yet -- this tool automatically ' +
-        'retries season-1 once in that case (mirroring the /conferences page\'s own offseason fallback) ' +
-        'rather than returning an empty result. Returns JSON {"season", "_source": ' +
-        '"api.conference_comparison", "count", "rows"} where `season` reports which season the returned ' +
-        'rows actually belong to (it may differ from the requested/default season after the fallback), ' +
-        'or a friendly "No conference comparison data found..." string if both the requested season and ' +
-        'season-1 come back empty.',
-      inputSchema: {
-        season: z
-          .number()
-          .int()
-          .optional()
-          .describe(
-            `Season year, e.g. 2024. Defaults to the current season (${CURRENT_SEASON}) if omitted; ` +
-              'falls back to season-1 automatically if the season has no computed aggregates yet.'
-          ),
-      },
+      description: getConferenceComparisonDescription,
+      inputSchema: getConferenceComparisonInputShape,
       annotations: { title: 'Get Conference Comparison', ...READ_ONLY_ANNOTATIONS },
     },
     async args => textResult(await getConferenceComparisonTool(args))
@@ -2563,24 +3295,8 @@ export function registerMcpTools(server: McpServer): void {
     'get_coaching_history',
     {
       title: 'Get Coaching History',
-      description:
-        'Get a coach\'s full per-tenure coaching history: one row per school stint, with win/loss ' +
-        'record, conference record, bowl record, and recruiting-talent trajectory (inherited vs ' +
-        'year-3 talent rank) for each. Use for "Nick Saban\'s coaching history", "how did this coach do ' +
-        'at his previous school", "did this coach improve the roster talent level". Backed by ' +
-        'api.coaching_history, ordered chronologically by tenure_start. A coach who left and later ' +
-        'returned to the same school gets two separate rows (distinct tenures), not one merged row -- ' +
-        'unlike api.coach_records\' single career-at-school aggregate. inherited_talent_rank/' +
-        'year3_talent_rank/talent_improvement are null for pre-recruiting-rankings-era tenures -- that ' +
-        'is a normal data gap, not an error. first_name/last_name must match exactly (case-sensitive); ' +
-        'this view has no coach-id or fuzzy-search entry point, so get an exact spelling first (e.g. via ' +
-        'general web knowledge) if unsure. Returns JSON {"_source": "api.coaching_history", "count", ' +
-        '"rows"}, or a friendly "No coaching history found..." string if the name doesn\'t match any ' +
-        'coach on record.',
-      inputSchema: {
-        first_name: z.string().describe("Coach's first name, exact match, e.g. 'Nick'."),
-        last_name: z.string().describe("Coach's last name, exact match, e.g. 'Saban'."),
-      },
+      description: getCoachingHistoryDescription,
+      inputSchema: getCoachingHistoryInputShape,
       annotations: { title: 'Get Coaching History', ...READ_ONLY_ANNOTATIONS },
     },
     async args => textResult(await getCoachingHistoryTool(args))
@@ -2590,165 +3306,8 @@ export function registerMcpTools(server: McpServer): void {
     'run_sql',
     {
       title: 'Run Analyst SQL',
-      description:
-        'Escape hatch for analytical questions the curated tools cannot answer -- cross-domain ' +
-        'joins, custom aggregations, "highest/most/only team that..." questions. Runs ONE ' +
-        'read-only SELECT/WITH statement against the api schema (SELECT-only role, ~8s timeout, ' +
-        '~200-row cap, single statement). Prefer the curated tools when one fits; always include ' +
-        'an explicit LIMIT and ORDER BY.\n\n' +
-        'SCHEMA CARD -- always prefix views with api. All snake_case. Team names are exact and ' +
-        "case-sensitive ('Ohio State', 'Miami (OH)', 'Texas A&M'). season is the fall year; " +
-        "season_type is 'regular' or 'postseason'.\n" +
-        'Core views (key columns):\n' +
-        '- api.team_detail: school, conference, wins, losses, ppg, opp_ppg, sp_rating, sp_rank, elo, fpi, core_overall/core_offense/core_defense (CFBD CORE, NULL = not rated), epa_per_play, recruiting_rank (current season, FBS only)\n' +
-        '- api.team_history: school (column: team), season, wins, losses, ppg, opp_ppg, avg_margin,\n' +
-        '  sp_rating, sp_rank, sp_offense, sp_defense (lower sp_defense is better), elo, fpi,\n' +
-        '  core_overall/core_offense/core_defense (2016+, NULL before = not rated never 0),\n' +
-        '  epa_per_play, success_rate, explosiveness, recruiting_rank -- one row per team-season\n' +
-        "- api.core_ratings: CFBD CORE team ratings (opponent- and situation-adjusted), 2016+ -- one\n" +
-        '  row per (team, season): overall, offense, defense (per-100-qualifying-plays point margins\n' +
-        '  vs average; overall = offense - defense), offense_plays, defense_plays, through_week,\n' +
-        '  through_season_type, model_version, overall_rank/offense_rank/defense_rank (within-season).\n' +
-        "  defense is LOWER-BETTER: best defense = ORDER BY defense_rank ASC or defense ASC, NEVER\n" +
-        '  defense DESC. In-season rows are snapshots advanced in place (through_week says how much\n' +
-        '  the rating has seen) -- label mid-season values as current form, not final\n' +
-        '- api.game_detail: game_id, season, week, season_type, start_date, completed, neutral_site, conference_game, home_team, away_team, home_points, away_points, winner, point_diff, home_spread, over_under, spread_result, ou_result, pregame_home_win_prob, venue, attendance, excitement_index\n' +
-        '- api.team_elo: team, season, season_end_elo, elo_rank, games_played, low_confidence, cfbd_elo -- one row per team-season\n' +
-        '- api.game_elo_history: per-game pregame/postgame elo for both teams, win_prob, margin errors.\n' +
-        '  Use for POINT-IN-TIME Elo: a team\'s elo entering/leaving any week (e.g. end-of-regular-season\n' +
-        '  = postgame elo of its last regular-season game). NOTE: conference championship games are\n' +
-        "  season_type='regular' (usually the final regular week) -- exclude that week for pre-CCG cuts\n" +
-        '- api.game_plays: RAW PLAY-BY-PLAY, 2004+ (~3.6M rows): game_id, season, drive_number,\n' +
-        '  play_number, offense, defense, period, clock_minutes, clock_seconds, down, distance,\n' +
-        '  yards_to_goal, yards_gained, play_type, play_text, ppa, scoring, offense_score,\n' +
-        '  defense_score. Use it to literally count plays (e.g. explosive plays = scrimmage plays\n' +
-        '  with yards_gained >= 20) instead of reaching for a proxy metric. ALWAYS filter season --\n' +
-        '  unfiltered scans hit the timeout. No week/season_type column: JOIN api.game_detail USING\n' +
-        '  (game_id) for week, date, or postseason cuts. EVERY event is a row (penalties, kickoffs,\n' +
-        "  timeouts, period ends), so filter play_type for scrimmage plays: rushes are IN ('Rush',\n" +
-        "  'Rushing Touchdown'); completed passes are IN ('Pass Reception', 'Pass Completion',\n" +
-        "  'Passing Touchdown'); pass attempts also include 'Pass Incompletion', 'Sack',\n" +
-        "  'Interception', 'Pass Interception Return', 'Interception Return Touchdown'\n" +
-        '- api.game_drives: drive-level grain, same era: game_id, season, drive_number, offense,\n' +
-        '  defense, start_period, start_yards_to_goal, end_yards_to_goal, plays, yards, drive_result,\n' +
-        '  scoring, start/end offense_score + defense_score, elapsed_minutes, elapsed_seconds,\n' +
-        '  is_home_offense -- same caveat: no week column, JOIN api.game_detail for week filters\n' +
-        '- api.game_box_score: per-game team stats in LONG format -- one row per (game_id, team,\n' +
-        '  category, stat_value); filter or pivot on category. api.game_player_leaders: same idea at\n' +
-        '  player grain (category, stat_type, player_name, stat)\n' +
-        '- api.game_line_scores: quarter-by-quarter scores (home_q1..away_ot). api.game_win_probability:\n' +
-        '  play-level win-prob curve. api.game_recaps: generated headline + recap text per game (2025+)\n' +
-        '- api.matchup: head-to-head history, ONE row per pair ordered team1 < team2 ALPHABETICALLY --\n' +
-        "  match a school with (team1 = 'X' OR team2 = 'X'), never team1 alone: total_games,\n" +
-        '  team1_wins, team2_wins, ties, first_meeting, last_meeting, recent_results + both teams\'\n' +
-        '  current-season form\n' +
-        '- api.line_movement: betting-line SNAPSHOTS over time (captured_at, provider, spread,\n' +
-        '  formatted_spread, over_under, home/away_moneyline), several rows per game, current season\n' +
-        '  only -- latest line = greatest captured_at per (game_id, provider)\n' +
-        '- api.live_scoreboard: in-progress games only, empty outside live windows -- prefer the\n' +
-        '  get_live_scoreboard tool\n' +
-        '- api.coaching_history: coach_name, team, tenure_start, tenure_end (null = active), seasons_count, total_wins, total_losses, win_pct, avg_sp_rating, peak_sp_rating -- one row per coach-tenure\n' +
-        '- api.coach_records: coach career-at-school grain with ATS splits (ats_wins, ats_losses)\n' +
-        '- api.poll_rankings: season, season_type, week, poll, rank, school, conference, first_place_votes, points\n' +
-        '- api.leaderboard_teams: team, conference, season, wins, losses, ppg, opp_ppg, sp_rating,\n' +
-        '  sp_rank, sp_offense, sp_defense (offense/defense SP+ components -- available for ALL seasons,\n' +
-        '  lower sp_defense is better), elo, fpi, epa_per_play, success_rate, explosiveness,\n' +
-        '  recruiting_rank + *_rank columns. Works for any past season, not just the current one\n' +
-        '- api.team_wepa_season: team, season, epa_total, epa_passing, epa_rushing, epa_allowed_*, success_rate_*, explosiveness\n' +
-        '- api.team_ats: team, season, ats record vs the spread\n' +
-        '- api.scored_matchup_edges / api.game_predictions / api.prediction_accuracy: model predictions vs\n' +
-        `  market. THREE model_versions per game: elo_v1, elo_epa_blend_v1, ${DEFAULT_PREDICTION_MODEL}\n` +
-        '  (the current house model). ALWAYS filter model_version or every game appears three times\n' +
-        '- api.matchup_forecast: ONE row per game, 2000+ -- blended pregame forecast + result:\n' +
-        '  home/away_win_probability, projected_winner, projected_margin, confidence_tier, component\n' +
-        '  probs (cfbd/market/elo/sp_home_win_prob), market_spread, market_over_under, actual result\n' +
-        '  (home/away_points, actual_winner, brier_loss), and season context (home/away_expected_wins,\n' +
-        '  home/away_bowl_eligibility_prob, home/away_ten_plus_win_prob)\n' +
-        '- api.season_outlook: season, team, conference, classification, is_projection, model_version,\n' +
-        '  projected_wins, projected_losses, median_wins, wins_p10/p25/p75/p90, p_win_dist (jsonb\n' +
-        '  {"0":p,...}), p_bowl_eligible, p_ten_plus, sos_rating, sos_rank, conf_title_prob,\n' +
-        '  games_scheduled/simulated/unscored/completed, actual_wins, schedule_complete, n_sims --\n' +
-        '  latest Monte Carlo snapshot per (season, team, model_version); pin model_version or teams\n' +
-        '  appear once per version. Prefer get_season_outlook, which attaches the backtest error and\n' +
-        '  the per-result caveats. NOT FBS-only -- ALWAYS add classification = \'fbs\' before ranking, or\n' +
-        '  you compare teams playing different-length seasons (2026: 138 fbs / 128 fcs / 38 ii / 33 iii\n' +
-        '  / 13 NULL, and NULL means unplaceable, not FBS). is_projection = false means the season is\n' +
-        '  already played and the row is a final record, not a forecast -- check it before calling\n' +
-        '  anything a projection. playoff_prob is NULL everywhere by design; p_bowl_eligible is NULL\n' +
-        '  outside FBS by design. Projected quantities are over games_simulated, NOT games_scheduled\n' +
-        '- api.model_backtest: model_version, scope, run_date, season_start/end, n, win_mae, rmse, bias,\n' +
-        '  coverage, resid_p05..p95, baseline_prior_mae, baseline_flat_mae, ten_plus_brier, bowl_brier --\n' +
-        '  how wrong the season projections usually are. FILTER scope = \'fbs\'; \'all_divisions\' is a\n' +
-        '  different measurement, not a superset, and the grain is one row per (model, scope, window),\n' +
-        '  so an unpinned scope returns several. `n` counts TEAM-SEASONS, not games. For an interval use\n' +
-        '  resid_p10/resid_p90 (asymmetric) -- never +/- win_mae, which spans only ~58% of outcomes.\n' +
-        '  No row means never backtested: report unmeasured, never zero error\n' +
-        '- api.player_season_leaders (LONG: one row per player-category, e.g. passing/rushing),\n' +
-        '  api.player_wepa_leaders, api.player_usage_leaders: player-season leaderboards\n' +
-        '- api.player_detail: one row per player-season, 2004+ (~340k rows): bio, recruit pedigree\n' +
-        '  (stars, recruit_rating, national_ranking), raw counting stats (pass_*, rush_*, rec_*,\n' +
-        '  tackles, sacks, tfl), ppa_avg/ppa_total. api.player_comparison is the same grain plus\n' +
-        '  *_pctl percentile columns\n' +
-        '- api.roster_lookup: roster rows per team-season 2004+ (first/last_name, team, position,\n' +
-        '  height, weight, year = season, jersey, home_city, home_state, home_country)\n' +
-        '- api.recruit_lookup: individual recruits 2000+ (name, year, stars, rating, ranking,\n' +
-        '  position, school = HIGH SCHOOL, committed_to = college)\n' +
-        '- api.recruiting_roi, api.transfer_portal_impact, api.team_returning_production, api.conference_comparison\n' +
-        '- api.team_week_features: one row per (team, season, week_index), 2015+ -- POINT-IN-TIME weekly\n' +
-        '  features: week, games_played_to_date, elo_pregame, adj_epa_off/def/net (walk-forward\n' +
-        '  opponent-adjusted, fit only on data through that week), off/def EPA + success +\n' +
-        '  explosiveness rates, havoc_rate_defense, havoc_rate_offense_allowed, returning production,\n' +
-        '  preseason SP+. The go-to join for "as of week N" strength cuts; week_index is a dense 1..N\n' +
-        '  within-season index, not the raw week. Prefer get_adjusted_epa for one team\'s trend\n' +
-        '- api.adjusted_epa_week: ridge-fit model internals behind those adjustments (team, season,\n' +
-        '  week_index, off_coef, def_coef, hfa_coef, mu, plays), 2004+ -- prefer team_week_features\n' +
-        '- api.team_playcalling_profile: one row per team-season, 2004+: overall/early-down/red-zone\n' +
-        '  run rates, third_down_pass_rate, leading/trailing run rates + run_rate_delta,\n' +
-        '  pace_plays_per_game, success/EPA splits, *_pctl percentile columns\n' +
-        '- api.expected_points: the house EP model -- one row per (era, state), NO team column:\n' +
-        "  era ('2004-2013'|'2014-2020'|'2021+' -- NEVER average eras), state ('d1|standard|z8'),\n" +
-        '  down, distance_bucket (down-aware: d1 = standard(=10)/short(<10)/long(>10)/goal; d2-4 =\n' +
-        '  short(<=3)/med(4-6)/long(7-10)/xlong(>10)/goal), field_zone (1 = 1-10 yards FROM THE\n' +
-        '  GOAL, 10 = backed up), yards_to_goal_min/max, n_obs, ep_drive (drive-scoring basis),\n' +
-        '  ep_net (net next-score basis, CFBD-ppa-comparable, can be NEGATIVE, NULL = not computed\n' +
-        '  never 0), p_td, p_fg, p_punt, p_turnover, se_boot (NULLABLE -- no interval, not +/-0).\n' +
-        '  down=4 rows are GO-FOR-IT-CONDITIONAL (can price above d3), and sparse cells (n_obs can\n' +
-        '  be 1) are anecdotes -- check n_obs. Prefer get_expected_points, which attaches the basis\n' +
-        '  definitions and per-result caveats\n' +
-        '- api.team_penalties: game_id, season, week, season_type, team, opponent, home_away, penalties,\n' +
-        '  penalty_yards, opponent_penalties, opponent_penalty_yards -- two rows per game (one per team);\n' +
-        "  the scorer's OFFICIAL box-score tally -- prefer it for totals and GROUP BY team for season\n" +
-        '  discipline leaderboards. Per-game averages: use ALL of a team\'s games as the denominator\n' +
-        '  (COUNT(DISTINCT game_id) from this view), never just the games where a call happened\n' +
-        '- api.penalty_log: play-level penalties (2004+) parsed BEST-EFFORT from free-text play_text:\n' +
-        '  game_id, season, week, offense, defense, penalized_team, benefiting_team, infraction (~30\n' +
-        "  labels incl 'Unknown'), penalty_yards, declined, offsetting, no_play, down, distance, period,\n" +
-        "  ppa, parse_ok. 'Unknown'/NULL team = UNCLASSIFIED not absent, so filtered counts are floors\n" +
-        '  (attribution validated >= 50% only for seasons >= 2022) -- say so when reporting. For\n' +
-        '  cross-metric combos (e.g. havoc rate vs holding penalties drawn), join api.team_week_features\n' +
-        '  (havoc_rate_defense) with penalty_log GROUPed BY benefiting_team. NOTE: ORDER BY ... DESC\n' +
-        '  sorts NULLs first -- filter them out\n\n' +
-        'Worked example -- "which coach can claim the highest Elo at two different schools":\n' +
-        'WITH tenure_elo AS (\n' +
-        '  SELECT ch.coach_name, ch.team, MAX(te.season_end_elo) AS peak_elo\n' +
-        '  FROM api.coaching_history ch\n' +
-        '  JOIN api.team_elo te ON te.team = ch.team\n' +
-        '    AND te.season BETWEEN ch.tenure_start AND COALESCE(ch.tenure_end, 2100)\n' +
-        '  GROUP BY ch.coach_name, ch.team\n' +
-        ')\n' +
-        'SELECT coach_name, COUNT(*) AS schools, MIN(peak_elo) AS weaker_school_peak\n' +
-        'FROM tenure_elo GROUP BY coach_name HAVING COUNT(*) >= 2\n' +
-        'ORDER BY weaker_school_peak DESC LIMIT 10;\n\n' +
-        'Returns {"_source", "count", "rows"} JSON, a "No rows returned" note, or an "Error: ..." ' +
-        'string (never throws).',
-      inputSchema: {
-        sql: z
-          .string()
-          .describe(
-            'One read-only SELECT or WITH statement over the api.* views. No DDL/DML, no multiple ' +
-              'statements. Include ORDER BY and LIMIT (server caps rows regardless).'
-          ),
-      },
+      description: runSqlDescription,
+      inputSchema: runSqlInputShape,
       annotations: { title: 'Run Analyst SQL', ...READ_ONLY_ANNOTATIONS },
     },
     async args => textResult(await runSqlTool(args))
@@ -2758,45 +3317,8 @@ export function registerMcpTools(server: McpServer): void {
     'get_penalty_profile',
     {
       title: 'Get Penalty Profile',
-      description:
-        "Get a team's discipline profile for a season: penalty totals and per-game rates, the " +
-        'differential vs its opponents, a breakdown of which infractions it commits, a breakdown of ' +
-        'which infractions it DRAWS from opponents, and its most costly individual penalties. Use for ' +
-        '"how undisciplined is Oklahoma this year", "what penalties does this team commit most", "does ' +
-        'this defense draw a lot of holding calls", "who wins the penalty battle in their games". ' +
-        'Combines api.team_penalties (per-game totals for the team and its opponents, aggregated to a ' +
-        'season summary in the "summary" key -- penalty_margin_per_game and penalty_yards_margin_per_game ' +
-        'are opponent minus own, so POSITIVE means more disciplined than the opposition) and ' +
-        'api.penalty_log (play-level penalties parsed from play text): "infraction_breakdown" groups the ' +
-        "penalties the team COMMITTED (penalized_team = team) by infraction label, \"drawn_breakdown\" " +
-        'groups the penalties opponents committed that BENEFITED the team (benefiting_team = team -- e.g. ' +
-        'holding calls a good pass rush generates), and "most_costly" lists the top accepted penalties by ' +
-        'yardage. In each breakdown, accepted/declined/offsetting are disjoint counts summing to total, ' +
-        'and accepted_yards only counts enforced yardage. IMPORTANT data honesty: api.penalty_log is ' +
-        "parsed from CFBD's free-text play descriptions, so an 'Unknown' infraction or an unattributed " +
-        'team means UNCLASSIFIED, not absent -- the two breakdowns silently exclude unattributed plays ' +
-        'and are therefore FLOORS, not exact officiating counts; relay that when answering. The "summary" ' +
-        "key is the scorer's official box-score tally and is the authoritative source for totals (which " +
-        'is also why breakdown totals run below the summary counts); use the breakdowns for the ' +
-        'infraction MIX only. Coverage runs from 2004; parse quality is validated for seasons >= 2022 ' +
-        '(>= 90% of penalties get an infraction label, >= 50% get a team attribution) and degrades in ' +
-        `older seasons. \`season\` defaults to the current season (${CURRENT_SEASON}) if omitted. For ` +
-        'league-wide discipline leaderboards or cross-metric combos (e.g. havoc rate vs penalties drawn), ' +
-        'use run_sql over api.team_penalties / api.penalty_log instead. Returns JSON with "team", ' +
-        '"season", "summary", "infraction_breakdown", "drawn_breakdown", "most_costly", and "game_log" ' +
-        'keys (envelope keys are {"_source", "count", "rows"}; a failed secondary lookup degrades to an ' +
-        '"..._error" key without discarding the rest), or a friendly "No penalty data found..." string.',
-      inputSchema: {
-        team: z.string().describe("Exact school name as used by CFBD, e.g. 'Oklahoma'. Case-sensitive."),
-        season: z
-          .number()
-          .int()
-          .optional()
-          .describe(
-            `Season year, e.g. 2024. Defaults to the current season (${CURRENT_SEASON}) if omitted. ` +
-              'Penalty data covers 2004+; parse quality is best for seasons >= 2022.'
-          ),
-      },
+      description: getPenaltyProfileDescription,
+      inputSchema: getPenaltyProfileInputShape,
       annotations: { title: 'Get Penalty Profile', ...READ_ONLY_ANNOTATIONS },
     },
     async args => textResult(await getPenaltyProfileTool(args))
@@ -2806,59 +3328,8 @@ export function registerMcpTools(server: McpServer): void {
     'get_penalty_log',
     {
       title: 'Get Penalty Log',
-      description:
-        'Search the play-level penalty log by penalized team, season, week, game, and/or infraction ' +
-        'type. Use for drill-downs the profile aggregates hide -- "what penalties did Oklahoma commit ' +
-        'against Texas", "show every targeting call in 2024", "which penalties killed that drive". ' +
-        'Backed by api.penalty_log (2004+), one row per play carrying penalty text, parsed BEST-EFFORT ' +
-        "from CFBD's free-text play descriptions: offense/defense, penalized_team and benefiting_team, " +
-        'infraction label, penalty_yards, declined/offsetting/no_play/multi_penalty flags, ' +
-        'down/distance/period situation, ppa, the raw play_text, plus is_penalty_play_type (the penalty ' +
-        'WAS the play, vs. tacked onto another play) and parse_ok (both infraction and team attribution ' +
-        "succeeded). 'Unknown' infractions and unattributed teams mean UNCLASSIFIED, not absent -- " +
-        'filtered counts are floors (team attribution is validated >= 50% for seasons >= 2022 and worse ' +
-        'earlier), so relay that; use api.team_penalties or get_penalty_profile for official totals. ' +
-        'All filters combine with AND; `team` matches the PENALIZED team (who committed it -- to find ' +
-        'penalties a team drew, filter by its opponent or use get_penalty_profile\'s drawn_breakdown). ' +
-        "`infraction` is an exact label match (~30 distinct values, e.g. 'Holding', 'False Start', " +
-        "'Pass Interference', 'Targeting'; unparseable penalties are labeled 'Unknown'). Requires at " +
-        'least one of team/game_id/season/infraction. Ordered most recent first. Returns JSON ' +
-        '{"_source": "api.penalty_log", "count", "rows"}, or "No penalties found..." if nothing matches.',
-      inputSchema: {
-        team: z
-          .string()
-          .optional()
-          .describe('Exact school name; matches the PENALIZED team (who committed the penalty).'),
-        season: z
-          .number()
-          .int()
-          .optional()
-          .describe('Season year, e.g. 2024. Coverage is 2004+; parse quality is best for seasons >= 2022.'),
-        week: z
-          .number()
-          .int()
-          .optional()
-          .describe('Week number within the season. Not selective on its own -- combine with season or team.'),
-        game_id: z
-          .number()
-          .int()
-          .optional()
-          .describe('Restrict to a single game (same id as api.game_detail).'),
-        infraction: z
-          .string()
-          .optional()
-          .describe(
-            "Exact infraction label, e.g. 'Holding', 'False Start', 'Pass Interference', 'Personal " +
-              "Foul', 'Targeting'. Case-sensitive; unparseable penalties are labeled 'Unknown'."
-          ),
-        limit: z
-          .number()
-          .int()
-          .min(1)
-          .max(DEFAULT_ROW_CAP)
-          .optional()
-          .describe(`Max rows to return (default 50, hard-capped at ${DEFAULT_ROW_CAP}).`),
-      },
+      description: getPenaltyLogDescription,
+      inputSchema: getPenaltyLogInputShape,
       annotations: { title: 'Get Penalty Log', ...READ_ONLY_ANNOTATIONS },
     },
     async args => textResult(await getPenaltyLogTool(args))
@@ -2868,111 +3339,8 @@ export function registerMcpTools(server: McpServer): void {
     'get_season_outlook',
     {
       title: 'Get Season Outlook',
-      description:
-        'Get the simulated season win-total outlook for one team or a whole conference: projected ' +
-        'wins/losses, the percentile band around them, bowl-eligibility and ten-win probabilities, ' +
-        'strength of schedule, and conference-title odds. Use for "projected final SEC standings", ' +
-        '"how many games does Oklahoma win this year", "who is favored to win the Big 12", "what is ' +
-        "this team's ceiling and floor\". These are real simulated projections -- answering a " +
-        'season-outlook question from them is grounded, not invented. Backed by api.season_outlook: ' +
-        `one row per (season, team) at model_version '${DEFAULT_PREDICTION_MODEL}', already ` +
-        'latest-snapshot per team-season, each row summarizing n_sims Monte Carlo seasons drawn from ' +
-        'the same game-level model get_game_prediction serves. Pass `conference` for standings-style ' +
-        'questions, `team` for one team, or neither for a national ranking. Rows come back sorted by ' +
-        'projected_wins descending. NOTE that this is TOTAL wins, not a conference table: real ' +
-        'standings are decided on conference record, and two teams with identical league form can ' +
-        'separate here on nonconference schedule alone. The view does not expose a projected ' +
-        'conference record, so answer a "projected standings" question as a projected-wins ranking ' +
-        'and say which it is. Results are ' +
-        "filtered to `classification` (default 'fbs') because this view is NOT FBS-only -- it also " +
-        'carries FCS/DII/DIII teams playing different-length seasons, so an unfiltered ranking by ' +
-        'projected wins compares teams that are not comparable.\n\n' +
-        'HOW TO REPORT IT. projected_wins is the MEAN of the simulated distribution; median_wins and ' +
-        'wins_p10/p25/p75/p90 are its spread. A standings table with no error band is overconfidence ' +
-        'in a nicer suit -- always pair the point estimate with either the percentile band or the ' +
-        'response\'s "accuracy" block, which is read live from api.model_backtest and carries the ' +
-        'model\'s measured error (win_mae plus an ASYMMETRIC 80% interval in interval_80_pct; quote ' +
-        'that interval, never +/- the MAE, which spans only ~58% of outcomes while reading like a ' +
-        'range). n_team_seasons counts TEAM-SEASONS, not games. If "accuracy" is null the model has ' +
-        'not been backtested: say the typical error is unmeasured -- do NOT treat null as zero error ' +
-        'and do not substitute a figure you remember. The response also carries a "caveats" array ' +
-        'computed from the rows actually returned -- it flags an already-played season, partially ' +
-        'loaded schedules, unscored games and mixed divisions. Relay every caveat that bears on the ' +
-        'answer.\n\n' +
-        'THINGS THAT ARE EASY TO GET WRONG: playoff_prob is NULL on every row BY DESIGN -- there is ' +
-        'no playoff projection here, never state or estimate one. is_projection is the authoritative ' +
-        'flag for whether a row is a forecast at all; when it is false the season is already played ' +
-        'and the row is a final record with a collapsed band. Projected quantities are over ' +
-        'games_simulated, NEVER games_scheduled: a game the model could not score is excluded from ' +
-        'the simulation, not counted as a loss, so check games_unscored before quoting ' +
-        'projected_losses. schedule_complete=false means the slate is still filling in and the win ' +
-        'total is a floor over listed games only. p_bowl_eligible is NULL outside FBS by design -- ' +
-        'those divisions have no bowls; p_ten_plus still applies everywhere. conf_title_prob is a ' +
-        'naive v1 that models no tiebreakers and no championship game -- prefer projected wins and ' +
-        'call title odds approximate. Do not rank teams of different classifications against each ' +
-        'other on projected_wins.\n\n' +
-        'ON COACHING CHANGES, if you narrate one: the model does NOT believe "new coach, therefore ' +
-        'worse". The first-year effect belongs entirely to hiring an UNPROVEN coach; a hire with a ' +
-        'track record at previous stops is projected roughly as though nothing happened (a measured ' +
-        'null, not an absence of evidence). Separately, the coaching feature is still empty for any ' +
-        'season CFBD has not yet published coaching records for -- typically the upcoming one until ' +
-        'late summer -- so for that season every team is projected as though its staff were ' +
-        'unchanged, new hires included. Say so if coaching comes up.\n\n' +
-        'Returns JSON with "season", "season_source", "model_version", "projection_date", "scope", ' +
-        '"n_sims", "residual_sigma", "accuracy" (or null), "caveats", plus {"_source": ' +
-        '"api.season_outlook", "count", "rows"} -- or a friendly "No season outlook found..." ' +
-        'string. p_win_dist (the full win distribution) is included only in single-team mode.',
-      inputSchema: {
-        team: z
-          .string()
-          .optional()
-          .describe(
-            "Exact school name as used by CFBD, e.g. 'Oklahoma'. Case-sensitive. Returns one row, " +
-              'including p_win_dist (the full win distribution). Combine with `classification` if ' +
-              "the team is not FBS -- the default filter would otherwise exclude it."
-          ),
-        conference: z
-          .string()
-          .optional()
-          .describe(
-            "Exact conference name, e.g. 'SEC', 'Big Ten', 'American Athletic'. Case-sensitive. " +
-              'Returns every team in it sorted by TOTAL projected wins descending -- a win ranking, ' +
-              'not a conference table (standings go by conference record, which this view does not ' +
-              "expose). For an FCS conference (e.g. 'Ivy') also pass classification='fcs'."
-          ),
-        classification: z
-          .enum(SEASON_OUTLOOK_CLASSIFICATIONS)
-          .optional()
-          .describe(
-            "Division filter. Defaults to 'fbs'. Use 'all' to span every division -- but note the " +
-              'divisions play different-length seasons, so a mixed ranking by projected_wins is not ' +
-              "meaningful. A NULL classification in the data means CFBD could not place the team; " +
-              "those rows are unplaceable rather than FBS, and every filter except 'all' drops them."
-          ),
-        season: z
-          .number()
-          .int()
-          .optional()
-          .describe(
-            'Season year, e.g. 2026. Defaults to the NEWEST season present in api.season_outlook, ' +
-              `which is normally the upcoming season and NOT the app's current-season constant ` +
-              `(${CURRENT_SEASON}). Pass a season only if the user named one -- the resolved season ` +
-              'comes back as "season" with "season_source" saying where it came from. Older seasons ' +
-              'are present but already played, so their "projections" are final records.'
-          ),
-        limit: z
-          .number()
-          .int()
-          .min(1)
-          .max(DEFAULT_ROW_CAP)
-          .optional()
-          .describe(
-            `Max rows (default ${SEASON_OUTLOOK_DEFAULT_LIMIT}, hard-capped at ${DEFAULT_ROW_CAP}). ` +
-              'A conference is at most ~18 teams, so the default covers any single conference. A ' +
-              'national query spans ~138 FBS teams and will be truncated -- the caveats say so when ' +
-              'that happens.'
-          ),
-      },
+      description: getSeasonOutlookDescription,
+      inputSchema: getSeasonOutlookInputShape,
       annotations: { title: 'Get Season Outlook', ...READ_ONLY_ANNOTATIONS },
     },
     async args => textResult(await getSeasonOutlookTool(args))
@@ -2982,125 +3350,8 @@ export function registerMcpTools(server: McpServer): void {
     'get_expected_points',
     {
       title: 'Get Expected Points',
-      description:
-        'Get the house expected-points value of a game SITUATION: what a down, distance bucket and ' +
-        'field position are worth in points, plus how the possession tends to end. Use for "what is ' +
-        'a 1st-and-10 at midfield worth", "how much did that holding penalty cost in expected ' +
-        'points", "should they have gone for it -- what was 4th-and-short at the 40 worth", "how ' +
-        'often does a drive from your own 5 end in a touchdown". Backed by api.expected_points: the ' +
-        'solved play-by-play Markov chain, one row per (era, state) where state = down x distance ' +
-        'bucket x field-position decile, three eras (2004-2013, 2014-2020, 2021+), ~483 rows total. ' +
-        'This is a STATE lookup, NOT a team stat -- there is no team column, and "expected points ' +
-        'FOR Ohio State" is not answerable here (use query_team / get_adjusted_epa for team ' +
-        'strength). The era resolves from `season` when given, else the current era -- states move ' +
-        'materially between eras (1st-and-10 at own 25: ~1.58 in 2004-2013 vs ~1.80 in 2021+), so ' +
-        'NEVER average eras; compare them explicitly instead. Pass `yards_to_goal` (1-99, distance ' +
-        'to the goal line, NOT yard-line-on-the-field) and it maps to the right decile for you; ' +
-        'pass `distance` (yards to go) with `down` and it maps to the right bucket for you. With ' +
-        'neither `distance` nor `distance_bucket`, every bucket for the state comes back, and the ' +
-        'spread across buckets IS the answer to "how much does distance matter here".\n\n' +
-        'HOW TO REPORT IT. ep_drive is the drive-scoring basis (absorption probabilities x values ' +
-        '{TD 6.97, FG 3, SAFETY -2, TURNOVER_TD -6.97}) -- what THIS possession is worth. ep_net is ' +
-        'the net next-score basis, the number comparable to CFBD ppa / nflfastR EP -- lower, and ' +
-        'legitimately NEGATIVE deep in own territory; never clamp or abs() it, and build EPA-style ' +
-        'deltas only from ep_net. Say which basis you are quoting; for "cost of a penalty in EP" ' +
-        'subtract two states on the SAME basis. Intervals, not verdicts: quote ep_drive +/- ' +
-        '2*se_boot, and pair any cell-level claim with n_obs. The payload carries a "basis" block ' +
-        "(including the model's validation stats) and a \"caveats\" array computed from the rows " +
-        'actually returned -- relay every caveat that bears on the answer. p_td/p_fg/p_punt/' +
-        'p_turnover are drive-outcome absorption probabilities from this state (p_turnover ' +
-        'includes defensive-TD turnovers).\n\n' +
-        'THINGS THAT ARE EASY TO GET WRONG: down=4 rows are GO-FOR-IT-CONDITIONAL -- a 4th-down ' +
-        'state exists in the chain only when the offense lined up to go (punts and FGs exit from ' +
-        'the 3rd-down play), so EP(d4) answers "what is this worth GIVEN they go" and can ' +
-        'legitimately price ABOVE d3. Never quote it as the unconditional value of facing 4th ' +
-        'down, and keep d4 out of down-ladder comparisons or caveat it. The bucket vocabulary is ' +
-        "down-aware: down 1 uses 'standard' (=10) / 'short' (<10) / 'long' (>10) / 'goal' and has " +
-        "NO 'med'/'xlong'; downs 2-4 use 'short' (<=3) / 'med' (4-6) / 'long' (7-10) / 'xlong' " +
-        "(>10) / 'goal' and have NO 'standard'; 'goal' means goal-to-go at any down. NULL ep_net " +
-        'means not computed (never 0); NULL se_boot means no interval (never +/- 0). Sparse cells ' +
-        'are real: oddball states can rest on a single observed play (the caveats flag anything ' +
-        'under 100), and their EP is an anecdote. field_zone counts from the GOAL LINE: zone 1 = ' +
-        '1-10 yards out (about to score), zone 10 = 91-99 (backed up).\n\n' +
-        'FOURTH-DOWN DECISIONS: ask with down=4 + distance + yards_to_goal and the response ' +
-        'attaches a "fourth_down_decision" block -- EP(go) (the state\'s own ep_net; d4 rows are ' +
-        'go-conditional, exactly the "given they go" number) vs EP(punt) (the distribution-' +
-        'weighted E[EP] over real punt outcomes from this zone and era: every resulting opponent ' +
-        'starting zone valued at its own -ep_net, punts returned/blocked for TDs at -6.97, ' +
-        'kicking-team recoveries at the retained spot -- outcome-weighted, never EP of the ' +
-        'average spot), plus ep_delta_go_minus_punt and an assumptions list. All of it is on the ' +
-        'ep_net basis. The FG option is NOT modeled -- inside plausible FG range say the ' +
-        'comparison is incomplete. Relay the assumptions when you use the block.\n\n' +
-        'Returns JSON with "era", "era_source", optional "season"/"yards_to_goal"/"field_zone"/' +
-        '"distance"/"distance_bucket"/"distance_bucket_source"/"fourth_down_decision", "basis", ' +
-        '"caveats", plus {"_source": "api.expected_points", "count", "rows"} -- or a friendly ' +
-        '"No expected-points cell matches..." string naming the bucket-vocabulary trap.',
-      inputSchema: {
-        down: z
-          .number()
-          .int()
-          .min(1)
-          .max(4)
-          .optional()
-          .describe(
-            'Down, 1-4. Omit to span all downs at the given spot. Remember down=4 rows are ' +
-              'conditional on going for it.'
-          ),
-        distance: z
-          .number()
-          .int()
-          .min(1)
-          .optional()
-          .describe(
-            'Yards to go for a first down (the "7" in 3rd-and-7). Requires `down` to map to a ' +
-              'bucket -- the boundaries are down-aware. Pass `yards_to_goal` too when known, so ' +
-              'goal-to-go is detected. When both this and `distance_bucket` are passed and they ' +
-              'disagree, the numbers win and a caveat says so. Ignored entirely without `down`.'
-          ),
-        yards_to_goal: z
-          .number()
-          .int()
-          .min(1)
-          .max(99)
-          .optional()
-          .describe(
-            'Distance to the GOAL LINE in yards, 1-99 -- not the painted yard line. "At midfield" ' +
-              'is 50, "at their own 25" is 75, "at the opponent 25" is 25. Mapped to the ' +
-              "view's field-position decile server-side; the resolved zone comes back as " +
-              '"field_zone".'
-          ),
-        distance_bucket: z
-          .enum(EXPECTED_POINTS_DISTANCE_BUCKETS)
-          .optional()
-          .describe(
-            "Distance-to-go bucket, if you'd rather pick it than pass `distance`. Down-aware " +
-              "boundaries: down 1 has 'standard' (=10) / 'short' (<10) / 'long' (>10) / 'goal'; " +
-              "downs 2-4 have 'short' (<=3) / 'med' (4-6) / 'long' (7-10) / 'xlong' (>10) / " +
-              "'goal'. Prefer `distance` + `down` (the tool maps it), or omit both to read the " +
-              'spread across buckets.'
-          ),
-        season: z
-          .number()
-          .int()
-          .optional()
-          .describe(
-            `Season year the question is about, e.g. 2015. Selects the model era ` +
-              `(${EXPECTED_POINTS_ERAS.join(', ')}); defaults to the current era ('2021+'). ` +
-              `Seasons before ${EXPECTED_POINTS_FIRST_SEASON} are not covered and return a ` +
-              'friendly error.'
-          ),
-        limit: z
-          .number()
-          .int()
-          .min(1)
-          .max(DEFAULT_ROW_CAP)
-          .optional()
-          .describe(
-            `Max rows (default ${EXPECTED_POINTS_DEFAULT_LIMIT}, hard-capped at ${DEFAULT_ROW_CAP}). ` +
-              'A fully-specified state returns at most 6 rows (one per bucket); a whole era is ' +
-              '~165 and will truncate -- the caveats say so when that happens.'
-          ),
-      },
+      description: getExpectedPointsDescription,
+      inputSchema: getExpectedPointsInputShape,
       annotations: { title: 'Get Expected Points', ...READ_ONLY_ANNOTATIONS },
     },
     async args => textResult(await getExpectedPointsTool(args))
@@ -3110,159 +3361,8 @@ export function registerMcpTools(server: McpServer): void {
     'render_chart',
     {
       title: 'Render Chart',
-      description:
-        'Mint a signed, ready-to-post PNG chart URL for a team -- without querying the database. Use ' +
-        'this whenever the user asks to *see*, *show*, *chart*, *plot*, or *visualize* something, or ' +
-        'whenever the answer would otherwise be more than a handful of numbers spread across several ' +
-        'categories (e.g. a run/pass split across five situations reads far faster as bars than as a ' +
-        'list of percentages in a chat reply). This tool is effectively instant (~1ms, no Supabase ' +
-        'round trip) and safe to call speculatively alongside a data tool without adding latency to an ' +
-        'already-slow /ask -- it can never fail on missing data: an unrecognized team, or a team/season ' +
-        'with nothing to chart, still returns a valid URL, and the image itself renders a friendly ' +
-        'empty-state card rather than a broken link. Because this tool never touches the database, ' +
-        'ALWAYS also call the matching data tool for the actual figures (e.g. get_playcalling_profile ' +
-        "for chart='team-playcalling', query_team for the team-metric-* charts) -- this tool's " +
-        "response carries a URL and a usage note, never the chart's underlying numbers.\n\n" +
-        'CHARTS:\n' +
-        "- 'team-metric-trend' -- ONE metric plotted season by season for 1-4 teams, as hand-drawn " +
-        'lines. Reach for it for any "over time", "since 20xx", "last decade", "trend", "trajectory", ' +
-        'or "team A vs team B historically" question. Needs `metric` and `teams`; `from`/`to` default ' +
-        'to the last ten seasons. Metrics where smaller is better (sp_defense, sp_rank, losses, ' +
-        'opp_ppg, recruiting_rank) are drawn on an inverted axis so better is always up, and the ' +
-        'chart says so. Optional `annotations` mark a season with a labelled vertical rule (e.g. a ' +
-        'coaching change).\n' +
-        "- 'team-metric-bars' -- the SAME metric enum for 1-4 teams in ONE season, as ranked " +
-        'horizontal bars. Reach for it when the question is "who is best/worst right now", "compare ' +
-        'these teams this season", or any single-season comparison across teams -- a line chart of ' +
-        'one season is a dot. Needs `metric` and `teams`; `season` defaults to the current one. Rows ' +
-        'are always sorted best-first whichever way the metric runs, and the chart states which end ' +
-        'is good.\n' +
-        "- 'team-metric-scatter' -- TWO metrics plotted against each other for ONE season, as team " +
-        'logos across roughly the top 25 of that season. Reach for it when the question relates two ' +
-        'different things ("offense vs defense", "does recruiting buy wins", "who is efficient AND ' +
-        'explosive") or asks where a team sits in the wider landscape rather than against a handful ' +
-        'of named rivals. Needs `x` and `y` (two DIFFERENT metrics); `season` defaults to the current ' +
-        'one, `rank_by` (which metric picks the 25) defaults to sp_rating. `teams` is OPTIONAL here ' +
-        'and highlights those teams against the field -- a named team outside the top 25 is drawn ' +
-        'anyway, with its placing. The top-right corner is ALWAYS the good one: an axis whose metric ' +
-        'is better when smaller is drawn reversed, and the chart says so.\n' +
-        'All three team-metric-* charts share one fixed metric enum ' +
-        `(${METRIC_IDS.join(', ')}) mapped to real api.team_history columns -- pick the closest one ` +
-        'rather than inventing a name.\n' +
-        "- 'team-playcalling' -- one team's run/pass play-call split by situation (overall, early " +
-        'downs, 3rd down, red zone, leading vs trailing) as diverging hand-drawn bars, for a single ' +
-        'season; backed by the same api.team_playcalling_profile view as get_playcalling_profile. ' +
-        'Needs `team`, optionally `season`.\n\n' +
-        'Post the returned URL on its own line in the reply so it renders as ' +
-        'an image, and still state the key numbers in prose alongside it; include at most one chart per ' +
-        'answer. Returns JSON {"_source": "chart-renderer", "chart", "url", "alt", "width", "height", ' +
-        '"usage"}, a short sentence explaining what is missing if the arguments do not describe a ' +
-        'chart (e.g. no metric, or more than four teams), or a plain "Chart rendering is not configured ' +
-        'on this deployment..." string if the deployment is missing required signing configuration -- ' +
-        'in either case just answer in text and, for the former, fix the arguments if a chart still helps.',
-      inputSchema: {
-        chart: z
-          .enum(RENDER_CHART_IDS)
-          .describe(
-            "Which chart to render. 'team-metric-trend' for a metric across multiple seasons; " +
-              "'team-metric-bars' for the same metric compared across teams within ONE season; " +
-              "'team-metric-scatter' for TWO metrics against each other across a whole season's " +
-              "field; 'team-playcalling' for one team's single-season run/pass situational split."
-          ),
-        team: z
-          .string()
-          .optional()
-          .describe(
-            "Required for chart='team-playcalling': exact school name as used by CFBD, e.g. 'Oklahoma', " +
-              "'Ohio State', 'Texas A&M'. Exact, case-sensitive -- not a fuzzy search. Also accepted as a " +
-              'one-team shorthand for the team-metric-* charts.'
-          ),
-        season: z
-          .number()
-          .int()
-          .optional()
-          .describe(
-            "The single season to draw, for chart='team-playcalling', chart='team-metric-bars' and " +
-              `chart='team-metric-scatter', e.g. 2024. Defaults to the current season ` +
-              `(${CURRENT_SEASON}) if omitted. Use from/to for chart='team-metric-trend' instead.`
-          ),
-        teams: z
-          .array(z.string())
-          .optional()
-          .describe(
-            "For the team-metric-* charts: 1 to 4 exact school names, e.g. ['Oklahoma', 'Clemson']. " +
-              "The order given decides each team's color (and, on the trend chart, its marker); the " +
-              'bars chart additionally sorts its rows best-first. More than four is refused rather ' +
-              'than truncated -- a dropped team would be a wrong answer. Required for the trend and ' +
-              "bars charts; OPTIONAL for chart='team-metric-scatter', where it highlights teams " +
-              'against the season field rather than being the whole chart.'
-          ),
-        metric: z
-          .enum(METRIC_IDS)
-          .optional()
-          .describe(
-            'Required for chart=\'team-metric-trend\' and chart=\'team-metric-bars\': which ' +
-              'api.team_history column to plot. ' +
-              METRIC_IDS.map(id => `${id} (${METRICS[id].blurb})`).join('; ') +
-              ". For chart='team-metric-scatter' use x and y instead."
-          ),
-        x: z
-          .enum(METRIC_IDS)
-          .optional()
-          .describe(
-            "Required for chart='team-metric-scatter': the horizontal metric, from the same enum as " +
-              "`metric`. Must differ from `y`. The axis is drawn reversed when smaller is better, so " +
-              'the right-hand side is always the good side.'
-          ),
-        y: z
-          .enum(METRIC_IDS)
-          .optional()
-          .describe(
-            "Required for chart='team-metric-scatter': the vertical metric, from the same enum as " +
-              '`metric`. Must differ from `x`. The axis is drawn reversed when smaller is better, so ' +
-              'the top is always the good side.'
-          ),
-        rank_by: z
-          .enum(METRIC_IDS)
-          .optional()
-          .describe(
-            "For chart='team-metric-scatter': which metric chooses the ~25 teams drawn as the field. " +
-              "Defaults to sp_rating (the closest thing to an overall 'top 25'). Teams named in " +
-              '`teams` are always drawn, even when they fall outside it.'
-          ),
-        from: z
-          .number()
-          .int()
-          .optional()
-          .describe(
-            "First season, inclusive, for chart='team-metric-trend'. Defaults to nine seasons before " +
-              '`to`, i.e. the last decade. At most 40 seasons per chart.'
-          ),
-        to: z
-          .number()
-          .int()
-          .optional()
-          .describe(
-            `Last season, inclusive, for chart='team-metric-trend'. Defaults to the current season (${CURRENT_SEASON}).`
-          ),
-        annotations: z
-          .array(
-            z.object({
-              season: z.number().int().describe('Season the event belongs to, e.g. 2022.'),
-              label: z.string().describe("Short phrase, e.g. 'Venables hired'. Max 40 characters."),
-            })
-          )
-          .optional()
-          .describe(
-            "For chart='team-metric-trend': up to 3 dated events, each drawn as a labelled vertical " +
-              'rule. Use for coaching changes, conference moves, or a rule change worth marking. ' +
-              'Annotations outside the season range are dropped.'
-          ),
-        mode: z
-          .enum(['light', 'dark'])
-          .optional()
-          .describe("Color palette to render in, matching the site's light/dark themes. Defaults to 'light'."),
-      },
+      description: renderChartDescription,
+      inputSchema: renderChartInputShape,
       annotations: { title: 'Render Chart', ...READ_ONLY_ANNOTATIONS },
     },
     async args => textResult(await renderChartTool(args))
