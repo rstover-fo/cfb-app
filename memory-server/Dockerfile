@@ -14,3 +14,6 @@ ENV PORT=8080
 EXPOSE 8080
 
 CMD ["sh", "-c", "uvicorn app:app --host 0.0.0.0 --port ${PORT}"]
+
+# Deploys are watch-path scoped to memory-server/** -- committing here is
+# also the lever that triggers a rebuild when only service config changed.
