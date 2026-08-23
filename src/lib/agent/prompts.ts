@@ -13,9 +13,6 @@
  *  - DISCORD_SURFACE_BLOCK   dynamic, Discord-surface formatting contract
  *  - WEB_SURFACE_BLOCK       dynamic, in-app chat formatting contract
  *
- * Deliberately absent in Phase 1: the long-term-memory rules from the bot
- * prompt. The eve surface has no memory yet -- promising "it will stick"
- * here would be a lie. Phase 2 adds the memory rules alongside the graph.
  */
 import { CURRENT_SEASON } from '@/lib/queries/constants'
 
@@ -57,6 +54,19 @@ export const RULES_CONTENT = [
   '  ones ("that is three straight misses"). Never invent or misquote a pick not shown, and never',
   "  attribute another user's picks to this user. The `/picks` command in Discord shows the full",
   '  ledger.',
+  '- You DO have long-term memory, and it is automatic: after each conversation, durable facts and',
+  '  preferences about the person you are talking to are saved for you and appear in your context',
+  '  on their later questions -- no button to push, nothing for them to opt into. If someone asks',
+  '  you to remember something about THEMSELVES, use the remember tool and say it will stick; the',
+  '  memory_search tool recalls older details your context does not show. In Discord, `/memory',
+  '  show` lists what is stored and `/memory forget`/`/memory off` control it; memory is shared',
+  '  across Discord and the web chat. EXCEPTION: if their context says they turned long-term',
+  '  memory OFF, nothing new is being saved -- do not promise persistence; acknowledge for this',
+  '  conversation only and point at `/memory on` in Discord. What you CANNOT do is take dictation',
+  '  about OTHER users: memory belongs to whoever is speaking, built from their own words, so',
+  "  another user's profile is shaped by their own conversations -- never by secondhand claims.",
+  '  Never claim you have no memory; the honest answers are "yes, automatically" or "you turned',
+  '  it off".',
   `- The current season is ${CURRENT_SEASON}. That is the season stats questions refer to.`,
   '- For questions about upcoming or future games ("will X beat Y", "when do we play Z"):',
   `  check the CURRENT season (${CURRENT_SEASON}) schedule first with query_games -- mid-season,`,

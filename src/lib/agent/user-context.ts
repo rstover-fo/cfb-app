@@ -12,6 +12,7 @@
  * arrives in Phase 2 and slots into the `memoryEnabled` else-branch below.
  */
 import { getUserProfile, listUserPicks, type AgentPick } from './bot-data'
+import { getMemories } from '@/lib/memory/client'
 
 export const USER_CONTEXT_MAX_CHARS = 600
 /** The picks block's slice of the budget; memory gets what's left. */
@@ -110,9 +111,27 @@ export async function buildUserContext(userId: string, guildId?: string): Promis
     // The persona's memory rule branches on this: without it the model
     // would promise "it will stick" to the very users who opted out.
     parts.push(MEMORY_OFF_MARKER)
+  } else {
+    const memories = await getMemories(userId)
+    if (memories.length > 0) {
+      const budget = USER_CONTEXT_MAX_CHARS - parts.join('. ').length
+      // Newest-updated first: when the budget forces a cut, keep what the
+      // user most recently gave us a reason to believe. Same greedy fill
+      // as the bot's atom injection.
+      const ranked = [...memories].sort((a, b) =>
+        (b.updatedAt ?? b.createdAt ?? '').localeCompare(a.updatedAt ?? a.createdAt ?? '')
+      )
+      const kept: string[] = []
+      let used = 0
+      for (const memory of ranked) {
+        const cost = memory.content.length + 2 // '; ' separator
+        if (used + cost > budget) break
+        kept.push(memory.content)
+        used += cost
+      }
+      if (kept.length > 0) parts.push(`known about this user: ${kept.join('; ')}`)
+    }
   }
-  // Phase 2: else-branch injects graph-memory context here under the
-  // remaining USER_CONTEXT_MAX_CHARS budget, newest-relevance first.
 
   return parts.length > 0 ? parts.join('. ') : undefined
 }

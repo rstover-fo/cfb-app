@@ -54,6 +54,16 @@ export function resetBotDataForTests(): void {
   delete (globalThis as GlobalWithClient)[GLOBAL_KEY]
 }
 
+/**
+ * The service-role bot-schema client, for agent modules that WRITE to the
+ * schema the bot owns (currently only the picks ledger via picks-store).
+ * Null when SUPABASE_SERVICE_ROLE_KEY is unset -- callers must degrade to a
+ * logged no-op, matching this module's read contract.
+ */
+export function getBotSchemaClient(): AnySupabaseClient | null {
+  return getBotClient()
+}
+
 export interface AgentUserProfile {
   favoriteTeam?: string
   memoryEnabled: boolean
