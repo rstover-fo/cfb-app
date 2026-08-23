@@ -248,9 +248,15 @@ function openRow(id: string, overrides: Record<string, unknown> = {}) {
  * call each, last repeats), update chains resolve success and record their
  * .eq calls so tests can assert WHICH pick was voided.
  */
-function makePolicyClient(opts: { selectQueue: QueryResult[]; insertResult?: { error: { message: string } | null } }) {
+function makePolicyClient(opts: {
+  selectQueue: QueryResult[]
+  insertResult?: { error: { message: string } | null }
+  /** Per-update() results, consumed in order (last repeats); default: every update matches one row. */
+  updateQueue?: QueryResult[]
+}) {
   const selectQueue = [...opts.selectQueue]
   const insertResult = opts.insertResult ?? { error: null }
+  const updateQueue = [...(opts.updateQueue ?? [{ data: [{ id: 'updated' }], error: null }])]
   const updateChains: { eq: ReturnType<typeof vi.fn> }[] = []
 
   const makeChain = (resolve: () => QueryResult) => {
@@ -264,7 +270,8 @@ function makePolicyClient(opts: { selectQueue: QueryResult[]; insertResult?: { e
   const select = vi.fn(() => makeChain(() => (selectQueue.length > 1 ? selectQueue.shift()! : selectQueue[0]!)))
   const insert = vi.fn(() => Promise.resolve(insertResult))
   const update = vi.fn(() => {
-    const chain = makeChain(() => ({ data: [{ id: 'updated' }], error: null }))
+    const result = updateQueue.length > 1 ? updateQueue.shift()! : updateQueue[0]!
+    const chain = makeChain(() => result)
     updateChains.push(chain as { eq: ReturnType<typeof vi.fn> })
     return chain
   })
@@ -359,6 +366,30 @@ describe('recordPick', () => {
 
     expect(result).toEqual({ outcome: 'failed', superseded: 0 })
     expect(client.update).not.toHaveBeenCalled()
+  })
+
+  it('a failed supersede void skips cap eviction: no unrelated pick is punished', async () => {
+    // At the cap with a same-key change: replacement inserted (16 open), the
+    // supersede void fails (guard mismatch -> zero rows), so cap eviction
+    // must NOT run -- the overflow is the stale same-key pick, not the
+    // oldest unrelated one.
+    const atCap = [
+      openRow('p-same', { team: 'Texas' }),
+      ...Array.from({ length: MAX_OPEN_PICKS_PER_USER - 1 }, (_, i) =>
+        openRow(`unrelated-${i}`, { game_id: 500 + i, statement: `pick ${i}` })
+      ),
+    ]
+    const client = makePolicyClient({
+      selectQueue: [{ data: atCap, error: null }],
+      updateQueue: [{ data: [], error: null }],
+    })
+    getBotSchemaClientMock.mockReturnValue(client)
+
+    const result = await recordPick(NEW_PICK)
+
+    expect(result).toEqual({ outcome: 'stored', superseded: 0 })
+    expect(client.update).toHaveBeenCalledTimes(1)
+    expect(client.updateChains[0]!.eq).toHaveBeenCalledWith('id', 'p-same')
   })
 
   it('stores the replacement BEFORE voiding the superseded pick', async () => {

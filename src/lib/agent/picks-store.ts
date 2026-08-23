@@ -247,15 +247,23 @@ export async function recordPick(pick: NewPick): Promise<RecordPickResult> {
     if (!(await insertPick(pick))) return { outcome: 'failed' as const, superseded: 0 }
 
     let superseded = 0
+    let supersedeFailed = false
     for (const id of toSupersede) {
       if (await updatePickStatus(id, 'superseded by a newer pick', 'open')) superseded++
+      else supersedeFailed = true
     }
 
-    // Enforce the open cap AFTER insert, voiding oldest first.
-    const openNow = await listPicks(pick.userId, { status: 'open', oldestFirst: true })
-    if (openNow.length > MAX_OPEN_PICKS_PER_USER) {
-      for (const overflow of openNow.slice(0, openNow.length - MAX_OPEN_PICKS_PER_USER)) {
-        await updatePickStatus(overflow.id, 'voided: too many open picks', 'open')
+    // Enforce the open cap AFTER insert, voiding oldest first. Skipped when
+    // a required supersede void failed: the overflow is then the stale
+    // same-key pick that should have been voided, and generic eviction would
+    // punish the oldest UNRELATED pick instead. The over-cap state
+    // self-corrects on the next successful recordPick.
+    if (!supersedeFailed) {
+      const openNow = await listPicks(pick.userId, { status: 'open', oldestFirst: true })
+      if (openNow.length > MAX_OPEN_PICKS_PER_USER) {
+        for (const overflow of openNow.slice(0, openNow.length - MAX_OPEN_PICKS_PER_USER)) {
+          await updatePickStatus(overflow.id, 'voided: too many open picks', 'open')
+        }
       }
     }
 
