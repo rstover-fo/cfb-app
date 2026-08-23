@@ -116,16 +116,22 @@ export async function listPicks(userId: string, options: ListPicksOptions = {}):
   }
 }
 
+export type InsertPickResult = 'inserted' | 'duplicate' | 'failed'
+
 /**
  * Inserts one open pick (id/status/created_at assigned by the DB defaults).
- * Never throws -- returns false (logged) when the bot-schema client is
- * unconfigured or the write fails.
+ * Never throws -- 'failed' (logged) when the bot-schema client is
+ * unconfigured or the write fails. 'duplicate' when the database's
+ * one-open-pick-per-statement constraint rejects the row
+ * (bot/supabase/migrations/0005: unique on (user_id, statement) WHERE
+ * status = 'open') -- another writer stored this open statement first,
+ * which is the cross-instance dedup working, not a failure.
  */
-export async function insertPick(pick: NewPick): Promise<boolean> {
+export async function insertPick(pick: NewPick): Promise<InsertPickResult> {
   const client = getBotSchemaClient()
   if (!client) {
     console.warn('[agent/picks-store] no bot-schema client; skipping pick insert')
-    return false
+    return 'failed'
   }
   try {
     const { error } = await client.from('picks').insert({
@@ -142,11 +148,14 @@ export async function insertPick(pick: NewPick): Promise<boolean> {
       pick_home: pick.pickHome ?? null,
       statement: pick.statement,
     })
-    if (error) throw new Error(error.message)
-    return true
+    if (error) {
+      if (error.code === '23505') return 'duplicate'
+      throw new Error(error.message)
+    }
+    return 'inserted'
   } catch (err) {
     console.error('[agent/picks-store] pick insert failed:', err instanceof Error ? err.message : err)
-    return false
+    return 'failed'
   }
 }
 
@@ -191,9 +200,10 @@ function pickKey(pick: { kind: PickKind; gameId?: number; team: string; season: 
  * same in-process lock under a single-writer invariant; that invariant no
  * longer holds platform-wide (bot + serverless app both write), so this lock
  * covers same-instance interleavings only -- e.g. two picks resolved from
- * one turn. Cross-instance and cross-surface writes remain read-then-write;
- * database-level enforcement is the Phase 3 consolidation item, when the
- * ledger goes back to a single writing brain.
+ * one turn. Cross-instance exact-duplicate inserts are caught at the
+ * database instead: the one-open-pick-per-statement unique index
+ * (bot/supabase/migrations/0005) rejects the second writer with 23505,
+ * which insertPick reports as 'duplicate'.
  */
 const userLocks = new Map<string, Promise<unknown>>()
 
@@ -244,7 +254,13 @@ export async function recordPick(pick: NewPick): Promise<RecordPickResult> {
       toSupersede.push(existing.id)
     }
 
-    if (!(await insertPick(pick))) return { outcome: 'failed' as const, superseded: 0 }
+    const inserted = await insertPick(pick)
+    // 'duplicate': the DB's open-statement constraint says another writer
+    // (bot, or a concurrent instance) already stored this exact open pick --
+    // the cross-instance race the in-process lock cannot see, deduped at
+    // the shared-persistence layer. That writer owns any supersede cleanup.
+    if (inserted === 'duplicate') return { outcome: 'deduped' as const, superseded: 0 }
+    if (inserted !== 'inserted') return { outcome: 'failed' as const, superseded: 0 }
 
     let superseded = 0
     let supersedeFailed = false

@@ -23,7 +23,7 @@ function makeSelectChain(resolve: () => QueryResult) {
 
 function makeFakeClient(opts: {
   selectResult?: QueryResult
-  insertResult?: { error: { message: string } | null }
+  insertResult?: { error: { message: string; code?: string } | null }
 }) {
   const selectResult = opts.selectResult ?? { data: [], error: null }
   const insertResult = opts.insertResult ?? { error: null }
@@ -63,7 +63,7 @@ describe('insertPick', () => {
 
     const ok = await insertPick(NEW_PICK)
 
-    expect(ok).toBe(true)
+    expect(ok).toBe('inserted')
     expect(client.from).toHaveBeenCalledWith('picks')
     expect(client.insert).toHaveBeenCalledWith({
       user_id: 'u1',
@@ -106,7 +106,7 @@ describe('insertPick', () => {
 
     const ok = await insertPick(NEW_PICK)
 
-    expect(ok).toBe(false)
+    expect(ok).toBe('failed')
     expect(errorSpy).toHaveBeenCalled()
   })
 
@@ -115,8 +115,22 @@ describe('insertPick', () => {
 
     const ok = await insertPick(NEW_PICK)
 
-    expect(ok).toBe(false)
+    expect(ok).toBe('failed')
     expect(warnSpy).toHaveBeenCalled()
+  })
+
+  it("classifies a unique-violation (23505) as 'duplicate', not a failure", async () => {
+    const client = makeFakeClient({
+      insertResult: {
+        error: { message: 'duplicate key value violates unique constraint "picks_open_statement_unique"', code: '23505' },
+      },
+    })
+    getBotSchemaClientMock.mockReturnValue(client)
+
+    const ok = await insertPick(NEW_PICK)
+
+    expect(ok).toBe('duplicate')
+    expect(errorSpy).not.toHaveBeenCalled()
   })
 })
 
@@ -250,7 +264,7 @@ function openRow(id: string, overrides: Record<string, unknown> = {}) {
  */
 function makePolicyClient(opts: {
   selectQueue: QueryResult[]
-  insertResult?: { error: { message: string } | null }
+  insertResult?: { error: { message: string; code?: string } | null }
   /** Per-update() results, consumed in order (last repeats); default: every update matches one row. */
   updateQueue?: QueryResult[]
 }) {
@@ -353,6 +367,23 @@ describe('recordPick', () => {
     const result = await recordPick(NEW_PICK)
 
     expect(result).toEqual({ outcome: 'failed', superseded: 0 })
+  })
+
+  it('a database unique-violation dedupes: another writer already stored this open statement', async () => {
+    // The cross-instance race: this instance saw no matching open pick, but a
+    // concurrent writer (bot, or another lambda) inserted the same statement
+    // first. The picks_open_statement_unique index rejects the second insert;
+    // recordPick reports deduped and touches nothing else.
+    const client = makePolicyClient({
+      selectQueue: [{ data: [], error: null }],
+      insertResult: { error: { message: 'duplicate key value violates unique constraint', code: '23505' } },
+    })
+    getBotSchemaClientMock.mockReturnValue(client)
+
+    const result = await recordPick(NEW_PICK)
+
+    expect(result).toEqual({ outcome: 'deduped', superseded: 0 })
+    expect(client.update).not.toHaveBeenCalled()
   })
 
   it('a failed replacement insert preserves the conflicting open pick (no void)', async () => {
