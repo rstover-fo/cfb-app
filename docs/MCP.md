@@ -172,5 +172,15 @@ applied the tool reports itself as not enabled.
 - Tool implementations: `src/lib/mcp/tools.ts`, exported as plain `(args) => Promise<string>`
   functions so they're unit-testable without the MCP transport; `registerMcpTools()` wires
   them into the SDK's `McpServer` with Zod input schemas.
+- Runtime contract: tools are total functions (failures are friendly strings, never
+  throws; a data miss like "No rows..." is a result, not an error). Every call is bounded --
+  the Supabase client aborts requests at 10s (`QUERY_TIMEOUT_MS`, `src/lib/supabase/server.ts`)
+  and `withToolTelemetry` (`src/lib/mcp/telemetry.ts`) adds a hard per-call deadline -- and
+  every call logs one `{evt:'tool', tool, ms, ok, args}` JSON line (args truncated; tools
+  carrying user-derived content redact values).
+- Versioning: a breaking change to a tool's schema or response envelope ships as a NEW tool
+  name (`get_rankings_v2`) registered alongside the old one in `registerMcpTools()`; consumers
+  (this app's eve agent, the Discord bot, external connectors) migrate independently. No
+  in-place breaking changes.
 - Auth: `src/lib/mcp/auth.ts`.
 - Route: `src/app/api/[transport]/route.ts` (Node.js runtime, `maxDuration = 60`).

@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { withToolTelemetry } from './telemetry'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { getTeamHistory } from '@/lib/queries/compare'
 import { getMatchup, getMatchupGames } from '@/lib/queries/matchups'
@@ -151,6 +152,21 @@ import { CURRENT_SEASON, PREDICTION_MODEL_VERSIONS, DEFAULT_PREDICTION_MODEL } f
 // functions (below) so they're unit-testable without spinning up the MCP
 // transport; registerMcpTools() is the only place that touches the SDK's
 // McpServer.
+//
+// TOOL CONTRACT (both the MCP server and the eve agent consume these):
+// - Total functions: failures come back as friendly strings (query-layer
+//   'Error: ...' messages, 'No rows...' data misses, configuration notes),
+//   NEVER as throws. A data miss is a result, not an error.
+// - Bounded: the Supabase client aborts every request at QUERY_TIMEOUT_MS
+//   (src/lib/supabase/server.ts) and withToolTelemetry adds a hard per-call
+//   deadline that returns 'Error: <tool> timed out...' -- also a string.
+// - Observable: each exported binding is wrapped with withToolTelemetry
+//   (./telemetry), emitting one {evt:'tool', tool, ms, ok, args} JSON log
+//   line per call. Tools that carry user-derived content must pass
+//   {redactArgs: true}.
+// - Versioned by NAME, not machinery: a breaking change to a tool's schema
+//   or envelope ships as a new tool (e.g. get_rankings_v2) registered
+//   alongside the old one here, and consumers migrate at their own pace.
 // ---------------------------------------------------------------------------
 
 // All twenty-five tools are read-only, non-destructive, idempotent, and talk to
@@ -185,7 +201,7 @@ export interface QueryTeamArgs {
   team: string
 }
 
-export async function queryTeamTool(args: QueryTeamArgs): Promise<string> {
+async function queryTeamToolImpl(args: QueryTeamArgs): Promise<string> {
   const { team } = args
 
   const [detail, historyDesc, coreSnapshot] = await Promise.all([
@@ -269,7 +285,7 @@ export interface QueryGamesArgs {
   limit?: number
 }
 
-export async function queryGamesTool(args: QueryGamesArgs): Promise<string> {
+async function queryGamesToolImpl(args: QueryGamesArgs): Promise<string> {
   const result = await queryGameDetail({
     season: args.season,
     week: args.week,
@@ -335,7 +351,7 @@ export interface QueryMatchupArgs {
   team_b: string
 }
 
-export async function queryMatchupTool(args: QueryMatchupArgs): Promise<string> {
+async function queryMatchupToolImpl(args: QueryMatchupArgs): Promise<string> {
   const { team_a: teamA, team_b: teamB } = args
 
   // Reuses the existing, well-tested getMatchup/getMatchupGames (src/lib/queries/matchups.ts),
@@ -395,7 +411,7 @@ export interface GetRankingsArgs {
   limit?: number
 }
 
-export async function getRankingsTool(args: GetRankingsArgs): Promise<string> {
+async function getRankingsToolImpl(args: GetRankingsArgs): Promise<string> {
   const seasonType: PollSeasonType = args.season_type ?? 'regular'
 
   const result = await queryPollRankings({
@@ -461,7 +477,7 @@ export interface GetLeaderboardArgs {
   limit?: number
 }
 
-export async function getLeaderboardTool(args: GetLeaderboardArgs): Promise<string> {
+async function getLeaderboardToolImpl(args: GetLeaderboardArgs): Promise<string> {
   const { metric } = args
   const result =
     metric === 'wepa'
@@ -515,7 +531,7 @@ export interface SituationalSplitsArgs {
   split_type: SplitType
 }
 
-export async function situationalSplitsTool(args: SituationalSplitsArgs): Promise<string> {
+async function situationalSplitsToolImpl(args: SituationalSplitsArgs): Promise<string> {
   const result = await callSituationalSplitRpc(args.split_type, args.team, args.season)
 
   if (result.error) return result.error
@@ -562,7 +578,7 @@ export interface SearchPlayersArgs {
   limit?: number
 }
 
-export async function searchPlayersTool(args: SearchPlayersArgs): Promise<string> {
+async function searchPlayersToolImpl(args: SearchPlayersArgs): Promise<string> {
   const searchResult = await callPlayerSearch({
     query: args.query,
     team: args.team,
@@ -625,7 +641,7 @@ export const searchPlayersInputShape = {
 // 8. get_data_freshness
 // ---------------------------------------------------------------------------
 
-export async function getDataFreshnessTool(): Promise<string> {
+async function getDataFreshnessToolImpl(): Promise<string> {
   const result = await callDataFreshness()
   if (result.error) return result.error
   return dump(wrap('public.get_data_freshness', result.rows))
@@ -651,7 +667,7 @@ export interface GetGamePredictionArgs {
   model_version?: string
 }
 
-export async function getGamePredictionTool(args: GetGamePredictionArgs): Promise<string> {
+async function getGamePredictionToolImpl(args: GetGamePredictionArgs): Promise<string> {
   const modelVersion = args.model_version ?? DEFAULT_PREDICTION_MODEL
   const prediction = await getGamePrediction(args.game_id, modelVersion)
 
@@ -725,7 +741,7 @@ export interface GetTeamEloArgs {
   season?: number
 }
 
-export async function getTeamEloTool(args: GetTeamEloArgs): Promise<string> {
+async function getTeamEloToolImpl(args: GetTeamEloArgs): Promise<string> {
   const season = args.season ?? CURRENT_SEASON
 
   // Fetched in parallel: season-end summary (api.team_elo, at most one row)
@@ -783,7 +799,7 @@ export interface GetMatchupEdgesArgs {
   limit?: number
 }
 
-export async function getMatchupEdgesTool(args: GetMatchupEdgesArgs): Promise<string> {
+async function getMatchupEdgesToolImpl(args: GetMatchupEdgesArgs): Promise<string> {
   const season = args.season ?? CURRENT_SEASON
   const modelVersion = args.model_version ?? DEFAULT_PREDICTION_MODEL
   const limit = Math.min(Math.max(args.limit ?? MATCHUP_EDGES_DEFAULT_LIMIT, 1), MATCHUP_EDGES_MAX_LIMIT)
@@ -849,7 +865,7 @@ export interface GetPlaycallingProfileArgs {
   season?: number
 }
 
-export async function getPlaycallingProfileTool(args: GetPlaycallingProfileArgs): Promise<string> {
+async function getPlaycallingProfileToolImpl(args: GetPlaycallingProfileArgs): Promise<string> {
   const season = args.season ?? CURRENT_SEASON
   const profile = await getPlaycallingProfile(args.team, season)
 
@@ -900,7 +916,7 @@ export interface GetAdjustedEpaArgs {
   season?: number
 }
 
-export async function getAdjustedEpaTool(args: GetAdjustedEpaArgs): Promise<string> {
+async function getAdjustedEpaToolImpl(args: GetAdjustedEpaArgs): Promise<string> {
   const season = args.season ?? CURRENT_SEASON
 
   // getTeamWeekFeatures carries both the walk-forward opponent-adjusted EPA
@@ -951,7 +967,7 @@ export const getAdjustedEpaInputShape = {
 // 14. get_live_scoreboard
 // ---------------------------------------------------------------------------
 
-export async function getLiveScoreboardTool(): Promise<string> {
+async function getLiveScoreboardToolImpl(): Promise<string> {
   const games = await getLiveScoreboard()
 
   // api.live_scoreboard is only populated during Saturday polling windows in
@@ -981,7 +997,7 @@ export const getLiveScoreboardInputShape = {} as const
 // 15. get_model_accuracy
 // ---------------------------------------------------------------------------
 
-export async function getModelAccuracyTool(): Promise<string> {
+async function getModelAccuracyToolImpl(): Promise<string> {
   const rows = await getPredictionAccuracy()
 
   // api.prediction_accuracy is a small (~90-row), system-level backtest
@@ -1031,7 +1047,7 @@ export interface GetPlayerLeadersArgs {
   limit?: number
 }
 
-export async function getPlayerLeadersTool(args: GetPlayerLeadersArgs): Promise<string> {
+async function getPlayerLeadersToolImpl(args: GetPlayerLeadersArgs): Promise<string> {
   const season = args.season ?? CURRENT_SEASON
   const limit = Math.min(Math.max(args.limit ?? PLAYER_LEADERS_DEFAULT_LIMIT, 1), PLAYER_LEADERS_MAX_LIMIT)
 
@@ -1118,7 +1134,7 @@ export interface ComparePlayersArgs {
   season?: number
 }
 
-export async function comparePlayersTool(args: ComparePlayersArgs): Promise<string> {
+async function comparePlayersToolImpl(args: ComparePlayersArgs): Promise<string> {
   // getPlayerComparison (src/lib/queries/players.ts) collapses "no row"/
   // "query error" to null -- there is no separate error string to pass
   // through here. Fetched in parallel since the two lookups are independent.
@@ -1184,7 +1200,7 @@ export interface GetConferenceComparisonArgs {
   season?: number
 }
 
-export async function getConferenceComparisonTool(args: GetConferenceComparisonArgs): Promise<string> {
+async function getConferenceComparisonToolImpl(args: GetConferenceComparisonArgs): Promise<string> {
   // Mirrors src/app/conferences/page.tsx's offseason fallback: a season with
   // no computed aggregates yet (early in the year, before enough games have
   // been played) is a valid, non-error state -- retry one season back before
@@ -1246,7 +1262,7 @@ export interface GetCoachingHistoryArgs {
   last_name: string
 }
 
-export async function getCoachingHistoryTool(args: GetCoachingHistoryArgs): Promise<string> {
+async function getCoachingHistoryToolImpl(args: GetCoachingHistoryArgs): Promise<string> {
   const rows = await getCoachingHistory(args.first_name, args.last_name)
 
   if (rows.length === 0) {
@@ -1307,7 +1323,7 @@ export function validateAnalystSql(sql: string): string | null {
   return null
 }
 
-export async function runSqlTool(args: RunSqlArgs): Promise<string> {
+async function runSqlToolImpl(args: RunSqlArgs): Promise<string> {
   const validationError = validateAnalystSql(args.sql)
   if (validationError) return validationError
 
@@ -1568,7 +1584,7 @@ export interface GetPenaltyProfileArgs {
   season?: number
 }
 
-export async function getPenaltyProfileTool(args: GetPenaltyProfileArgs): Promise<string> {
+async function getPenaltyProfileToolImpl(args: GetPenaltyProfileArgs): Promise<string> {
   const season = args.season ?? CURRENT_SEASON
 
   const [games, committed, drawn] = await Promise.all([
@@ -1661,7 +1677,7 @@ export interface GetPenaltyLogArgs {
   limit?: number
 }
 
-export async function getPenaltyLogTool(args: GetPenaltyLogArgs): Promise<string> {
+async function getPenaltyLogToolImpl(args: GetPenaltyLogArgs): Promise<string> {
   // `week` alone is not selective (it spans every season), so it doesn't
   // count toward the at-least-one-filter requirement.
   if (!args.team && args.game_id == null && args.season == null && !args.infraction) {
@@ -2035,7 +2051,7 @@ const CHART_REQUEST_BUILDERS: Record<ChartId, (args: RenderChartArgs) => ChartRe
   'team-metric-scatter': scatterRequest,
 }
 
-export async function renderChartTool(args: RenderChartArgs): Promise<string> {
+async function renderChartToolImpl(args: RenderChartArgs): Promise<string> {
   const meta = CHART_METADATA[args.chart]
   const build = CHART_REQUEST_BUILDERS[args.chart]
   // Typed as a ChartId, but this tool's contract is that it never throws --
@@ -2417,7 +2433,7 @@ function seasonOutlookCaveats(
   return caveats
 }
 
-export async function getSeasonOutlookTool(args: GetSeasonOutlookArgs): Promise<string> {
+async function getSeasonOutlookToolImpl(args: GetSeasonOutlookArgs): Promise<string> {
   // Default to FBS. The view spans four divisions plus rows CFBD could not
   // place at all, and those play different-length seasons, so an unfiltered
   // ranking by projected wins compares teams that are not comparable. 'all'
@@ -2778,7 +2794,7 @@ function expectedPointsCaveats(rows: ExpectedPointsRow[], effectiveLimit: number
   return caveats
 }
 
-export async function getExpectedPointsTool(args: GetExpectedPointsArgs): Promise<string> {
+async function getExpectedPointsToolImpl(args: GetExpectedPointsArgs): Promise<string> {
   // Era resolves from the season asked about, defaulting to the current era.
   // Seasons before the model's coverage fail fast with the valid range rather
   // than silently answering from the oldest era.
@@ -3086,6 +3102,42 @@ export const getExpectedPointsInputShape = {
 
 // ---------------------------------------------------------------------------
 // Tool registration (MCP SDK wiring).
+// ---------------------------------------------------------------------------
+// Instrumented exports
+// ---------------------------------------------------------------------------
+// Every tool function is exported through withToolTelemetry: one
+// {evt:'tool',...} JSON log line per call (name, latency, truncated args,
+// errish flag) plus the hard per-call deadline. Both consumers -- the MCP
+// registration below and the eve wrappers in agent/tools/ -- import these
+// wrapped bindings, so no call bypasses instrumentation. The wrapper is a
+// byte-identical pass-through of the impl's return value.
+
+export const queryTeamTool = withToolTelemetry('query_team', queryTeamToolImpl)
+export const queryGamesTool = withToolTelemetry('query_games', queryGamesToolImpl)
+export const queryMatchupTool = withToolTelemetry('query_matchup', queryMatchupToolImpl)
+export const getRankingsTool = withToolTelemetry('get_rankings', getRankingsToolImpl)
+export const getLeaderboardTool = withToolTelemetry('get_leaderboard', getLeaderboardToolImpl)
+export const situationalSplitsTool = withToolTelemetry('situational_splits', situationalSplitsToolImpl)
+export const searchPlayersTool = withToolTelemetry('search_players', searchPlayersToolImpl)
+export const getDataFreshnessTool = withToolTelemetry('get_data_freshness', getDataFreshnessToolImpl)
+export const getGamePredictionTool = withToolTelemetry('get_game_prediction', getGamePredictionToolImpl)
+export const getTeamEloTool = withToolTelemetry('get_team_elo', getTeamEloToolImpl)
+export const getMatchupEdgesTool = withToolTelemetry('get_matchup_edges', getMatchupEdgesToolImpl)
+export const getPlaycallingProfileTool = withToolTelemetry('get_playcalling_profile', getPlaycallingProfileToolImpl)
+export const getAdjustedEpaTool = withToolTelemetry('get_adjusted_epa', getAdjustedEpaToolImpl)
+export const getLiveScoreboardTool = withToolTelemetry('get_live_scoreboard', getLiveScoreboardToolImpl)
+export const getModelAccuracyTool = withToolTelemetry('get_model_accuracy', getModelAccuracyToolImpl)
+export const getPlayerLeadersTool = withToolTelemetry('get_player_leaders', getPlayerLeadersToolImpl)
+export const comparePlayersTool = withToolTelemetry('compare_players', comparePlayersToolImpl)
+export const getConferenceComparisonTool = withToolTelemetry('get_conference_comparison', getConferenceComparisonToolImpl)
+export const getCoachingHistoryTool = withToolTelemetry('get_coaching_history', getCoachingHistoryToolImpl)
+export const runSqlTool = withToolTelemetry('run_sql', runSqlToolImpl)
+export const getPenaltyProfileTool = withToolTelemetry('get_penalty_profile', getPenaltyProfileToolImpl)
+export const getPenaltyLogTool = withToolTelemetry('get_penalty_log', getPenaltyLogToolImpl)
+export const getSeasonOutlookTool = withToolTelemetry('get_season_outlook', getSeasonOutlookToolImpl)
+export const getExpectedPointsTool = withToolTelemetry('get_expected_points', getExpectedPointsToolImpl)
+export const renderChartTool = withToolTelemetry('render_chart', renderChartToolImpl)
+
 // ---------------------------------------------------------------------------
 
 function textResult(text: string) {

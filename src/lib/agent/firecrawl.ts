@@ -7,6 +7,8 @@
  * across Firecrawl versions); anything unrecognized degrades to a plain
  * "no results" answer instead of throwing into the tool loop.
  */
+import { withToolTelemetry } from '@/lib/mcp/telemetry'
+
 const FIRECRAWL_BASE = 'https://api.firecrawl.dev/v2'
 const REQUEST_TIMEOUT_MS = 20_000
 /** Per-page content cap: grounding, not archiving. */
@@ -64,7 +66,9 @@ function collectHits(value: unknown, out: SearchHit[]): void {
 }
 
 /** Runs a web search, returning a compact source-attributed digest. */
-export async function searchWeb(query: string): Promise<string> {
+export const searchWeb = withToolTelemetry('web_search', searchWebImpl, { timeoutMs: 30_000 })
+
+async function searchWebImpl(query: string): Promise<string> {
   const payload = await firecrawlPost('/search', {
     query,
     limit: SEARCH_RESULT_MAX,
@@ -96,7 +100,9 @@ export async function searchWeb(query: string): Promise<string> {
 }
 
 /** Reads one page as markdown, capped at PAGE_CONTENT_MAX_CHARS. */
-export async function readPage(url: string): Promise<string> {
+export const readPage = withToolTelemetry('read_page', readPageImpl, { timeoutMs: 30_000 })
+
+async function readPageImpl(url: string): Promise<string> {
   const payload = await firecrawlPost('/scrape', { url, formats: ['markdown'], onlyMainContent: true })
   const root = asRecord(payload)
   const data = asRecord(root?.data)
