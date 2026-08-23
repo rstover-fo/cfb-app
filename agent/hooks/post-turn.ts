@@ -74,9 +74,13 @@ export default defineHook({
       if (!userId || !question || !answer) return
 
       const sessionId = ctx.session.id
-      // Fire-and-forget on purpose; both callees swallow their own errors,
-      // this catch is the belt-and-suspenders backstop.
-      void (async () => {
+      // AWAITED, not fire-and-forget: on serverless the runtime may freeze
+      // the function the moment its response completes, killing detached
+      // work. Hooks accept a returned promise and turn.completed fires after
+      // the visible answer, so awaiting here costs the user nothing and
+      // guarantees capture runs to completion. Both callees swallow their
+      // own errors; this catch is the belt-and-suspenders backstop.
+      return (async () => {
         await storeTurn({ userId, sessionId, question, answer })
         await runTurnExtraction({ userId, guildId, question, answer })
       })().catch(err => {
