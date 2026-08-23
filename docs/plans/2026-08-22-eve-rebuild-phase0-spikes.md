@@ -91,3 +91,9 @@ App-side memory (`src/lib/memory/client.ts`) reads `MEMORY_ENDPOINT` +
 Vercel, env values are snapshotted into each deployment, so adding them in
 the dashboard does nothing for existing builds. Any env change there needs a
 fresh deployment to take effect (this commit is that lever for the preview).
+
+Second gotcha, same day: the shared secret must match byte-for-byte on both
+sides. A drifted paste of `MEMORY_JWT_SECRET` on Vercel produced clean 401s
+(`Signature verification failed`) on every call while the service verified
+fine against the canonical value -- so a 401 here means re-paste the Vercel
+value, not debug the service.
