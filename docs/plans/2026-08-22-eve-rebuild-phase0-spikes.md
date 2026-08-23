@@ -79,4 +79,15 @@ them. Verified against `eve@0.44.3` and `@neo4j-labs/agent-memory@0.4.1`
 - S3 → superseded: web search is Firecrawl-backed custom tools per the plan.
 - S6 (multi-principal Discord-channel sessions) and S7 (`eve/client` on the
   bot's runtime) — Phase 3.
-- Live Aura + memory-server round-trip — Phase 2 entry task.
+- ~~Live Aura + memory-server round-trip — Phase 2 entry task.~~ Done
+  2026-08-23: `cfb-agent-memory` live on Railway against Aura; round-trip
+  (remember → context → search → turn → cross-user isolation → forget, plus
+  401 on missing auth) passed against the deployed service.
+
+## Phase 2 addendum (2026-08-23)
+
+App-side memory (`src/lib/memory/client.ts`) reads `MEMORY_ENDPOINT` +
+`MEMORY_JWT_SECRET` at call time and disables cleanly when unset — but on
+Vercel, env values are snapshotted into each deployment, so adding them in
+the dashboard does nothing for existing builds. Any env change there needs a
+fresh deployment to take effect (this commit is that lever for the preview).
