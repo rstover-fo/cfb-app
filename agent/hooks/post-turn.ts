@@ -1,6 +1,7 @@
 import { defineHook } from 'eve/hooks'
 import { storeTurn } from '@/lib/memory/client'
 import { runTurnExtraction } from '@/lib/agent/extraction'
+import { getUserProfile } from '@/lib/agent/bot-data'
 
 /**
  * Post-turn memory capture: the eve twin of the bot's fire-and-forget
@@ -81,6 +82,12 @@ export default defineHook({
       // guarantees capture runs to completion. Both callees swallow their
       // own errors; this catch is the belt-and-suspenders backstop.
       return (async () => {
+        // The /memory off promise covers the raw transcript, not just the
+        // extracted atoms: check the toggle BEFORE storeTurn so an opted-out
+        // user's verbatim Q&A never reaches the graph. (Extraction re-checks
+        // internally; profile reads fail open to enabled, per bot-data.)
+        const profile = await getUserProfile(userId)
+        if (profile.memoryEnabled === false) return
         await storeTurn({ userId, sessionId, question, answer })
         await runTurnExtraction({ userId, guildId, question, answer })
       })().catch(err => {

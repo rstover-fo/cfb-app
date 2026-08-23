@@ -120,10 +120,14 @@ export interface TurnExtractionParams {
 }
 
 /**
- * Applies one extraction result's atoms: an atom whose `replaces` matches an
- * existing memory id is forgotten first, then the new content is remembered.
- * An unknown/absent `replaces` id is a plain insert. No per-user cap (the
- * porting brief drops the bot's 20-atom cap -- the graph dedups instead).
+ * Applies one extraction result's atoms: the new content is remembered FIRST,
+ * and only a successful write forgets the atom it `replaces` -- the memory
+ * client nulls failed writes instead of throwing, so forget-first would
+ * silently destroy the old atom with nothing stored in its place. The forget
+ * is also skipped when the service's dedup merged the new content onto the
+ * very node being replaced (same id), which would delete what was just
+ * stored. An unknown/absent `replaces` id is a plain insert. No per-user cap
+ * (the porting brief drops the bot's 20-atom cap -- the graph dedups instead).
  */
 async function applyAtoms(
   userId: string,
@@ -133,12 +137,13 @@ async function applyAtoms(
   let inserted = 0
   let replaced = 0
   for (const atom of atoms) {
-    if (atom.replaces && existingIds.has(atom.replaces)) {
+    const stored = await rememberMemory({ userId, kind: atom.kind, content: atom.content })
+    if (!stored) continue
+    inserted++
+    if (atom.replaces && existingIds.has(atom.replaces) && stored.id !== atom.replaces) {
       const deleted = await forgetMemories(userId, atom.replaces)
       if (deleted) replaced += deleted
     }
-    const stored = await rememberMemory({ userId, kind: atom.kind, content: atom.content })
-    if (stored) inserted++
   }
   return { inserted, replaced }
 }

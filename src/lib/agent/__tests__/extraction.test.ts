@@ -239,4 +239,54 @@ describe('runTurnExtraction', () => {
     expect(forgetMemoriesMock).not.toHaveBeenCalled()
     expect(rememberMemoryMock).toHaveBeenCalled()
   })
+
+  it('replace stores the new atom BEFORE forgetting the old one', async () => {
+    getMemoriesMock.mockResolvedValue([
+      { id: 'm1', kind: 'preference', content: 'Likes Texas', context: null, createdAt: 't0', updatedAt: 't0' },
+    ])
+    generateTextMock.mockResolvedValue(
+      textResult({ atoms: [{ content: 'Hates Texas', kind: 'preference', replaces: 'm1' }] })
+    )
+    rememberMemoryMock.mockResolvedValue({ id: 'm2', kind: 'preference', content: 'Hates Texas', context: null, createdAt: 't1', updatedAt: 't1' })
+    forgetMemoriesMock.mockResolvedValue(1)
+
+    await runTurnExtraction({ userId: 'u1', question: 'q', answer: 'a' })
+
+    expect(rememberMemoryMock.mock.invocationCallOrder[0]!).toBeLessThan(
+      forgetMemoriesMock.mock.invocationCallOrder[0]!
+    )
+    expect(forgetMemoriesMock).toHaveBeenCalledWith('u1', 'm1')
+  })
+
+  it('a failed replacement write preserves the old atom (no forget)', async () => {
+    getMemoriesMock.mockResolvedValue([
+      { id: 'm1', kind: 'preference', content: 'Likes Texas', context: null, createdAt: 't0', updatedAt: 't0' },
+    ])
+    generateTextMock.mockResolvedValue(
+      textResult({ atoms: [{ content: 'Hates Texas', kind: 'preference', replaces: 'm1' }] })
+    )
+    rememberMemoryMock.mockResolvedValue(null)
+
+    await runTurnExtraction({ userId: 'u1', question: 'q', answer: 'a' })
+
+    expect(forgetMemoriesMock).not.toHaveBeenCalled()
+    const logged = JSON.parse(logSpy.mock.calls[0]![0] as string)
+    expect(logged).toMatchObject({ inserted: 0, replaced: 0 })
+  })
+
+  it('skips the forget when dedup merged the new content onto the replaced node (same id)', async () => {
+    getMemoriesMock.mockResolvedValue([
+      { id: 'm1', kind: 'preference', content: 'Hates Texas', context: null, createdAt: 't0', updatedAt: 't0' },
+    ])
+    generateTextMock.mockResolvedValue(
+      textResult({ atoms: [{ content: 'Hates Texas!!', kind: 'preference', replaces: 'm1' }] })
+    )
+    rememberMemoryMock.mockResolvedValue({ id: 'm1', kind: 'preference', content: 'Hates Texas!!', context: null, createdAt: 't0', updatedAt: 't1' })
+
+    await runTurnExtraction({ userId: 'u1', question: 'q', answer: 'a' })
+
+    expect(forgetMemoriesMock).not.toHaveBeenCalled()
+    const logged = JSON.parse(logSpy.mock.calls[0]![0] as string)
+    expect(logged).toMatchObject({ inserted: 1, replaced: 0 })
+  })
 })
