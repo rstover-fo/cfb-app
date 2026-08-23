@@ -66,13 +66,24 @@ export function getBotSchemaClient(): AnySupabaseClient | null {
 
 export interface AgentUserProfile {
   favoriteTeam?: string
-  memoryEnabled: boolean
+  /**
+   * Tri-state on purpose: true/false are the user's actual setting (a user
+   * with no profile row has never touched /memory, so the product default
+   * `true` applies); 'unknown' means the setting could NOT be verified
+   * (client unconfigured, read error) and is distinct from enabled --
+   * memory consumers must FAIL CLOSED on 'unknown' (`!== true` guards),
+   * because failing open would store or resurface an opted-out user's data
+   * during a db blip. This is stricter than the bot's live fail-open
+   * reader, deliberately: privacy guards degrade to "memory unavailable",
+   * never to "opt-out ignored".
+   */
+  memoryEnabled: boolean | 'unknown'
 }
 
 export async function getUserProfile(userId: string): Promise<AgentUserProfile> {
-  const fallback: AgentUserProfile = { memoryEnabled: true }
+  const unknown: AgentUserProfile = { memoryEnabled: 'unknown' }
   const client = getBotClient()
-  if (!client) return fallback
+  if (!client) return unknown
   try {
     const { data, error } = await client
       .from('user_profiles')
@@ -80,11 +91,13 @@ export async function getUserProfile(userId: string): Promise<AgentUserProfile> 
       .eq('user_id', userId)
       .maybeSingle<{ favorite_team: string | null; memory_enabled: boolean }>()
     if (error) throw new Error(error.message)
-    if (!data) return fallback
+    // A verified missing row is not an unknown: this user never created a
+    // profile, so the product default (memory on) genuinely applies.
+    if (!data) return { memoryEnabled: true }
     return { favoriteTeam: data.favorite_team ?? undefined, memoryEnabled: data.memory_enabled }
   } catch (err) {
     console.error('[agent/bot-data] profile read failed:', err instanceof Error ? err.message : err)
-    return fallback
+    return unknown
   }
 }
 

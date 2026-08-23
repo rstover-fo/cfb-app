@@ -348,6 +348,33 @@ describe('recordPick', () => {
     expect(result).toEqual({ outcome: 'failed', superseded: 0 })
   })
 
+  it('a failed replacement insert preserves the conflicting open pick (no void)', async () => {
+    const client = makePolicyClient({
+      selectQueue: [{ data: [openRow('p1', { team: 'Texas' })], error: null }],
+      insertResult: { error: { message: 'insert exploded' } },
+    })
+    getBotSchemaClientMock.mockReturnValue(client)
+
+    const result = await recordPick(NEW_PICK)
+
+    expect(result).toEqual({ outcome: 'failed', superseded: 0 })
+    expect(client.update).not.toHaveBeenCalled()
+  })
+
+  it('stores the replacement BEFORE voiding the superseded pick', async () => {
+    const client = makePolicyClient({
+      selectQueue: [
+        { data: [openRow('p1', { team: 'Texas' })], error: null },
+        { data: [openRow('p2')], error: null },
+      ],
+    })
+    getBotSchemaClientMock.mockReturnValue(client)
+
+    await recordPick(NEW_PICK)
+
+    expect(client.insert.mock.invocationCallOrder[0]!).toBeLessThan(client.update.mock.invocationCallOrder[0]!)
+  })
+
   it('season totals key on team+season: a moved win total supersedes the old one', async () => {
     const seasonPick: NewPick = {
       userId: 'u1',

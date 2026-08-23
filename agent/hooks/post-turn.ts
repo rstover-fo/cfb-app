@@ -84,10 +84,12 @@ export default defineHook({
       return (async () => {
         // The /memory off promise covers the raw transcript, not just the
         // extracted atoms: check the toggle BEFORE storeTurn so an opted-out
-        // user's verbatim Q&A never reaches the graph. (Extraction re-checks
-        // internally; profile reads fail open to enabled, per bot-data.)
+        // user's verbatim Q&A never reaches the graph. FAIL CLOSED on an
+        // unverifiable toggle too ('unknown': profile read failed) -- losing
+        // one turn's capture during a db blip beats storing an opted-out
+        // user's conversation. (Extraction re-checks internally.)
         const profile = await getUserProfile(userId)
-        if (profile.memoryEnabled === false) return
+        if (profile.memoryEnabled !== true) return
         await storeTurn({ userId, sessionId, question, answer })
         await runTurnExtraction({ userId, guildId, question, answer })
       })().catch(err => {

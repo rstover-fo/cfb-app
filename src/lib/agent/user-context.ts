@@ -107,10 +107,15 @@ export async function buildUserContext(userId: string, guildId?: string): Promis
   const picksBlock = buildPicksBlock(await listUserPicks(userId, guildId))
   if (picksBlock) parts.push(picksBlock)
 
-  if (!profile.memoryEnabled) {
+  if (profile.memoryEnabled === false) {
     // The persona's memory rule branches on this: without it the model
     // would promise "it will stick" to the very users who opted out.
     parts.push(MEMORY_OFF_MARKER)
+  } else if (profile.memoryEnabled === 'unknown') {
+    // Unverifiable opt-out state (profile read failed): fail closed --
+    // inject no memories (this could be an opted-out user mid-db-blip) and
+    // no off-marker either (that would make the model deny persistence to
+    // an enabled user). The model just gets a context-light turn.
   } else {
     const memories = await getMemories(userId)
     if (memories.length > 0) {

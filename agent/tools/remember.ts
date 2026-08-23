@@ -6,11 +6,16 @@ import { withToolTelemetry } from '@/lib/mcp/telemetry'
 
 // The explicit "remember this about me" path -- automatic extraction covers
 // most turns, but a direct ask deserves a direct, honest save. Honors the
-// user's memory toggle; identity comes only from session auth.
+// user's memory toggle and FAILS CLOSED when the toggle can't be verified
+// (an opted-out user's data must never be written on a profile-read blip);
+// identity comes only from session auth.
 const run = withToolTelemetry(
   'remember',
   async (userId: string, kind: 'preference' | 'fact' | 'take', content: string): Promise<string> => {
     const profile = await getUserProfile(userId)
+    if (profile.memoryEnabled === 'unknown') {
+      return 'Could not verify this user\'s memory settings right now -- nothing was saved. Say so honestly and suggest trying again shortly.'
+    }
     if (!profile.memoryEnabled) {
       return 'This user turned long-term memory OFF -- nothing was saved. Acknowledge for this conversation only and point at /memory on in Discord.'
     }

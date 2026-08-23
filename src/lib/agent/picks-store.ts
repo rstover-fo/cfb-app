@@ -217,17 +217,21 @@ export interface RecordPickResult {
  * pick on the same key is voided ("I changed my mind") and replaced --
  * unless the new pick is identical (same side, direction, and line), in
  * which case nothing is stored: repeating your take isn't a second bet.
- * Past the open cap, oldest open picks are voided (anti-spam). Adapted to
- * this module's no-throw contract: a failed insert reports 'failed' rather
- * than throwing (voids already applied stand -- preferring a lost ledger
- * slot over policy rules silently not applying).
+ * Past the open cap, oldest open picks are voided (anti-spam).
+ *
+ * Adapted to this module's no-throw contract with insert-before-void
+ * ordering (the bot voids first and throws on a failed insert; here a
+ * failed insert nulls, so voiding first would silently erase the user's
+ * active pick with nothing replacing it -- same store-before-delete rule
+ * as the memory replacement path). A failed void after a successful insert
+ * leaves both open, which the next same-key pick supersedes.
  */
 export async function recordPick(pick: NewPick): Promise<RecordPickResult> {
   return withUserLock(pick.userId, async () => {
     const open = await listPicks(pick.userId, { status: 'open', oldestFirst: true })
 
-    let superseded = 0
     const key = pickKey(pick)
+    const toSupersede: string[] = []
     for (const existing of open) {
       if (pickKey(existing) !== key) continue
       if (
@@ -237,10 +241,15 @@ export async function recordPick(pick: NewPick): Promise<RecordPickResult> {
       ) {
         return { outcome: 'deduped' as const, superseded: 0 }
       }
-      if (await updatePickStatus(existing.id, 'superseded by a newer pick', 'open')) superseded++
+      toSupersede.push(existing.id)
     }
 
-    if (!(await insertPick(pick))) return { outcome: 'failed' as const, superseded }
+    if (!(await insertPick(pick))) return { outcome: 'failed' as const, superseded: 0 }
+
+    let superseded = 0
+    for (const id of toSupersede) {
+      if (await updatePickStatus(id, 'superseded by a newer pick', 'open')) superseded++
+    }
 
     // Enforce the open cap AFTER insert, voiding oldest first.
     const openNow = await listPicks(pick.userId, { status: 'open', oldestFirst: true })

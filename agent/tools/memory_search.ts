@@ -8,11 +8,17 @@ import { withToolTelemetry } from '@/lib/mcp/telemetry'
 // memory to read. Telemetry redacts args: queries derive from user talk.
 // The /memory off toggle gates reads too, not just writes: a user who
 // turned memory off must not have retained memories resurfaced to the
-// model (same guard as the remember tool and the capture hook).
+// model (same guard as the remember tool and the capture hook). An
+// UNVERIFIABLE toggle ('unknown': profile read failed) also refuses --
+// failing open here would resurface an opted-out user's data during a
+// db blip.
 const run = withToolTelemetry(
   'memory_search',
   async (userId: string, query: string): Promise<string> => {
     const profile = await getUserProfile(userId)
+    if (profile.memoryEnabled === 'unknown') {
+      return 'Memory settings could not be verified right now -- not recalling stored memories. Answer from this conversation only.'
+    }
     if (!profile.memoryEnabled) {
       return 'This user turned long-term memory OFF -- stored memories must not be recalled. Treat this conversation as fresh; /memory on in Discord re-enables memory.'
     }

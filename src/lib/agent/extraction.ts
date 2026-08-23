@@ -190,8 +190,10 @@ async function applyPicks(
  */
 export async function runTurnExtraction({ userId, guildId, question, answer }: TurnExtractionParams): Promise<void> {
   try {
+    // Fail closed on 'unknown' too: an unverifiable opt-out must not be
+    // treated as consent to store (same rule as the capture hook).
     const profile = await getUserProfile(userId)
-    if (profile.memoryEnabled === false) return
+    if (profile.memoryEnabled !== true) return
 
     const existing = await getMemories(userId)
     const existingIds = new Set(existing.map(memory => memory.id))

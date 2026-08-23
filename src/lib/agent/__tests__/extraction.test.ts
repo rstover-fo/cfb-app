@@ -141,6 +141,16 @@ describe('runTurnExtraction', () => {
     expect(logSpy).not.toHaveBeenCalled()
   })
 
+  it("unverifiable memory toggle ('unknown') fails closed: nothing is extracted or stored", async () => {
+    getUserProfileMock.mockResolvedValue({ memoryEnabled: 'unknown' })
+
+    await runTurnExtraction({ userId: 'u1', question: 'q', answer: 'a' })
+
+    expect(getMemoriesMock).not.toHaveBeenCalled()
+    expect(generateTextMock).not.toHaveBeenCalled()
+    expect(resolvePickCandidatesMock).not.toHaveBeenCalled()
+  })
+
   it('treats malformed JSON as a logged no-op', async () => {
     generateTextMock.mockResolvedValue(textResult('not json at all'))
 
