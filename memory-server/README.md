@@ -1,53 +1,68 @@
 # cfb-agent-memory service
 
-The agent's graph-memory backend: the upstream
-[`neo4j-agent-memory`](https://github.com/neo4j-labs/agent-memory) MCP server
-(pinned in the Dockerfile), pointed at the Neo4j Aura instance
-`cfb-agent-memory`. Runs as a small always-on Railway service in the same
-project as the Discord bot, so one long-lived process owns the Aura
-connection pool instead of every Vercel lambda opening Bolt sockets.
+The agent's graph-memory backend: a thin **user-scoped FastAPI wrapper**
+(`app.py`) over the pinned
+[`neo4j-agent-memory`](https://github.com/neo4j-labs/agent-memory) library,
+talking Bolt to the Neo4j Aura instance `cfb-agent-memory`. Runs as a small
+always-on Railway service in the bot's project, so one long-lived process
+owns the Aura connection pool instead of every Vercel lambda opening Bolt
+sockets.
 
-Consumers: the Next.js app's eve agent (hooks, dynamic user-context, the
-`/api/memory` route) via `@modelcontextprotocol/sdk` over streamable HTTP,
-authenticated with short-lived HS256 bearer JWTs.
+Why not the library's stock MCP server: its tool surface binds one
+`MemoryIntegration` per process (single-tenant, built for desktop
+assistants). The library's `ShortTermMemory`/`LongTermMemory` take
+`user_identifier` per call -- this wrapper exposes exactly the operations
+the agent needs, each scoped to a Discord snowflake, with multi-tenant
+enforcement on (`MemorySettings.memory.multi_tenant=True`).
 
-## Environment variables (all set on the Railway service)
+Consumers: the Next.js app's eve agent (post-turn hook, dynamic
+user-context, `memory_search`/`remember` tools, the `/api/memory` route the
+Discord bot's `/memory` command calls). All requests carry a short-lived
+HS256 bearer JWT (`iss cfb-app`, `aud cfb-memory`).
+
+## Endpoints (all POST + JSON + bearer JWT, except `/health`)
+
+| Endpoint | Body | Does |
+|---|---|---|
+| `GET /health` | -- | Authless liveness (`{ok, connected}`) |
+| `/turn` | `{user, session_id, question, answer}` | Store one Q&A pair in user-scoped conversation memory (embedded, no entity extraction -- the app's Haiku pipeline owns semantics) |
+| `/remember` | `{user, kind, content, context?, metadata?}` | Store one durable memory; `kind` in `preference\|fact\|take` (bot-atom semantics); dedup built in |
+| `/context` | `{user}` | All memories, oldest-first (the stable `/memory show` numbering order) |
+| `/search` | `{user, query, limit?}` | The user's memories ranked for a query (lexical v1; vector once the library's search grows a user filter) |
+| `/forget` | `{user, memory_id?}` | Forget one or all; removes this user's edge, deletes nodes only when orphaned (dedup can share nodes across users) |
+
+## Environment variables (Railway service)
 
 | Var | Value | Notes |
 |---|---|---|
 | `NEO4J_URI` | `neo4j+s://<id>.databases.neo4j.io` | From the Aura instance |
-| `NEO4J_USER` | `neo4j` | Aura default |
-| `NEO4J_PASSWORD` | (Aura-generated) | Shown once at instance creation |
-| `NEO4J_DATABASE` | `neo4j` | Aura default; optional |
-| `NAM_EMBEDDING` | `openai/text-embedding-3-small` | Vector search embeddings |
+| `NEO4J_USER` | `neo4j` | |
+| `NEO4J_PASSWORD` | (Aura-generated) | |
+| `NEO4J_DATABASE` | `neo4j` | Optional |
+| `NAM_EMBEDDING` | `openai/text-embedding-3-small` | |
 | `OPENAI_API_KEY` | (OpenAI key) | Read by the embedding provider |
-| `FASTMCP_SERVER_AUTH` | `fastmcp.server.auth.providers.jwt.JWTVerifier` | Turns bearer auth ON -- without this the server is open |
-| `FASTMCP_SERVER_AUTH_JWT_PUBLIC_KEY` | (shared secret, `openssl rand -base64 48`) | HS256 shared secret -- the field is named public_key upstream but carries the symmetric secret |
-| `FASTMCP_SERVER_AUTH_JWT_ALGORITHM` | `HS256` | |
-| `FASTMCP_SERVER_AUTH_JWT_ISSUER` | `cfb-app` | Must match the JWTs the app mints |
-| `FASTMCP_SERVER_AUTH_JWT_AUDIENCE` | `cfb-memory` | Must match the JWTs the app mints |
+| `MEMORY_JWT_SECRET` | (shared secret) | Preferred name. `FASTMCP_SERVER_AUTH_JWT_PUBLIC_KEY` is accepted as a fallback (the name used at first provisioning), so an existing deployment needs no re-paste. |
 
-The Vercel app gets the counterpart pair: `MEMORY_ENDPOINT` (this service's
-public URL + the MCP path) and `MEMORY_JWT_SECRET` (same value as
-`FASTMCP_SERVER_AUTH_JWT_PUBLIC_KEY`), from which it mints a short-lived
-bearer JWT per request.
+The other `FASTMCP_SERVER_AUTH*` variables from the first provisioning pass
+are unused by this wrapper and harmless to leave in place.
+
+The Vercel app's counterpart pair: `MEMORY_ENDPOINT` = this service's base
+URL (`https://cfb-agent-memory-production.up.railway.app` -- a trailing
+`/mcp` from the earlier plan is tolerated and stripped by the client) and
+`MEMORY_JWT_SECRET` = the same shared secret.
 
 ## Railway settings
 
-- Root directory: `memory-server/` (builds this Dockerfile)
-- Watch paths: `memory-server/**` -- app/bot commits must not redeploy it
+- Root directory: `/memory-server`; watch paths `memory-server/**`
+- Healthcheck path: `/health`
 - Restart policy: on failure
-- Generate a public domain (Settings -> Networking) -- that hostname is
-  `MEMORY_ENDPOINT`'s base
 
 ## Local run
 
 ```bash
 docker build -t cfb-agent-memory memory-server/
 docker run --rm -p 8080:8080 \
-  -e NEO4J_URI=neo4j+s://... -e NEO4J_USER=neo4j -e NEO4J_PASSWORD=... \
-  -e NAM_EMBEDDING=openai/text-embedding-3-small -e OPENAI_API_KEY=... \
+  -e NEO4J_URI=neo4j+s://... -e NEO4J_PASSWORD=... \
+  -e OPENAI_API_KEY=... -e MEMORY_JWT_SECRET=dev-secret-at-least-32-bytes-long \
   cfb-agent-memory
 ```
-
-(Omit the `FASTMCP_SERVER_AUTH_*` group locally to run without auth.)
