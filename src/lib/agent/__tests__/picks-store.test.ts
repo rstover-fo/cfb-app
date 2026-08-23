@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 const { getBotSchemaClientMock } = vi.hoisted(() => ({ getBotSchemaClientMock: vi.fn() }))
 vi.mock('@/lib/agent/bot-data', () => ({ getBotSchemaClient: getBotSchemaClientMock }))
 
-import { insertPick, listPicks, type NewPick } from '../picks-store'
+import { insertPick, listPicks, recordPick, MAX_OPEN_PICKS_PER_USER, type NewPick } from '../picks-store'
 
 interface QueryResult {
   data: unknown
@@ -216,5 +216,162 @@ describe('listPicks', () => {
     getBotSchemaClientMock.mockReturnValue(client)
 
     await expect(listPicks('u1')).resolves.toEqual([])
+  })
+})
+
+// --- recordPick (the ported ledger policy: supersede / dedup / open cap) ---
+
+/** Open bot.picks row in PostgREST shape; overrides patch individual columns. */
+function openRow(id: string, overrides: Record<string, unknown> = {}) {
+  return {
+    id,
+    user_id: 'u1',
+    guild_id: null,
+    kind: 'game_winner',
+    team: 'Oklahoma',
+    opponent: 'Texas',
+    game_id: 401,
+    season: 2025,
+    week: 6,
+    direction: 'win',
+    line: null,
+    pick_home: null,
+    statement: 'we beat Texas',
+    status: 'open',
+    created_at: '2025-10-01T00:00:00Z',
+    ...overrides,
+  }
+}
+
+/**
+ * Policy-aware fake: select results are consumed as a queue (one listPicks
+ * call each, last repeats), update chains resolve success and record their
+ * .eq calls so tests can assert WHICH pick was voided.
+ */
+function makePolicyClient(opts: { selectQueue: QueryResult[]; insertResult?: { error: { message: string } | null } }) {
+  const selectQueue = [...opts.selectQueue]
+  const insertResult = opts.insertResult ?? { error: null }
+  const updateChains: { eq: ReturnType<typeof vi.fn> }[] = []
+
+  const makeChain = (resolve: () => QueryResult) => {
+    const chain: Record<string, unknown> = {}
+    for (const method of ['select', 'eq', 'gte', 'order']) chain[method] = vi.fn(() => chain)
+    chain.then = (onFulfilled: (v: QueryResult) => unknown, onRejected?: (e: unknown) => unknown) =>
+      Promise.resolve(resolve()).then(onFulfilled, onRejected)
+    return chain
+  }
+
+  const select = vi.fn(() => makeChain(() => (selectQueue.length > 1 ? selectQueue.shift()! : selectQueue[0]!)))
+  const insert = vi.fn(() => Promise.resolve(insertResult))
+  const update = vi.fn(() => {
+    const chain = makeChain(() => ({ data: [{ id: 'updated' }], error: null }))
+    updateChains.push(chain as { eq: ReturnType<typeof vi.fn> })
+    return chain
+  })
+  const from = vi.fn(() => ({ select, insert, update }))
+  return { from, select, insert, update, updateChains }
+}
+
+describe('recordPick', () => {
+  it('an identical open same-bet pick is deduped: nothing voided, nothing stored', async () => {
+    const client = makePolicyClient({ selectQueue: [{ data: [openRow('p1')], error: null }] })
+    getBotSchemaClientMock.mockReturnValue(client)
+
+    const result = await recordPick(NEW_PICK)
+
+    expect(result).toEqual({ outcome: 'deduped', superseded: 0 })
+    expect(client.update).not.toHaveBeenCalled()
+    expect(client.insert).not.toHaveBeenCalled()
+  })
+
+  it('a changed pick on the same bet voids the open one and stores the replacement', async () => {
+    const client = makePolicyClient({
+      selectQueue: [
+        { data: [openRow('p1', { team: 'Texas', direction: 'win' })], error: null },
+        { data: [openRow('p2')], error: null },
+      ],
+    })
+    getBotSchemaClientMock.mockReturnValue(client)
+
+    const result = await recordPick(NEW_PICK)
+
+    expect(result).toEqual({ outcome: 'stored', superseded: 1 })
+    expect(client.update).toHaveBeenCalledTimes(1)
+    expect(client.updateChains[0]!.eq).toHaveBeenCalledWith('id', 'p1')
+    expect(client.updateChains[0]!.eq).toHaveBeenCalledWith('status', 'open')
+    expect(client.insert).toHaveBeenCalledTimes(1)
+  })
+
+  it('a pick on a different bet inserts without touching existing opens', async () => {
+    const client = makePolicyClient({
+      selectQueue: [
+        { data: [openRow('p1', { game_id: 999, statement: 'other game' })], error: null },
+        { data: [openRow('p1', { game_id: 999 }), openRow('p2')], error: null },
+      ],
+    })
+    getBotSchemaClientMock.mockReturnValue(client)
+
+    const result = await recordPick(NEW_PICK)
+
+    expect(result).toEqual({ outcome: 'stored', superseded: 0 })
+    expect(client.update).not.toHaveBeenCalled()
+  })
+
+  it('past the open cap, oldest open picks are voided after insert', async () => {
+    const overCap = Array.from({ length: MAX_OPEN_PICKS_PER_USER + 1 }, (_, i) =>
+      openRow(`p${i}`, { game_id: 100 + i, statement: `pick ${i}` })
+    )
+    const client = makePolicyClient({
+      selectQueue: [
+        { data: [], error: null },
+        { data: overCap, error: null },
+      ],
+    })
+    getBotSchemaClientMock.mockReturnValue(client)
+
+    const result = await recordPick(NEW_PICK)
+
+    expect(result).toEqual({ outcome: 'stored', superseded: 0 })
+    expect(client.update).toHaveBeenCalledTimes(1)
+    expect(client.updateChains[0]!.eq).toHaveBeenCalledWith('id', 'p0')
+  })
+
+  it('a failed insert reports failed, never a silent success', async () => {
+    const client = makePolicyClient({
+      selectQueue: [{ data: [], error: null }],
+      insertResult: { error: { message: 'insert exploded' } },
+    })
+    getBotSchemaClientMock.mockReturnValue(client)
+
+    const result = await recordPick(NEW_PICK)
+
+    expect(result).toEqual({ outcome: 'failed', superseded: 0 })
+  })
+
+  it('season totals key on team+season: a moved win total supersedes the old one', async () => {
+    const seasonPick: NewPick = {
+      userId: 'u1',
+      kind: 'season_total',
+      team: 'Oklahoma',
+      season: 2025,
+      direction: 'over',
+      line: 9.5,
+      statement: 'OU wins 10',
+    }
+    const client = makePolicyClient({
+      selectQueue: [
+        {
+          data: [openRow('p1', { kind: 'season_total', game_id: null, opponent: null, direction: 'over', line: '8.5', statement: 'OU wins 9' })],
+          error: null,
+        },
+        { data: [openRow('p2', { kind: 'season_total', game_id: null, line: '9.5' })], error: null },
+      ],
+    })
+    getBotSchemaClientMock.mockReturnValue(client)
+
+    const result = await recordPick(seasonPick)
+
+    expect(result).toEqual({ outcome: 'stored', superseded: 1 })
+    expect(client.updateChains[0]!.eq).toHaveBeenCalledWith('id', 'p1')
   })
 })

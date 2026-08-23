@@ -28,7 +28,7 @@ import { anthropic } from '@ai-sdk/anthropic'
 import { getUserProfile } from '@/lib/agent/bot-data'
 import { getMemories, rememberMemory, forgetMemories } from '@/lib/memory/client'
 import { resolvePickCandidates, type PickCandidate } from './pick-resolve'
-import { insertPick, listPicks } from './picks-store'
+import { recordPick, listPicks } from './picks-store'
 
 const EXTRACT_MODEL = 'claude-haiku-4-5'
 // Bumped from 300 (the bot's pre-picks value) when the picks contract was added (~60 tokens/pick).
@@ -149,25 +149,35 @@ async function applyAtoms(
 }
 
 /**
- * Stores resolved picks, skipping any whose statement matches a pick the
- * user already has on the ledger from within the last
- * PICK_DEDUP_WINDOW_MS -- the guard eve's at-least-once post-turn delivery
- * needs that the bot's single-fire-per-turn model didn't.
+ * Stores resolved picks through recordPick (the ported ledger policy:
+ * same-bet supersede, identical-repeat dedup, open cap), after skipping any
+ * whose statement matches a pick the user already has on the ledger from
+ * within the last PICK_DEDUP_WINDOW_MS -- the guard eve's at-least-once
+ * post-turn delivery needs that the bot's single-fire-per-turn model didn't
+ * (it also catches a re-delivery whose earlier copy was already settled,
+ * which recordPick's open-picks-only dedup would miss).
  */
-async function applyPicks(userId: string, candidates: PickCandidate[], guildId?: string): Promise<number> {
+async function applyPicks(
+  userId: string,
+  candidates: PickCandidate[],
+  guildId?: string
+): Promise<{ stored: number; superseded: number }> {
   const resolved = await resolvePickCandidates(userId, candidates, guildId)
-  if (resolved.length === 0) return 0
+  if (resolved.length === 0) return { stored: 0, superseded: 0 }
 
   const since = new Date(Date.now() - PICK_DEDUP_WINDOW_MS).toISOString()
   const recent = await listPicks(userId, { createdAfter: since })
   const recentStatements = new Set(recent.map(pick => pick.statement))
 
   let stored = 0
+  let superseded = 0
   for (const pick of resolved) {
     if (recentStatements.has(pick.statement)) continue
-    if (await insertPick(pick)) stored++
+    const result = await recordPick(pick)
+    if (result.outcome === 'stored') stored++
+    superseded += result.superseded
   }
-  return stored
+  return { stored, superseded }
 }
 
 /**
@@ -210,7 +220,7 @@ export async function runTurnExtraction({ userId, guildId, question, answer }: T
     }
 
     const { inserted, replaced } = await applyAtoms(userId, parsed.data.atoms, existingIds)
-    const picksStored = await applyPicks(userId, parsed.data.picks, guildId)
+    const picks = await applyPicks(userId, parsed.data.picks, guildId)
 
     console.log(
       JSON.stringify({
@@ -219,7 +229,8 @@ export async function runTurnExtraction({ userId, guildId, question, answer }: T
         replaced,
         existing: existing.length,
         picks_candidates: parsed.data.picks.length,
-        picks_stored: picksStored,
+        picks_stored: picks.stored,
+        picks_superseded: picks.superseded,
         usage: {
           input_tokens: result.usage.inputTokens ?? 0,
           output_tokens: result.usage.outputTokens ?? 0,

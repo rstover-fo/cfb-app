@@ -20,8 +20,8 @@ vi.mock('ai', () => ({ generateText: generateTextMock }))
 const { resolvePickCandidatesMock } = vi.hoisted(() => ({ resolvePickCandidatesMock: vi.fn() }))
 vi.mock('../pick-resolve', () => ({ resolvePickCandidates: resolvePickCandidatesMock }))
 
-const { insertPickMock, listPicksMock } = vi.hoisted(() => ({ insertPickMock: vi.fn(), listPicksMock: vi.fn() }))
-vi.mock('../picks-store', () => ({ insertPick: insertPickMock, listPicks: listPicksMock }))
+const { recordPickMock, listPicksMock } = vi.hoisted(() => ({ recordPickMock: vi.fn(), listPicksMock: vi.fn() }))
+vi.mock('../picks-store', () => ({ recordPick: recordPickMock, listPicks: listPicksMock }))
 
 import { runTurnExtraction } from '../extraction'
 
@@ -38,7 +38,7 @@ beforeEach(() => {
   getMemoriesMock.mockResolvedValue([])
   resolvePickCandidatesMock.mockResolvedValue([])
   listPicksMock.mockResolvedValue([])
-  insertPickMock.mockResolvedValue(true)
+  recordPickMock.mockResolvedValue({ outcome: 'stored', superseded: 0 })
   logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
   errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
 })
@@ -82,7 +82,7 @@ describe('runTurnExtraction', () => {
     expect(rememberMemoryMock).toHaveBeenCalledWith({ userId: 'u1', kind: 'preference', content: 'Hates Texas' })
     expect(resolvePickCandidatesMock).toHaveBeenCalledWith('u1', [pickCandidate], 'g1')
     expect(listPicksMock).toHaveBeenCalledWith('u1', { createdAfter: expect.any(String) })
-    expect(insertPickMock).toHaveBeenCalledWith(resolvedPick)
+    expect(recordPickMock).toHaveBeenCalledWith(resolvedPick)
 
     const logged = JSON.parse((logSpy.mock.calls[0]![0] as string))
     expect(logged).toEqual({
@@ -92,6 +92,7 @@ describe('runTurnExtraction', () => {
       existing: 1,
       picks_candidates: 1,
       picks_stored: 1,
+      picks_superseded: 0,
       usage: { input_tokens: 100, output_tokens: 20 },
     })
   })
@@ -113,7 +114,7 @@ describe('runTurnExtraction', () => {
     await runTurnExtraction({ userId: 'u1', question: 'q', answer: 'a' })
     expect(rememberMemoryMock).not.toHaveBeenCalled()
     expect(resolvePickCandidatesMock).toHaveBeenCalledWith('u1', [], undefined)
-    expect(insertPickMock).not.toHaveBeenCalled()
+    expect(recordPickMock).not.toHaveBeenCalled()
     const logged = JSON.parse(logSpy.mock.calls[0]![0] as string)
     expect(logged).toMatchObject({ inserted: 0, replaced: 0, picks_candidates: 0, picks_stored: 0 })
   })
@@ -193,7 +194,7 @@ describe('runTurnExtraction', () => {
 
     await runTurnExtraction({ userId: 'u1', question: 'q', answer: 'a' })
 
-    expect(insertPickMock).not.toHaveBeenCalled()
+    expect(recordPickMock).not.toHaveBeenCalled()
     const logged = JSON.parse(logSpy.mock.calls[0]![0] as string)
     expect(logged).toMatchObject({ picks_candidates: 1, picks_stored: 0 })
   })
@@ -213,18 +214,46 @@ describe('runTurnExtraction', () => {
 
     await runTurnExtraction({ userId: 'u1', question: 'q', answer: 'a' })
 
-    expect(insertPickMock).toHaveBeenCalledWith(resolvedPick)
+    expect(recordPickMock).toHaveBeenCalledWith(resolvedPick)
     expect(listPicksMock).not.toHaveBeenCalledTimes(0)
   })
 
-  it('does not call listPicks/insertPick when nothing resolved', async () => {
+  it('a superseding pick surfaces in the structured log line', async () => {
+    generateTextMock.mockResolvedValue(textResult({ atoms: [], picks: [{ type: 'ats', team: 'OU', quote: 'we cover' }] }))
+    resolvePickCandidatesMock.mockResolvedValue([
+      { userId: 'u1', kind: 'ats' as const, team: 'Oklahoma', season: 2025, direction: 'cover' as const, statement: 'we cover -3.5' },
+    ])
+    listPicksMock.mockResolvedValue([])
+    recordPickMock.mockResolvedValue({ outcome: 'stored', superseded: 1 })
+
+    await runTurnExtraction({ userId: 'u1', question: 'q', answer: 'a' })
+
+    const logged = JSON.parse(logSpy.mock.calls[0]![0] as string)
+    expect(logged).toMatchObject({ picks_stored: 1, picks_superseded: 1 })
+  })
+
+  it('a deduped pick (identical repeat of an open bet) counts as not stored', async () => {
+    generateTextMock.mockResolvedValue(textResult({ atoms: [], picks: [{ type: 'ats', team: 'OU', quote: 'we cover' }] }))
+    resolvePickCandidatesMock.mockResolvedValue([
+      { userId: 'u1', kind: 'ats' as const, team: 'Oklahoma', season: 2025, direction: 'cover' as const, statement: 'we cover -3.5' },
+    ])
+    listPicksMock.mockResolvedValue([])
+    recordPickMock.mockResolvedValue({ outcome: 'deduped', superseded: 0 })
+
+    await runTurnExtraction({ userId: 'u1', question: 'q', answer: 'a' })
+
+    const logged = JSON.parse(logSpy.mock.calls[0]![0] as string)
+    expect(logged).toMatchObject({ picks_stored: 0, picks_superseded: 0 })
+  })
+
+  it('does not call listPicks/recordPick when nothing resolved', async () => {
     generateTextMock.mockResolvedValue(textResult({ atoms: [], picks: [{ type: 'ats', team: 'OU', quote: 'we cover' }] }))
     resolvePickCandidatesMock.mockResolvedValue([])
 
     await runTurnExtraction({ userId: 'u1', question: 'q', answer: 'a' })
 
     expect(listPicksMock).not.toHaveBeenCalled()
-    expect(insertPickMock).not.toHaveBeenCalled()
+    expect(recordPickMock).not.toHaveBeenCalled()
   })
 
   it('an unknown replaces id is ignored (plain insert, no forget call)', async () => {
