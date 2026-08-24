@@ -15,6 +15,9 @@ const eslintConfig = defineConfig([
     // The Discord bot is a self-contained workspace with its own tsconfig and
     // node runtime -- the Next app's lint rules don't govern it.
     "bot/**",
+    // eve build artifacts (nitro bundles) -- generated code, never linted.
+    ".eve/**",
+    ".output/**",
   ]),
 ]);
 
