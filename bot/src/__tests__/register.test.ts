@@ -58,9 +58,20 @@ describe('registerCommands', () => {
     })
   })
 
-  it('propagates a Discord API failure (callers decide whether it is fatal)', async () => {
+  it('one failing guild does not block the rest; failures surface as one aggregate error', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
     restPutMock.mockRejectedValueOnce(new Error('Missing Access'))
+    restPutMock.mockResolvedValueOnce([{ name: 'ask' }, { name: 'picks' }])
 
-    await expect(registerCommands(CONFIG)).rejects.toThrow('Missing Access')
+    await expect(registerCommands(CONFIG)).rejects.toThrow('command registration failed for guild(s): guild-1')
+
+    // guild-2 was still registered despite guild-1's rejection.
+    expect(restPutMock).toHaveBeenCalledTimes(2)
+    expect(guildCommandsRouteMock).toHaveBeenCalledWith('app-456', 'guild-2')
+    expect(errorSpy).toHaveBeenCalled()
+  })
+
+  it('resolves cleanly when every guild registers', async () => {
+    await expect(registerCommands(CONFIG)).resolves.toBeUndefined()
   })
 })

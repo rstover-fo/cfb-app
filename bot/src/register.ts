@@ -21,10 +21,27 @@ export async function registerCommands(
   const rest = new REST().setToken(config.discordToken)
   const body = commands.map(c => c.definition.toJSON())
 
+  // Per-guild isolation: one inaccessible allowlist entry (e.g. a guild
+  // that revoked the applications.commands scope) must not block
+  // registration for the guilds that ARE reachable. Failures are logged
+  // per guild and surfaced once as an aggregate, so `npm run register`
+  // still exits non-zero and startup still logs the problem.
+  const failed: string[] = []
   for (const guildId of config.allowedGuildIds) {
-    const result = (await rest.put(Routes.applicationGuildCommands(config.discordAppId, guildId), {
-      body,
-    })) as unknown[]
-    console.log(`[bot] Registered ${result.length} command(s) to guild ${guildId}`)
+    try {
+      const result = (await rest.put(Routes.applicationGuildCommands(config.discordAppId, guildId), {
+        body,
+      })) as unknown[]
+      console.log(`[bot] Registered ${result.length} command(s) to guild ${guildId}`)
+    } catch (err) {
+      console.error(
+        `[bot] Command registration failed for guild ${guildId}:`,
+        err instanceof Error ? err.message : err
+      )
+      failed.push(guildId)
+    }
+  }
+  if (failed.length > 0) {
+    throw new Error(`command registration failed for guild(s): ${failed.join(', ')}`)
   }
 }
