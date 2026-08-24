@@ -20,6 +20,7 @@ import { loadEnvFileIfPresent } from './env.js'
 import { commandsByName } from './commands/index.js'
 import { errorEmbed } from './format.js'
 import { handleMention } from './mention.js'
+import { registerCommands } from './register.js'
 import { startSettlementLoop } from './settlement.js'
 
 const HOME_SERVER_ONLY_MESSAGE = 'This bot is only available in its home server.'
@@ -106,6 +107,17 @@ async function main(): Promise<void> {
   wireProcessGuards()
   loadEnvFileIfPresent()
   const config = loadConfig()
+
+  // Keep guild slash commands in sync with the code on every boot
+  // (idempotent PUT per guild). Non-fatal by design: a Discord API blip
+  // must not keep the gateway down, and `npm run register` remains the
+  // manual recovery lever. Await it so a registration burst can't race
+  // the first interactions after login.
+  try {
+    await registerCommands(config)
+  } catch (err) {
+    console.error('[bot] Command registration failed (continuing to login):', err)
+  }
 
   const client = createClient()
   client.once(Events.ClientReady, readyClient => {
