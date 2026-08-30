@@ -1428,10 +1428,18 @@ export const runSqlDescription =
   '  No row means never backtested: report unmeasured, never zero error\n' +
   '- api.player_season_leaders (LONG: one row per player-category, e.g. passing/rushing),\n' +
   '  api.player_wepa_leaders, api.player_usage_leaders: player-season leaderboards\n' +
-  '- api.player_detail: one row per player-season, 2004+ (~340k rows): bio, recruit pedigree\n' +
+  '- api.player_detail: player-season grain, 2004+ (~340k rows): bio, recruit pedigree\n' +
   '  (stars, recruit_rating, national_ranking), raw counting stats (pass_*, rush_*, rec_*,\n' +
-  '  tackles, sacks, tfl), ppa_avg/ppa_total. api.player_comparison is the same grain plus\n' +
-  '  *_pctl percentile columns\n' +
+  '  tackles, sacks, tfl), ppa_avg/ppa_total. NOT reliably one row per player-season: the\n' +
+  '  recruiting join FANS OUT for players in two recruiting classes (reclassifications), and\n' +
+  '  the stat columns are duplicated verbatim across those rows -- e.g. Jeremiah Smith 2025\n' +
+  '  appears twice, once as recruit_class 2024 (5-star, national_ranking 1) and once as\n' +
+  '  recruit_class 2023 (4-star, 243), both carrying rec_yds 1243. Affected players are few\n' +
+  '  (<1% per season) but skew blue-chip, i.e. exactly who gets asked about. So: never SUM or\n' +
+  '  AVG a stat column off this view without deduping (aggregate over a DISTINCT ON\n' +
+  '  (player_id, season, team) subquery, latest recruit_class), and never quote its recruit\n' +
+  '  pedigree without pinning recruit_class. For percentile work prefer api.player_comparison\n' +
+  '  (same grain plus *_pctl columns) -- it is clean, one row per player-season\n' +
   '- api.roster_lookup: roster rows per team-season 2004+ (first/last_name, team, position,\n' +
   '  height, weight, year = season, jersey, home_city, home_state, home_country)\n' +
   '- api.recruit_lookup: individual recruits 2000+ (name, year, stars, rating, ranking,\n' +
