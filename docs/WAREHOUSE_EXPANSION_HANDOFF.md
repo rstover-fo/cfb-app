@@ -127,13 +127,15 @@ caveat we cannot are not the same kind of gap.
 
 **`api.passing_charting_player_season`** -- grain `(season, player_id, team_id)`
 > player_id, player_name, team_id, team, conference, position, `attempts_charted`,
-> **`attempts_available`**, `coverage_pct`, `adot`, air_yards_total, yac_total,
-> yac_per_completion, completions_charted, depth/direction split counts, `partial_share`
+> **`air_yards_attempts_available`**, **`yards_after_catch_attempts_available`**,
+> `coverage_pct`, `adot`, air_yards_total, yac_total, yac_per_completion,
+> completions_charted, depth/direction split counts, `partial_share`
 >
-> `attempts_available` must ship **on every row**, not as a separate coverage table. With 2025
-> at 407/820 player-seasons charted, a leaderboard without the denominator ranks on coverage,
-> not on skill -- and that is a chart a reader cannot tell is wrong. NULL = not-yet-charted,
-> never zero. `partial_share` so consumers can flag rows resting on `parse_status='partial'`
+> **Two** denominators, not one: air-yards and YAC charting cover different play sets, so a
+> single shared coverage number misstates whichever metric it does not describe. Both must
+> ship **on every row**, not as a separate coverage table. With 2025 at 407/820
+> player-seasons charted, a leaderboard without them ranks on coverage, not on skill -- and
+> that is a chart a reader cannot tell is wrong. NULL = not-yet-charted, never zero. `partial_share` so consumers can flag rows resting on `parse_status='partial'`
 > plays that may be re-charted upstream.
 
 **`api.passing_charting_target_season`** -- grain `(season, target_id, team_id)`

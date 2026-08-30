@@ -62,9 +62,12 @@ order). `api.player_comparison` is clean (14,397 players / 0 dupes, 2025), so it
 to `player_detail`'s recruiting join.
 
 **Fix:** collapse the recruiting side to one row per `(player_id, season, team)` --
-`DISTINCT ON (player_id, season, team) ... ORDER BY ..., recruit_class DESC` keeps the
-reclassified (authoritative) entry. Alternatively drop pedigree from this view and leave it
-to `api.recruit_lookup`. cfb-app does not query this view today (it uses the
+`DISTINCT ON (player_id, season, team) ORDER BY player_id, season, team, recruit_class DESC`
+keeps the reclassified (authoritative) entry. The ORDER BY is load-bearing and its leading
+terms must be the DISTINCT ON keys -- Postgres rejects any other leading order, and without
+the trailing `recruit_class DESC` it keeps an arbitrary class (verified on PR #55: the
+unordered form returned the stale 2023 row over the 2024 one). Alternatively drop pedigree
+from this view and leave it to `api.recruit_lookup`. cfb-app does not query this view today (it uses the
 `public.get_player_detail` RPC), so there is no consumer to break.
 
 **Do not collapse `team` while you are in there.** The view's grain is

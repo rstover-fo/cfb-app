@@ -1440,7 +1440,9 @@ export const runSqlDescription =
   '  national_ranking 1) and once as recruit_class 2023 (4-star, 243), both carrying rec_yds\n' +
   '  1243. Affected players are few (<1% per season) but skew blue-chip, i.e. exactly who gets\n' +
   '  asked about. So: never SUM or AVG a stat column off this view without first deduping the\n' +
-  '  fan-out (DISTINCT ON (player_id, season, team), latest recruit_class) -- that keeps the\n' +
+  '  fan-out -- DISTINCT ON (player_id, season, team) ORDER BY player_id, season, team,\n' +
+  '  recruit_class DESC; the DISTINCT ON keys MUST lead the ORDER BY (Postgres requires it,\n' +
+  '  and without the trailing recruit_class DESC it keeps an arbitrary class). That keeps the\n' +
   '  legitimate per-team rows, so aggregate ACROSS them afterwards for a season total. Never\n' +
   '  quote recruit pedigree without pinning recruit_class. For percentile work prefer\n' +
   '  api.player_comparison (plus *_pctl columns) -- verified clean, one row per player-season\n' +
