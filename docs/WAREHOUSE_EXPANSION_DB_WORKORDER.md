@@ -67,6 +67,13 @@ reclassified (authoritative) entry. Alternatively drop pedigree from this view a
 to `api.recruit_lookup`. cfb-app does not query this view today (it uses the
 `public.get_player_detail` RPC), so there is no consumer to break.
 
+**Do not collapse `team` while you are in there.** The view's grain is
+`(player_id, season, team)` and the per-team rows are legitimate: a player on two teams in a
+season gets one row per stint, each carrying only that stint's stats, and summing them is the
+only way to get a season total. For 2025 that is 4 players (distinct `(player_id, team)`
+30,008 vs distinct `player_id` 30,004); 2024 has 6. Deduping to one row per player-season
+would destroy real data -- the target is the recruiting fan-out only.
+
 **Do this before task 5.** LEFT JOINing a usage payload onto a view that already fans out
 propagates the duplication into the new columns.
 

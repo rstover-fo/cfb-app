@@ -1428,18 +1428,22 @@ export const runSqlDescription =
   '  No row means never backtested: report unmeasured, never zero error\n' +
   '- api.player_season_leaders (LONG: one row per player-category, e.g. passing/rushing),\n' +
   '  api.player_wepa_leaders, api.player_usage_leaders: player-season leaderboards\n' +
-  '- api.player_detail: player-season grain, 2004+ (~340k rows): bio, recruit pedigree\n' +
-  '  (stars, recruit_rating, national_ranking), raw counting stats (pass_*, rush_*, rec_*,\n' +
-  '  tackles, sacks, tfl), ppa_avg/ppa_total. NOT reliably one row per player-season: the\n' +
-  '  recruiting join FANS OUT for players in two recruiting classes (reclassifications), and\n' +
-  '  the stat columns are duplicated verbatim across those rows -- e.g. Jeremiah Smith 2025\n' +
-  '  appears twice, once as recruit_class 2024 (5-star, national_ranking 1) and once as\n' +
-  '  recruit_class 2023 (4-star, 243), both carrying rec_yds 1243. Affected players are few\n' +
-  '  (<1% per season) but skew blue-chip, i.e. exactly who gets asked about. So: never SUM or\n' +
-  '  AVG a stat column off this view without deduping (aggregate over a DISTINCT ON\n' +
-  '  (player_id, season, team) subquery, latest recruit_class), and never quote its recruit\n' +
-  '  pedigree without pinning recruit_class. For percentile work prefer api.player_comparison\n' +
-  '  (same grain plus *_pctl columns) -- it is clean, one row per player-season\n' +
+  '- api.player_detail: grain is (player_id, season, TEAM), 2004+ (~340k rows): bio, recruit\n' +
+  '  pedigree (stars, recruit_rating, national_ranking), raw counting stats (pass_*, rush_*,\n' +
+  '  rec_*, tackles, sacks, tfl), ppa_avg/ppa_total. player_id + season alone is NOT unique --\n' +
+  '  two independent things multiply rows. (1) TEAM: a player on two teams in one season gets\n' +
+  '  a row per team, each holding only that stint\'s stats -- summing them is the only way to\n' +
+  '  get his season total, and picking one row silently reports a partial season. (2) A\n' +
+  '  recruiting FAN-OUT bug on top of that: players in two recruiting classes\n' +
+  '  (reclassifications) get duplicate rows within a single team, stat columns copied verbatim\n' +
+  '  -- e.g. Jeremiah Smith 2025 appears twice, once as recruit_class 2024 (5-star,\n' +
+  '  national_ranking 1) and once as recruit_class 2023 (4-star, 243), both carrying rec_yds\n' +
+  '  1243. Affected players are few (<1% per season) but skew blue-chip, i.e. exactly who gets\n' +
+  '  asked about. So: never SUM or AVG a stat column off this view without first deduping the\n' +
+  '  fan-out (DISTINCT ON (player_id, season, team), latest recruit_class) -- that keeps the\n' +
+  '  legitimate per-team rows, so aggregate ACROSS them afterwards for a season total. Never\n' +
+  '  quote recruit pedigree without pinning recruit_class. For percentile work prefer\n' +
+  '  api.player_comparison (plus *_pctl columns) -- verified clean, one row per player-season\n' +
   '- api.roster_lookup: roster rows per team-season 2004+ (first/last_name, team, position,\n' +
   '  height, weight, year = season, jersey, home_city, home_state, home_country)\n' +
   '- api.recruit_lookup: individual recruits 2000+ (name, year, stars, rating, ranking,\n' +
