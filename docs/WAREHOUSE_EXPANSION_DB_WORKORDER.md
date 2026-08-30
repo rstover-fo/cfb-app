@@ -116,7 +116,10 @@ names, from `src/schemas/migrations/057_passing_grants_indexes.sql`:
 - metrics: `total_air_yards`, `average_depth_of_target`, `total_yards_after_catch`,
   `average_yards_after_catch`
 - **two** coverage denominators: `air_yards_attempts_available`,
-  `yards_after_catch_attempts_available`
+  `yards_after_catch_attempts_available` -- and therefore two derived percentages,
+  `air_yards_coverage_pct` and `yards_after_catch_coverage_pct`, each from its own
+  denominator. A single unqualified `coverage_pct` next to two denominators is unreadable:
+  nothing on the row says which one it was derived from.
 
 Correction to our handoff, which assumed a single `attempts_available`: there are two,
 because air-yards and YAC charting can cover different play sets. **Both must ship on every
