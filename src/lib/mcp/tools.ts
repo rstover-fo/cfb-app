@@ -6,7 +6,10 @@ import { getMatchup, getMatchupGames } from '@/lib/queries/matchups'
 import {
   queryPassingChartingPlayers,
   queryTargetProfiles,
+  resolvePlayerMinCharted,
+  resolveTargetMinCharted,
   DEFAULT_MIN_CHARTED,
+  DEFAULT_TARGET_MIN_CHARTED,
   CHARTING_MIN_SEASON,
   type PassingChartingSort,
   type TargetProfileSort,
@@ -3191,7 +3194,7 @@ async function getPassingChartingToolImpl(args: GetPassingChartingArgs): Promise
   })
   if (result.error) return result.error
 
-  const floor = args.min_charted ?? DEFAULT_MIN_CHARTED
+  const floor = resolvePlayerMinCharted(args.min_charted)
   if (result.rows.length === 0) {
     return (
       `No passers with at least ${floor} charted attempts found for those filters. 2025 has 820 ` +
@@ -3283,7 +3286,7 @@ async function getTargetProfileToolImpl(args: GetTargetProfileArgs): Promise<str
   })
   if (result.error) return result.error
 
-  const floor = args.min_charted ?? Math.round(DEFAULT_MIN_CHARTED / 5)
+  const floor = resolveTargetMinCharted(args.min_charted)
   if (result.rows.length === 0) {
     return (
       `No receivers with at least ${floor} charted targets found for those filters. Charting is ` +
@@ -3319,7 +3322,7 @@ export const getTargetProfileDescription =
   'most-targeted receivers, so MOST rows are provisional and this is the norm rather than an ' +
   'edge case: say so when quoting 2025 target figures. Per-metric denominators ship as ' +
   'air_yards_charted_plays / yards_after_catch_charted_plays, plus derived coverage fractions. ' +
-  `Floored at ${Math.round(DEFAULT_MIN_CHARTED / 5)} by default (receivers see far fewer plays than ` +
+  `Floored at ${DEFAULT_TARGET_MIN_CHARTED} by default (receivers see far fewer plays than ` +
   'the passer throwing to all of them), applied to the denominator matching your sort: ' +
   'targets_charted for targets/target_share, air_yards_charted_plays for adot/air_yards, ' +
   'yards_after_catch_charted_plays for yac. Those diverge a lot -- a receiver can have 155 ' +
@@ -3339,7 +3342,7 @@ export const getTargetProfileInputShape = {
     .int()
     .min(1)
     .optional()
-    .describe(`Minimum charted targets. Default ${Math.round(DEFAULT_MIN_CHARTED / 5)}. A receiver with 3 charted targets has an aDOT and it means nothing.`),
+    .describe(`Minimum charted targets. Default ${DEFAULT_TARGET_MIN_CHARTED}. A receiver with 3 charted targets has an aDOT and it means nothing.`),
   sort: z
     .enum(['targets', 'adot', 'air_yards', 'target_share', 'yac'])
     .optional()

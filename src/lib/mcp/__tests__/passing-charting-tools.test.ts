@@ -103,6 +103,15 @@ describe('get_passing_charting', () => {
     expect(out.coverage_note).toMatch(/CHARTED plays/)
   })
 
+  it('echoes the ENFORCED floor, not the requested one', async () => {
+    mockPlayers.mockResolvedValue({ rows: [BECK], error: null })
+    // A direct TS caller bypasses the zod .min(1). The query normalizes 0 away
+    // to the default, so echoing the raw arg would have the response claim a
+    // threshold that was never applied -- and a reader cannot detect that.
+    const out = JSON.parse(await getPassingChartingTool({ min_charted: 0 }))
+    expect(out.min_charted_attempts).toBe(DEFAULT_MIN_CHARTED)
+  })
+
   it('reports a caller-supplied floor rather than the default', async () => {
     mockPlayers.mockResolvedValue({ rows: [BECK], error: null })
     const out = JSON.parse(await getPassingChartingTool({ min_charted: 10 }))
@@ -171,6 +180,12 @@ describe('get_target_profile', () => {
     // A receiver sees a fraction of the plays the passer does; reusing the
     // passer floor would empty the board.
     expect(out.min_charted_targets).toBeLessThan(DEFAULT_MIN_CHARTED)
+    expect(out.min_charted_targets).toBe(Math.round(DEFAULT_MIN_CHARTED / 5))
+  })
+
+  it('echoes the ENFORCED target floor, not the requested one', async () => {
+    mockTargets.mockResolvedValue({ rows: [TARGET], error: null })
+    const out = JSON.parse(await getTargetProfileTool({ min_charted: -3 }))
     expect(out.min_charted_targets).toBe(Math.round(DEFAULT_MIN_CHARTED / 5))
   })
 

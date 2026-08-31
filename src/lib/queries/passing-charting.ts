@@ -52,6 +52,12 @@ import { CURRENT_SEASON } from './constants'
  */
 export const DEFAULT_MIN_CHARTED = 50
 
+/**
+ * Receiver-side default. A receiver sees a fraction of the plays the passer
+ * throwing to all of them does, so reusing the passer floor empties the board.
+ */
+export const DEFAULT_TARGET_MIN_CHARTED = 10
+
 /** Charting exists from this season on; earlier seasons return nothing. */
 export const CHARTING_MIN_SEASON = 2025
 
@@ -188,6 +194,26 @@ function positive(value: number | undefined): number | undefined {
 }
 
 /**
+ * The floor these queries will actually apply, given a requested value.
+ *
+ * Exported so the tool layer echoes the floor that was ENFORCED rather than
+ * the one that was asked for. Those diverge whenever a value is normalized
+ * away -- `min_charted: 0` from a direct caller applies the default but would
+ * report 0 -- and a response that misstates its own eligibility threshold is
+ * worse than one that omits it, because a reader has no way to notice.
+ * Deriving both from this function makes the two impossible to drift apart,
+ * rather than keeping them in sync by hand.
+ */
+export function resolvePlayerMinCharted(requested?: number): number {
+  return positive(requested) ?? DEFAULT_MIN_CHARTED
+}
+
+/** Receiver-side equivalent; see resolvePlayerMinCharted. */
+export function resolveTargetMinCharted(requested?: number): number {
+  return positive(requested) ?? DEFAULT_TARGET_MIN_CHARTED
+}
+
+/**
  * Coverage as a fraction of total attempts, to 3dp.
  *
  * Returns null when either side is missing or attempts is 0 -- an unknown
@@ -212,7 +238,7 @@ export async function queryPassingChartingPlayers(
 ): Promise<McpResult<PassingChartingPlayerRow>> {
   const supabase = await createClient()
   const sort = filter.sort ?? 'adot'
-  const minCharted = positive(filter.minCharted) ?? DEFAULT_MIN_CHARTED
+  const minCharted = resolvePlayerMinCharted(filter.minCharted)
 
   let query = supabase
     .schema('api')
@@ -331,7 +357,7 @@ export async function queryTargetProfiles(
   const sort = filter.sort ?? 'targets'
   // Receivers see far fewer plays than the passer throwing to all of them, so
   // the passer floor would empty the board; scale it down rather than reuse it.
-  const minCharted = positive(filter.minCharted) ?? Math.round(DEFAULT_MIN_CHARTED / 5)
+  const minCharted = resolveTargetMinCharted(filter.minCharted)
 
   let query = supabase
     .schema('api')
