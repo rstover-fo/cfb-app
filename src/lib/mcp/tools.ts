@@ -1435,8 +1435,12 @@ export const runSqlDescription =
   '  partial_share. target_share_charted is a share of the team CHARTED attempts, NOT a true target\n' +
   '  share -- never present it as one. partial_share > 0 means provisional rows subject to re-charting.\n' +
   '  Same floor rule as above. Prefer the get_target_profile tool\n' +
-  '- api.passing_charting_team_season: (season, team_id) with offense_*/defense_* pairs. defense_* is THIS\n' +
-  '  team\'s passing defense (what opponents did against them), not the opponent row\n' +
+  '- api.passing_charting_team_season: (season, team) -- NOTE: team NAME only, this view has no team_id,\n' +
+  '  unlike passing_charting_target_season. offense_*/defense_* metric pairs plus their\n' +
+  '  *_attempts_available charted counts. defense_* is THIS team\'s passing DEFENSE (what opponents\n' +
+  '  did against them), not the opponent row. It carries NO attempts and NO completions, so neither\n' +
+  '  coverage ratio is computable from this view alone -- report the raw *_attempts_available counts\n' +
+  '  and say the window is weeks 9-16, or use the player/target views where the base columns exist\n' +
   '- api.refresh_campaign_status: (campaign, season) -- games_refreshed, games_no_data, completed_at,\n' +
   '  last_finalized_at. The 2014-2025 corrections campaign drains through ~early October and shifts\n' +
   '  historical EPA slightly. completed_at IS NOT NULL means that season is settled; until then treat\n' +
