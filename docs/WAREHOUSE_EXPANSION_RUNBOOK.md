@@ -195,6 +195,29 @@ early October. The bot's long-term memory and prediction ledger persist answers 
 sessions, so numbers recorded now will disagree with the same query later. Until cfb-database
 exposes per-season completion flags, treat pre-2026 EPA in stored answers as provisional.
 
+**The charting tripwire.** cfb-database's suggestion, and worth keeping. Today
+`air_yards_charted_plays = targets_charted x (1 - partial_share)` holds exactly across every
+row -- because CFBD's 2025 charting lands whole-play, so a play either has all five charting
+fields or none. That identity is explicitly **not** a contract; the fields can decouple. Which
+makes the moment it stops holding a useful signal rather than a problem: it means charting has
+started arriving field-by-field, from backfill or re-charting, and that is exactly when the
+separate per-metric coverage denominators start doing real work instead of agreeing with each
+other.
+
+```sql
+SELECT count(*) FILTER (
+         WHERE abs((targets_charted::numeric * (1 - partial_share::numeric))
+                   - air_yards_charted_plays::numeric) >= 0.01
+       ) AS identity_broken
+FROM api.passing_charting_target_season
+WHERE season = 2025 AND targets_charted >= 5;
+```
+
+Last run 2026-08-31: 0 broken of 1,608, max deviation 6.2e-19 (float noise). Cheap to check
+when touching this surface, free to ignore otherwise -- nothing depends on the identity, and
+the query layer computes each coverage from its own denominator rather than from
+`partial_share`.
+
 **Announcing.** Nothing here is announceable to the Discord until stage 1 clears its gate.
 Before then the bot cannot reach any of it, and its failure mode on an unreachable surface is
 guessing rather than declining — which is the risk this whole plan exists to avoid.
