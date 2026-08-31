@@ -153,19 +153,31 @@ cfb-database shipped the additive extension in PR #81 -- `games`, `usage_overall
 `usage_pass`, `usage_rush`, `ppa_overview_avg`, `ppa_overview_total` are on
 `api.player_detail` now and the fanout fix landed with them.
 
-**Blocked on data, as of 2026-08-31.** The `stats.player_season_overview` backfill is ~13%
-drained and all of it is 2025:
+**Blocked on data, but draining actively.** As of 2026-08-31 the
+`stats.player_season_overview` backfill sits at ~7,950 of ~47,150 player-seasons (~17%),
+expected to finish the same day.
 
-| season | rows | usage populated |
-|---|---|---|
-| 2014-2020 | 121,771 | 0 |
-| 2021-2023 | 71,564 | 0 |
-| 2024 | 22,843 | 39 |
-| 2025 | 30,008 | 5,542 |
+**Read the readiness query knowing the fill order: NEWEST SEASON FIRST.** Mid-drain it looks
+far worse than it is -- older seasons read exactly 0 not because they are broken or skipped,
+but because the drain has not reached them:
 
-Re-run the readiness query in step 2b before picking this up. Once 2014-2025 fills in, adopt
-the columns for new capability first; migrating `/players` and `/players/[id]` off the
-`public.get_player_*` RPCs is cleanup and can trail.
+| season | rows | usage populated | |
+|---|---|---|---|
+| 2025 | 30,008 | 5,542 | filling |
+| 2024 | 22,843 | 2,382 | filling (was 39 an hour earlier) |
+| 2023 and older | 193,335 | 0 | not yet reached |
+
+A zero in an old season is therefore a *progress* reading, not a verdict. Compare two
+readings a few minutes apart -- a moving newest-season count means the drain is healthy;
+uniformly static counts across a re-check mean it has stalled.
+
+**Two independent clocks, do not conflate them.** This drain is ours and does not touch the
+passing tables at all. The 2025 charting gaps (weeks 1-8) are CFBD's production frontier and
+arrive only via scheduled re-pulls, so charting coverage will not improve when this drain
+finishes, and vice versa. See the missingness taxonomy in the `run_sql` schema card.
+
+Once this fills, adopt the columns for new capability first; migrating `/players` and
+`/players/[id]` off the `public.get_player_*` RPCs is cleanup and can trail.
 
 ### Stage 4 — P2 surfaces
 
