@@ -62,20 +62,34 @@ describe('queryPassingChartingPlayers floor', () => {
     expect(chain.limit).toHaveBeenCalled()
   })
 
-  it('derives per-metric coverage from total attempts, and leaves it null when unknowable', async () => {
+  it('derives each coverage over the denominator its metric can exist on', async () => {
     mockClient({
       apiTables: {
         passing_charting_player_season: ok([
-          { attempts: 400, air_yards_attempts_available: 200, yards_after_catch_attempts_available: 100 },
-          { attempts: null, air_yards_attempts_available: 50, yards_after_catch_attempts_available: 25 },
+          {
+            attempts: 400,
+            completions: 200,
+            air_yards_attempts_available: 200,
+            yards_after_catch_attempts_available: 100,
+          },
+          {
+            attempts: null,
+            completions: null,
+            air_yards_attempts_available: 50,
+            yards_after_catch_attempts_available: 25,
+          },
         ]),
       },
     })
     const { rows } = await queryPassingChartingPlayers({})
+    // Air yards exist on every attempt, so attempts is the denominator.
     expect(rows[0].air_yards_coverage_pct).toBe(0.5)
-    expect(rows[0].yards_after_catch_coverage_pct).toBe(0.25)
+    // YAC exists only on a completion. Over attempts this would read 0.25 and
+    // understate coverage by half, by counting incompletions as uncharted.
+    expect(rows[0].yards_after_catch_coverage_pct).toBe(0.5)
     // Unknown coverage must not render as 0.0, which reads as "nothing charted".
     expect(rows[1].air_yards_coverage_pct).toBeNull()
+    expect(rows[1].yards_after_catch_coverage_pct).toBeNull()
   })
 
   it('falls back to the default floor and limit on non-positive values', async () => {
@@ -137,5 +151,19 @@ describe('queryTargetProfiles floor', () => {
     expect(rows[0].target_share_charted).toBe(0.344)
     expect(rows[0].partial_share).toBe(0.665)
     expect(rows[0].air_yards_coverage_pct).toBeCloseTo(0.335, 3)
+  })
+
+  it('derives receiver YAC coverage over receptions, not targets', async () => {
+    mockClient({
+      apiTables: {
+        passing_charting_target_season: ok([
+          { targets_charted: 100, receptions: 50, air_yards_charted_plays: 40, yards_after_catch_charted_plays: 25 },
+        ]),
+      },
+    })
+    const { rows } = await queryTargetProfiles({})
+    expect(rows[0].air_yards_coverage_pct).toBe(0.4)
+    // 25/50, not 25/100 -- an uncaught target has no YAC to chart.
+    expect(rows[0].yards_after_catch_coverage_pct).toBe(0.5)
   })
 })

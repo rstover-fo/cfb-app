@@ -1354,6 +1354,21 @@ export const runSqlDescription =
   'SCHEMA CARD -- always prefix views with api. All snake_case. Team names are exact and ' +
   "case-sensitive ('Ohio State', 'Miami (OH)', 'Texas A&M'). season is the fall year; " +
   "season_type is 'regular' or 'postseason'.\n" +
+  'WHY A NUMBER IS MISSING -- three causes, and they take OPPOSITE caveats. Classify before\n' +
+  'you qualify; mixing them up produces a confidently wrong hedge:\n' +
+  '  (a) UPSTREAM PRODUCTION IN PROGRESS -- the 2025 pass-charting gaps. CFBD charts backward\n' +
+  '      from the season end, so weeks 1-8 are uncharted. Real, and faithfully reflected, but\n' +
+  '      it does NOT resolve by waiting: 2025 is a completed season and only updates on\n' +
+  '      explicit re-pulls. Say the figure covers weeks 9-16 and may move; never say\n' +
+  '      "check back later".\n' +
+  '  (b) STRUCTURAL -- permanent, and not missing data at all. YAC exists only on a\n' +
+  '      completion; a spike or throwaway has no air yards. That is football, not a gap.\n' +
+  '      Never caveat these as incomplete, and never divide by a denominator the metric\n' +
+  '      cannot exist on.\n' +
+  '  (c) OUR BACKFILL STILL DRAINING -- the only "wait and it improves" case. Covers\n' +
+  '      api.player_detail usage/PPA/games (NULL for most players today) and coach_id\n' +
+  '      sparsity on api.coaching_history / api.coach_records (match rates rise as\n' +
+  '      ref.coach_seasons fills). Here "still loading" is the correct, honest hedge.\n' +
   'Core views (key columns):\n' +
   '- api.team_detail: school, conference, wins, losses, ppg, opp_ppg, sp_rating, sp_rank, elo, fpi, core_overall/core_offense/core_defense (CFBD CORE, NULL = not rated), epa_per_play, recruiting_rank (current season, FBS only)\n' +
   '- api.team_history: school (column: team), season, wins, losses, ppg, opp_ppg, avg_margin,\n' +
@@ -1418,9 +1433,13 @@ export const runSqlDescription =
   '- api.passing_charting_player_season: PASSER charting, 2025+ ONLY (season, player_id, team): attempts,\n' +
   '  completions, completion_rate, total_air_yards, average_depth_of_target, total_yards_after_catch,\n' +
   '  average_yards_after_catch, + TWO coverage denominators air_yards_attempts_available and\n' +
-  '  yards_after_catch_attempts_available. COVERAGE IS PARTIAL AND THIS RUINS NAIVE LEADERBOARDS:\n' +
-  '  2025 has 820 player-seasons, ~413 with nothing charted; the best-covered passer is 288/462\n' +
-  '  attempts (62%) -- nobody is complete. The averages divide by the CHARTED count, not by attempts\n' +
+  '  yards_after_catch_attempts_available (the latter bounded by completions -- YAC needs a catch).\n' +
+  '  COVERAGE IS A TIME WINDOW, NOT A QUALITY SCORE: CFBD charts 2025 backward from the season end,\n' +
+  '  so weeks 1-7 are 0% charted, week 8 is 2.7%, weeks 9-16 are 92-100%. These are LATE-SEASON\n' +
+  '  figures; low coverage means that passer played early, not that he is badly measured, and\n' +
+  '  cross-player comparison is fair because everyone shares the window. It has NOT finished\n' +
+  '  filling: 2025 is a completed season, so it updates only on explicit re-pulls -- a moving\n' +
+  '  snapshot, not settled totals. The averages divide by the CHARTED count, not by attempts\n' +
   '  (aDOT = total_air_yards / air_yards_attempts_available), so ORDER BY average_depth_of_target\n' +
   '  without a denominator floor ranks noise. Always add e.g. WHERE air_yards_attempts_available >= 50\n' +
   '  and show the denominator. NULL = not charted, never 0. Prefer the get_passing_charting tool\n' +
@@ -1431,8 +1450,12 @@ export const runSqlDescription =
   '  partial_share. target_share_charted is a share of the team CHARTED attempts, NOT a true target\n' +
   '  share -- never present it as one. partial_share > 0 means provisional rows subject to re-charting.\n' +
   '  Same floor rule as above. Prefer the get_target_profile tool\n' +
-  '- api.passing_charting_team_season: (season, team_id) with offense_*/defense_* pairs. defense_* is THIS\n' +
-  '  team\'s passing defense (what opponents did against them), not the opponent row\n' +
+  '- api.passing_charting_team_season: (season, team) -- NOTE: team NAME only, this view has no team_id,\n' +
+  '  unlike passing_charting_target_season. offense_*/defense_* metric pairs plus their\n' +
+  '  *_attempts_available charted counts. defense_* is THIS team\'s passing DEFENSE (what opponents\n' +
+  '  did against them), not the opponent row. It carries NO attempts and NO completions, so neither\n' +
+  '  coverage ratio is computable from this view alone -- report the raw *_attempts_available counts\n' +
+  '  and say the window is weeks 9-16, or use the player/target views where the base columns exist\n' +
   '- api.refresh_campaign_status: (campaign, season) -- games_refreshed, games_no_data, completed_at,\n' +
   '  last_finalized_at. The 2014-2025 corrections campaign drains through ~early October and shifts\n' +
   '  historical EPA slightly. completed_at IS NOT NULL means that season is settled; until then treat\n' +
@@ -3218,14 +3241,29 @@ export const getPassingChartingDescription =
   'pass-charting. Use for "who throws deepest", "which QB has the highest aDOT", "how much of ' +
   "Oklahoma's passing yardage is air vs YAC\". Backed by api.passing_charting_player_season " +
   '(one row per season/player/team). ' +
-  'COVERAGE IS THE TRAP HERE and you must carry it into every answer. Charting starts in 2025 ' +
-  'and is PARTIAL: of 820 player-seasons in 2025, only ~407 have anything charted, and the ' +
-  'best-covered passer sits at 288 of 462 attempts (62%). Nobody is fully charted. The averages ' +
+  'COVERAGE IS THE TRAP HERE and you must carry it into every answer -- but carry it CORRECTLY. ' +
+  'CFBD charts 2025 backward from the end of the season: as of now weeks 1-7 are 0% charted, ' +
+  'week 8 is 2.7%, weeks 9-16 are 92-100%. So these figures are a LATE-SEASON WINDOW, and a ' +
+  "player's coverage percentage is his share of attempts falling inside it -- NOT a measurement-" +
+  'quality score. A passer at 26% coverage played most of his season before week 9; he is not ' +
+  'badly measured, he is measured over a smaller window. Say "through weeks 9-16" or "on N ' +
+  'charted throws", never "this number is unreliable". Cross-player comparison IS fair, since ' +
+  'everyone shares the same window. Two real consequences: a player benched or injured after ' +
+  'week 8 shows near-0% coverage and a late-season riser shows near-100%, so coverage doubles ' +
+  'as a when-did-he-play signal; and because 2025 is a completed season it only updates on ' +
+  'explicit re-pulls, so these are a moving snapshot, not settled totals -- do not store them ' +
+  'as final. Of 820 player-seasons in 2025, ~407 have anything charted. The averages ' +
   'are computed over charted plays ONLY -- aDOT is total_air_yards / air_yards_attempts_available, ' +
   'NOT per attempt -- so a player with 8 charted attempts can top a naive leaderboard on noise. ' +
-  'Two separate denominators ship because air-yards and YAC charting cover different play sets ' +
-  '(air_yards_attempts_available vs yards_after_catch_attempts_available), plus derived ' +
-  'air_yards_coverage_pct / yards_after_catch_coverage_pct as fractions of total attempts. ' +
+  'Two separate denominators ship because YAC exists only on completions while air yards exist ' +
+  'on every attempt (air_yards_attempts_available vs yards_after_catch_attempts_available). ' +
+  'The derived air_yards_coverage_pct is over ATTEMPTS and yards_after_catch_coverage_pct is ' +
+  'over COMPLETIONS for that reason, and both land near 0.52 for a full-season starter -- ' +
+  'essentially the size of the charted window. One caveat on the air-yards side: `attempts` ' +
+  'includes spikes and throwaways, which structurally have no air yards, so that ratio is a ' +
+  'hair pessimistic. The effect is tiny (73 such plays in 53,554 league-wide, ~0.14%) and no ' +
+  'eligible-attempt count is exposed to subtract them, so read the two as closely comparable ' +
+  'rather than exactly so. ' +
   `Results are floored at ${DEFAULT_MIN_CHARTED} charted attempts by default, applied to whichever ` +
   'denominator matches your sort (aDOT and air-yards sorts floor on air_yards_attempts_available; ' +
   'a yac_per_completion sort floors on yards_after_catch_attempts_available), so the floor always ' +
@@ -3318,9 +3356,15 @@ export const getTargetProfileDescription =
   'target_share_charted is a share of the team CHARTED attempts, NOT a true target share -- do ' +
   'not call it "target share" without the qualifier, because the charted set is a partial sample; ' +
   'and partial_share is the fraction of contributing plays whose upstream parse_status is ' +
-  "'partial', i.e. provisional and subject to re-charting -- in 2025 that runs 0.35-0.66 on the " +
-  'most-targeted receivers, so MOST rows are provisional and this is the norm rather than an ' +
-  'edge case: say so when quoting 2025 target figures. Per-metric denominators ship as ' +
+  "'partial', running 0.35-0.66 on the most-targeted receivers. In 2025 it happens to track the " +
+  'UNCHARTED-WEEK set closely, because CFBD charts backward from the season end and the current ' +
+  'missingness is a whole-week slice -- but that coincidence is explicitly NOT a contract ' +
+  '(cfb-database verified the charting fields can decouple), so do not compute one from the ' +
+  'other or treat partial_share as a week marker. Read it as what it is: the parse-status share. ' +
+  'Those plays get ' +
+  'charted as CFBD works backward, so the figures WILL move -- treat 2025 target numbers as a ' +
+  'late-season snapshot rather than a settled season total, and do not store them as final. ' +
+  'Per-metric denominators ship as ' +
   'air_yards_charted_plays / yards_after_catch_charted_plays, plus derived coverage fractions. ' +
   `Floored at ${DEFAULT_TARGET_MIN_CHARTED} by default (receivers see far fewer plays than ` +
   'the passer throwing to all of them), applied to the denominator matching your sort: ' +

@@ -157,9 +157,23 @@ export interface PassingChartingPlayerRow {
   average_yards_after_catch: number | null
   /** Charted-play count the YAC metrics are averaged over. Differs from the air-yards one. */
   yards_after_catch_attempts_available: number | null
-  /** DERIVED (not a view column): air_yards_attempts_available / attempts. */
+  /**
+   * DERIVED: air_yards_attempts_available / attempts.
+   *
+   * NOT a measurement-quality score. CFBD charts 2025 backward from the end of
+   * the season, so as of this writing weeks 1-7 are 0% charted, week 8 is 2.7%,
+   * and weeks 9-16 are 92-100%. A player's "coverage" is therefore his share of
+   * attempts falling in the charted WINDOW, not a random sample of his throws.
+   * Low coverage means most of his season was early, not that he is poorly
+   * measured -- so the caveat to attach is "this is a late-season figure",
+   * not "this number is unreliable".
+   *
+   * It also does not fill in on its own: 2025 is a completed season, so the
+   * daily load skips it and new charting arrives only on explicit re-pulls.
+   * Treat these as a moving snapshot rather than settled season totals.
+   */
   air_yards_coverage_pct: number | null
-  /** DERIVED (not a view column): yards_after_catch_attempts_available / attempts. */
+  /** DERIVED: yards_after_catch_attempts_available / COMPLETIONS. See above. */
   yards_after_catch_coverage_pct: number | null
 }
 
@@ -228,8 +242,22 @@ function coverage(charted: number | null | undefined, attempts: number | null | 
 function withPlayerCoverage(row: PassingChartingPlayerRow): PassingChartingPlayerRow {
   return {
     ...row,
+    // `attempts` is the closest available denominator, not a perfect one: it
+    // includes spikes and throwaways, which structurally cannot carry air
+    // yards, so this reads slightly pessimistic. By the rule in the schema
+    // card's missingness taxonomy those should be excluded -- but no
+    // eligible-attempt count is exposed on the view, and the effect is 73
+    // plays in 53,554 league-wide (~0.14%), far below the precision anyone
+    // reads off this. Documented rather than silently approximated.
     air_yards_coverage_pct: coverage(row.air_yards_attempts_available, row.attempts),
-    yards_after_catch_coverage_pct: coverage(row.yards_after_catch_attempts_available, row.attempts),
+    // COMPLETIONS, not attempts: yards after catch only exist on a completion,
+    // so dividing by attempts conflates "not caught" (a correct absence) with
+    // "not charted" (missing data) and understates coverage by roughly a
+    // third. Verified live: yards_after_catch_attempts_available <= completions
+    // on 152/152 qualifying 2025 passers, and the resulting ratio (0.520) then
+    // matches air-yards coverage over attempts (0.533) -- as it should, since
+    // both measure the same charted-week window.
+    yards_after_catch_coverage_pct: coverage(row.yards_after_catch_attempts_available, row.completions),
   }
 }
 
@@ -342,7 +370,10 @@ function withTargetCoverage(row: TargetProfileRow): TargetProfileRow {
     target_share_charted: round3(row.target_share_charted),
     partial_share: round3(row.partial_share),
     air_yards_coverage_pct: coverage(row.air_yards_charted_plays, row.targets_charted),
-    yards_after_catch_coverage_pct: coverage(row.yards_after_catch_charted_plays, row.targets_charted),
+    // RECEPTIONS, not targets -- see withPlayerCoverage. Verified live:
+    // yards_after_catch_charted_plays <= receptions on 844/844 rows, and the
+    // targets-based figure understated coverage 0.293 against 0.439.
+    yards_after_catch_coverage_pct: coverage(row.yards_after_catch_charted_plays, row.receptions),
   }
 }
 
