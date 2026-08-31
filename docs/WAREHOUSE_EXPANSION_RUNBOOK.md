@@ -55,7 +55,30 @@ view is readable by the web app and *invisible to the Discord bot*, which is how
 (`count(*)` vs `count(DISTINCT <key>)`) matches what the work order asked for, before anything
 depends on it.
 
-If the gate fails, it goes back to cfb-database. Do not work around it in cfb-app.
+**2b. GATE, second half -- is it POPULATED?** Reachability is not readiness, and the
+difference is invisible until you query for it. A view can deploy, pass every grant and
+owner-rights check, and still be almost entirely NULL because its backing backfill is still
+draining. Building a tool against that ships a surface that answers every question with null.
+
+So before building, count what is actually there, per season:
+
+```sql
+SELECT season, count(*) AS rows_n, count(<the new column>) AS populated
+FROM api.<view> GROUP BY season ORDER BY season;
+```
+
+This is not hypothetical -- it is what stopped stage 3 on 2026-08-31. `api.player_detail`'s
+new usage/PPA columns were live and reachable, and populated on 5,581 of ~44,000 expected
+rows (~13%), all of it in 2025: seasons 2014-2023 were at exactly zero across 121,771 rows.
+A "player hub" tool built that day would have returned nulls for almost every question.
+
+Judgement, not a fixed threshold: a surface that is thin *and honest about it* can ship (stage
+1 went out at ~50% charted because the coverage denominators make the thinness legible in
+every answer), while a surface that is uniformly NULL for whole seasons cannot, because there
+is nothing for a caveat to attach to.
+
+If either half of the gate fails, it goes back to cfb-database -- or waits. Do not work around
+it in cfb-app.
 
 **3. cfb-app consumes.** Per `src/lib/mcp/tools.ts` (which is the registry — there is no
 separate registry file):
@@ -124,11 +147,25 @@ cfb-app rekeys `src/lib/queries/coaches.ts` onto `coach_id` and adds `get_coach_
 *Done when:* `/coaches` and `get_coaching_history` key on `coach_id`, and those three
 workarounds are gone rather than merely bypassed.
 
-### Stage 3 — player hub (blocked on stage 0)
+### Stage 3 — player hub (DB side done; blocked on backfill, not on code)
 
-cfb-database extends `api.player_detail` additively with the `stats.player_season_overview`
-usage/PPA payload. cfb-app adopts it for new capability first; migrating `/players` and
-`/players/[id]` off the `public.get_player_*` RPCs is cleanup and can trail.
+cfb-database shipped the additive extension in PR #81 -- `games`, `usage_overall`,
+`usage_pass`, `usage_rush`, `ppa_overview_avg`, `ppa_overview_total` are on
+`api.player_detail` now and the fanout fix landed with them.
+
+**Blocked on data, as of 2026-08-31.** The `stats.player_season_overview` backfill is ~13%
+drained and all of it is 2025:
+
+| season | rows | usage populated |
+|---|---|---|
+| 2014-2020 | 121,771 | 0 |
+| 2021-2023 | 71,564 | 0 |
+| 2024 | 22,843 | 39 |
+| 2025 | 30,008 | 5,542 |
+
+Re-run the readiness query in step 2b before picking this up. Once 2014-2025 fills in, adopt
+the columns for new capability first; migrating `/players` and `/players/[id]` off the
+`public.get_player_*` RPCs is cleanup and can trail.
 
 ### Stage 4 — P2 surfaces
 
