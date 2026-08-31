@@ -5,6 +5,7 @@ import type { CoachRecord } from '@/lib/queries/coaches'
 
 function coach(overrides: Partial<CoachRecord> = {}): CoachRecord {
   return {
+    coach_id: '1234',
     coach_name: 'Bob Stoops',
     first_name: 'Bob',
     last_name: 'Stoops',

@@ -13,6 +13,6 @@ export async function fetchCoachRecords(params: import('@/lib/queries/coaches').
 // Fetched client-side on demand (dialog open), not server-rendered with the
 // page -- per-coach tenure history is only needed once a coach row is
 // clicked, so it isn't part of the initial page payload.
-export async function fetchCoachingHistory(firstName: string, lastName: string): Promise<import('@/lib/queries/coaches').CoachingTenure[]> {
-  return getCoachingHistory(firstName, lastName)
+export async function fetchCoachingHistory(firstName: string, lastName: string, coachId?: string | null): Promise<import('@/lib/queries/coaches').CoachingTenure[]> {
+  return getCoachingHistory(firstName, lastName, coachId)
 }

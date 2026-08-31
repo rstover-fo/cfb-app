@@ -4,6 +4,18 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { getTeamHistory } from '@/lib/queries/compare'
 import { getMatchup, getMatchupGames } from '@/lib/queries/matchups'
 import {
+  queryPassingChartingPlayers,
+  queryTargetProfiles,
+  resolvePlayerMinCharted,
+  resolveTargetMinCharted,
+  DEFAULT_MIN_CHARTED,
+  DEFAULT_TARGET_MIN_CHARTED,
+  CHARTING_MIN_SEASON,
+  type PassingChartingSort,
+  type TargetProfileSort,
+} from '@/lib/queries/passing-charting'
+import { queryCoachTenures } from '@/lib/queries/coach-tenures'
+import {
   DEFAULT_ROW_CAP,
   queryTeamDetail,
   queryCoreSnapshot,
@@ -1390,8 +1402,41 @@ export const runSqlDescription =
   '  only -- latest line = greatest captured_at per (game_id, provider)\n' +
   '- api.live_scoreboard: in-progress games only, empty outside live windows -- prefer the\n' +
   '  get_live_scoreboard tool\n' +
-  '- api.coaching_history: coach_name, team, tenure_start, tenure_end (null = active), seasons_count, total_wins, total_losses, win_pct, avg_sp_rating, peak_sp_rating -- one row per coach-tenure\n' +
-  '- api.coach_records: coach career-at-school grain with ATS splits (ats_wins, ats_losses)\n' +
+  '- api.coaching_history: coach_name, coach_id, team, tenure_start, tenure_end (null = active), seasons_count, total_wins, total_losses, win_pct, avg_sp_rating, peak_sp_rating -- one row per coach-tenure\n' +
+  '- api.coach_records: coach career-at-school grain with ATS splits (ats_wins, ats_losses), plus coach_id\n' +
+  '  NOTE on coach_id: SPARSE on these two aggregate views -- 28.5% on coaching_history, ~31% on\n' +
+  '  coach_records (ref.coach_seasons is still backfilling; NULL on any ambiguous name+team+year\n' +
+  '  match by design). It is 100% populated on api.coach_tenures. So when joining these views to\n' +
+  '  coach_tenures, match on (coach_name, team) and use coach_id only to break a tie: measured live,\n' +
+  '  name+team matches 99.6% of coach_records rows while coach_id matches 29%. A coach_id IS NOT NULL\n' +
+  '  filter silently drops ~70% of coaches -- never use it as the population filter. Note the\n' +
+  '  name+team join FANS OUT for a coach with two separate stints at one school (that is one\n' +
+  '  coach_records row against two coach_tenures rows), so aggregate or pick deliberately\n' +
+  '- api.coach_tenures: (coach_id, team_id, tenure_start) grain, 2,738 rows -- coach_name, team, hire_date,\n' +
+  '  tenure_end (NULL = active), is_interim, record_* splits, classification. Prefer this over\n' +
+  '  coaching_history when you need interim status or an FBS/FCS filter\n' +
+  '- api.passing_charting_player_season: PASSER charting, 2025+ ONLY (season, player_id, team): attempts,\n' +
+  '  completions, completion_rate, total_air_yards, average_depth_of_target, total_yards_after_catch,\n' +
+  '  average_yards_after_catch, + TWO coverage denominators air_yards_attempts_available and\n' +
+  '  yards_after_catch_attempts_available. COVERAGE IS PARTIAL AND THIS RUINS NAIVE LEADERBOARDS:\n' +
+  '  2025 has 820 player-seasons, ~413 with nothing charted; the best-covered passer is 288/462\n' +
+  '  attempts (62%) -- nobody is complete. The averages divide by the CHARTED count, not by attempts\n' +
+  '  (aDOT = total_air_yards / air_yards_attempts_available), so ORDER BY average_depth_of_target\n' +
+  '  without a denominator floor ranks noise. Always add e.g. WHERE air_yards_attempts_available >= 50\n' +
+  '  and show the denominator. NULL = not charted, never 0. Prefer the get_passing_charting tool\n' +
+  '- api.passing_charting_target_season: RECEIVER grain (season, target_id, team) -- the only receiver-grain\n' +
+  '  surface in api.* (player_wepa_leaders has no receiving category). targets_charted, receptions,\n' +
+  '  total_air_yards, average_depth_of_target, total_yards_after_catch, average_yards_after_catch,\n' +
+  '  air_yards_charted_plays / yards_after_catch_charted_plays denominators, target_share_charted,\n' +
+  '  partial_share. target_share_charted is a share of the team CHARTED attempts, NOT a true target\n' +
+  '  share -- never present it as one. partial_share > 0 means provisional rows subject to re-charting.\n' +
+  '  Same floor rule as above. Prefer the get_target_profile tool\n' +
+  '- api.passing_charting_team_season: (season, team_id) with offense_*/defense_* pairs. defense_* is THIS\n' +
+  '  team\'s passing defense (what opponents did against them), not the opponent row\n' +
+  '- api.refresh_campaign_status: (campaign, season) -- games_refreshed, games_no_data, completed_at,\n' +
+  '  last_finalized_at. The 2014-2025 corrections campaign drains through ~early October and shifts\n' +
+  '  historical EPA slightly. completed_at IS NOT NULL means that season is settled; until then treat\n' +
+  '  its EPA-derived numbers as provisional rather than distrusting the whole range\n' +
   '- api.poll_rankings: season, season_type, week, poll, rank, school, conference, first_place_votes, points\n' +
   '- api.leaderboard_teams: team, conference, season, wins, losses, ppg, opp_ppg, sp_rating,\n' +
   '  sp_rank, sp_offense, sp_defense (offense/defense SP+ components -- available for ALL seasons,\n' +
@@ -3119,6 +3164,287 @@ export const getExpectedPointsInputShape = {
 // ---------------------------------------------------------------------------
 // Instrumented exports
 // ---------------------------------------------------------------------------
+// 26. get_passing_charting -- api.passing_charting_player_season
+// ---------------------------------------------------------------------------
+
+export interface GetPassingChartingArgs {
+  season?: number
+  team?: string
+  conference?: string
+  min_charted?: number
+  sort?: PassingChartingSort
+  limit?: number
+}
+
+async function getPassingChartingToolImpl(args: GetPassingChartingArgs): Promise<string> {
+  if (args.season != null && args.season < CHARTING_MIN_SEASON) {
+    return (
+      `Passing charting starts in ${CHARTING_MIN_SEASON}. Season ${args.season} has no charted ` +
+      'plays -- this is a coverage boundary, not an empty result.'
+    )
+  }
+
+  const result = await queryPassingChartingPlayers({
+    season: args.season,
+    team: args.team,
+    conference: args.conference,
+    minCharted: args.min_charted,
+    sort: args.sort,
+    limit: args.limit,
+  })
+  if (result.error) return result.error
+
+  const floor = resolvePlayerMinCharted(args.min_charted)
+  if (result.rows.length === 0) {
+    return (
+      `No passers with at least ${floor} charted attempts found for those filters. 2025 has 820 ` +
+      'player-seasons but only ~407 with anything charted, so a team filter can legitimately ' +
+      'come back empty. Lower min_charted to widen it -- but say what the floor was.'
+    )
+  }
+
+  return dump({
+    ...wrap('api.passing_charting_player_season', result.rows),
+    min_charted_attempts: floor,
+    coverage_note:
+      'average_depth_of_target and average_yards_after_catch are averaged over CHARTED plays ' +
+      '(air_yards_attempts_available / yards_after_catch_attempts_available), not over attempts. ' +
+      'Quote *_coverage_pct alongside any figure from this tool.',
+  })
+}
+
+export const getPassingChartingDescription =
+  'Air yards, average depth of target (aDOT), and yards after catch for PASSERS, from CFBD ' +
+  'pass-charting. Use for "who throws deepest", "which QB has the highest aDOT", "how much of ' +
+  "Oklahoma's passing yardage is air vs YAC\". Backed by api.passing_charting_player_season " +
+  '(one row per season/player/team). ' +
+  'COVERAGE IS THE TRAP HERE and you must carry it into every answer. Charting starts in 2025 ' +
+  'and is PARTIAL: of 820 player-seasons in 2025, only ~407 have anything charted, and the ' +
+  'best-covered passer sits at 288 of 462 attempts (62%). Nobody is fully charted. The averages ' +
+  'are computed over charted plays ONLY -- aDOT is total_air_yards / air_yards_attempts_available, ' +
+  'NOT per attempt -- so a player with 8 charted attempts can top a naive leaderboard on noise. ' +
+  'Two separate denominators ship because air-yards and YAC charting cover different play sets ' +
+  '(air_yards_attempts_available vs yards_after_catch_attempts_available), plus derived ' +
+  'air_yards_coverage_pct / yards_after_catch_coverage_pct as fractions of total attempts. ' +
+  `Results are floored at ${DEFAULT_MIN_CHARTED} charted attempts by default, applied to whichever ` +
+  'denominator matches your sort (aDOT and air-yards sorts floor on air_yards_attempts_available; ' +
+  'a yac_per_completion sort floors on yards_after_catch_attempts_available), so the floor always ' +
+  'binds the sample being ranked. The floor is echoed back as min_charted_attempts. State the ' +
+  'coverage or the floor when you present a ranking -- ' +
+  'without it you are ranking on who got charted, not on who throws deepest. NULL means ' +
+  'not-yet-charted, never zero: never render a NULL metric as 0. Rows with parse_status=partial ' +
+  'upstream may be re-charted, so treat 2025 figures as provisional. ' +
+  'Returns JSON {"_source", "count", "rows", "min_charted_attempts", "coverage_note"}.'
+
+export const getPassingChartingInputShape = {
+  season: z
+    .number()
+    .int()
+    .optional()
+    .describe(`Season year. Defaults to ${CURRENT_SEASON}. Charting exists from ${CHARTING_MIN_SEASON} on; earlier seasons return a coverage-boundary message.`),
+  team: z.string().optional().describe("Exact school name, e.g. 'Oklahoma'. Case-sensitive."),
+  conference: z.string().optional().describe("Exact conference name, e.g. 'SEC', 'Big Ten'."),
+  min_charted: z
+    .number()
+    .int()
+    .min(1)
+    .optional()
+    .describe(`Minimum charted attempts (floors air_yards_attempts_available). Default ${DEFAULT_MIN_CHARTED}. Lower it to widen a thin team, but say so when you do.`),
+  sort: z
+    .enum(['adot', 'air_yards', 'yac_per_completion', 'attempts'])
+    .optional()
+    .describe("Sort key, all descending. Default 'adot'."),
+  limit: z.number().int().min(1).max(DEFAULT_ROW_CAP).optional().describe('Max rows (default 25, server-capped at 100).'),
+} as const
+
+// ---------------------------------------------------------------------------
+// 27. get_target_profile -- api.passing_charting_target_season
+// ---------------------------------------------------------------------------
+
+export interface GetTargetProfileArgs {
+  season?: number
+  team?: string
+  min_charted?: number
+  sort?: TargetProfileSort
+  limit?: number
+}
+
+async function getTargetProfileToolImpl(args: GetTargetProfileArgs): Promise<string> {
+  if (args.season != null && args.season < CHARTING_MIN_SEASON) {
+    return (
+      `Target charting starts in ${CHARTING_MIN_SEASON}. Season ${args.season} has no charted ` +
+      'targets -- this is a coverage boundary, not an empty result.'
+    )
+  }
+
+  const result = await queryTargetProfiles({
+    season: args.season,
+    team: args.team,
+    minCharted: args.min_charted,
+    sort: args.sort,
+    limit: args.limit,
+  })
+  if (result.error) return result.error
+
+  const floor = resolveTargetMinCharted(args.min_charted)
+  if (result.rows.length === 0) {
+    return (
+      `No receivers with at least ${floor} charted targets found for those filters. Charting is ` +
+      'partial in 2025, so a team filter can legitimately come back empty. Lower min_charted to ' +
+      'widen it -- but say what the floor was.'
+    )
+  }
+
+  return dump({
+    ...wrap('api.passing_charting_target_season', result.rows),
+    min_charted_targets: floor,
+    coverage_note:
+      'target_share_charted is a share of the team CHARTED attempts, NOT a true target share. ' +
+      'aDOT and YAC averages are over charted plays only. Quote *_coverage_pct alongside any ' +
+      'figure, and partial_share when it is non-zero.',
+  })
+}
+
+export const getTargetProfileDescription =
+  'RECEIVER-level target analysis: targets, air yards, aDOT, yards after catch, and target ' +
+  'share, from CFBD pass-charting. Use for "who is the best deep threat", "which receiver ' +
+  "leads Oklahoma in targets\", \"who gets the most air yards\". Backed by " +
+  'api.passing_charting_target_season (one row per season/target_id/team). ' +
+  'This is the ONLY receiver-grain surface in the contract -- api.player_wepa_leaders has ' +
+  'passing/rushing/kicking and no receiving category, so receiver questions come here. ' +
+  'COVERAGE RULES, same as get_passing_charting and just as load-bearing: charting starts in ' +
+  '2025 and is partial, the averages are over CHARTED plays only, and NULL means not-yet-charted ' +
+  'rather than zero. Two things are specific to this view and easy to misreport: ' +
+  'target_share_charted is a share of the team CHARTED attempts, NOT a true target share -- do ' +
+  'not call it "target share" without the qualifier, because the charted set is a partial sample; ' +
+  'and partial_share is the fraction of contributing plays whose upstream parse_status is ' +
+  "'partial', i.e. provisional and subject to re-charting -- in 2025 that runs 0.35-0.66 on the " +
+  'most-targeted receivers, so MOST rows are provisional and this is the norm rather than an ' +
+  'edge case: say so when quoting 2025 target figures. Per-metric denominators ship as ' +
+  'air_yards_charted_plays / yards_after_catch_charted_plays, plus derived coverage fractions. ' +
+  `Floored at ${DEFAULT_TARGET_MIN_CHARTED} by default (receivers see far fewer plays than ` +
+  'the passer throwing to all of them), applied to the denominator matching your sort: ' +
+  'targets_charted for targets/target_share, air_yards_charted_plays for adot/air_yards, ' +
+  'yards_after_catch_charted_plays for yac. Those diverge a lot -- a receiver can have 155 ' +
+  'charted targets but only 52 with air yards parsed -- so the floor tracks the ranked metric ' +
+  'rather than volume. Echoed as min_charted_targets. ' +
+  'Returns JSON {"_source", "count", "rows", "min_charted_targets", "coverage_note"}.'
+
+export const getTargetProfileInputShape = {
+  season: z
+    .number()
+    .int()
+    .optional()
+    .describe(`Season year. Defaults to ${CURRENT_SEASON}. Charting exists from ${CHARTING_MIN_SEASON} on.`),
+  team: z.string().optional().describe("Exact school name, e.g. 'Ohio State'. Case-sensitive."),
+  min_charted: z
+    .number()
+    .int()
+    .min(1)
+    .optional()
+    .describe(`Minimum charted targets. Default ${DEFAULT_TARGET_MIN_CHARTED}. A receiver with 3 charted targets has an aDOT and it means nothing.`),
+  sort: z
+    .enum(['targets', 'adot', 'air_yards', 'target_share', 'yac'])
+    .optional()
+    .describe("Sort key, all descending. Default 'targets'."),
+  limit: z.number().int().min(1).max(DEFAULT_ROW_CAP).optional().describe('Max rows (default 25, server-capped at 100).'),
+} as const
+
+
+// ---------------------------------------------------------------------------
+// 28. get_coach_tenure -- api.coach_tenures
+// ---------------------------------------------------------------------------
+
+export interface GetCoachTenureArgs {
+  coach?: string
+  team?: string
+  season?: number
+  active_only?: boolean
+  exclude_interim?: boolean
+  interim_only?: boolean
+  classification?: string
+  limit?: number
+}
+
+async function getCoachTenureToolImpl(args: GetCoachTenureArgs): Promise<string> {
+  if (!args.coach && !args.team && args.season == null && !args.active_only && !args.interim_only) {
+    return (
+      'Provide at least one of coach, team, season, active_only, or interim_only -- an ' +
+    'unfiltered tenure list ' +
+      'is just the 25 most recent hires across all of college football.'
+    )
+  }
+
+  const result = await queryCoachTenures({
+    coach: args.coach,
+    team: args.team,
+    season: args.season,
+    activeOnly: args.active_only,
+    excludeInterim: args.exclude_interim,
+    interimOnly: args.interim_only,
+    classification: args.classification,
+    limit: args.limit,
+  })
+  if (result.error) return result.error
+
+  if (result.rows.length === 0) {
+    return (
+      'No coaching tenures found for those filters. Coach names match as a case-insensitive ' +
+      'substring, so a partial surname works; team names are exact and case-sensitive.'
+    )
+  }
+
+  return dump(wrap('api.coach_tenures', result.rows))
+}
+
+export const getCoachTenureDescription =
+  'Coaching tenures with real coach ids: who coached where, when they were hired, whether they ' +
+  'were interim, and their record for that stint. Use for "who coaches Oklahoma", "when was ' +
+  'Brent Venables hired", "which coaches are interim this year" (pass interim_only), "list ' +
+  'every Alabama head ' +
+  'coach". Backed by api.coach_tenures, grain (coach_id, team_id, tenure_start) -- 2,738 ' +
+  'tenures, and a coach with two separate stints at one school correctly has two rows. ' +
+  'This is the only coach surface with a complete key: coach_id is present on 100% of rows ' +
+  'here, whereas on api.coaching_history and api.coach_records the same column is sparse ' +
+  '(~28-31%, still backfilling, and NULL by design on ambiguous matches). When joining those ' +
+  'aggregate views to this one, match on (coach_name, team) and use coach_id only to ' +
+  'disambiguate -- measured live, name+team matches 99.6% of coach_records rows while coach_id ' +
+  'matches 29%, so filtering a population on coach_id IS NOT NULL silently drops ~70% of coaches. ' +
+  'Three field-level traps: tenure_end IS NULL means STILL ACTIVE, not unknown (138 active ' +
+  'tenures) -- never render it as a missing end date; hire_date is populated on only ~28% of ' +
+  'rows (759/2,738), so its absence is unrecorded rather than "no hire"; and is_interim is the ' +
+  'authoritative interim flag (63 rows) -- use it instead of inferring interim status from a ' +
+  'low game count, which also misclassifies genuinely short full-time tenures. classification ' +
+  'is per-tenure, so it stays historically correct across a school changing divisions; it is ' +
+  'NOT filtered by default, so results include FCS unless you pass one. ' +
+  'Returns JSON {"_source": "api.coach_tenures", "count", "rows"}.'
+
+export const getCoachTenureInputShape = {
+  coach: z
+    .string()
+    .optional()
+    .describe("Case-insensitive substring of the coach's name, e.g. 'Venables', 'Saban'."),
+  team: z.string().optional().describe("Exact school name, e.g. 'Oklahoma'. Case-sensitive."),
+  season: z
+    .number()
+    .int()
+    .optional()
+    .describe('Tenures active DURING this season (span overlap, not start year). An open tenure counts for every later season.'),
+  active_only: z.boolean().optional().describe('Only currently-active tenures (tenure_end IS NULL).'),
+  exclude_interim: z.boolean().optional().describe('Drop interim stints (is_interim = true).'),
+  interim_only: z
+    .boolean()
+    .optional()
+    .describe('ONLY interim stints. Use this for "which coaches are interim" -- there are just 63 across 2,738 tenures, so without it they are lost in the first capped page.'),
+  classification: z
+    .string()
+    .optional()
+    .describe("Division filter, e.g. 'fbs'. Unset by default -- results include FCS and below."),
+  limit: z.number().int().min(1).max(DEFAULT_ROW_CAP).optional().describe('Max rows (default 25, server-capped at 100).'),
+} as const
+
+
+// ---------------------------------------------------------------------------
 // Every tool function is exported through withToolTelemetry: one
 // {evt:'tool',...} JSON log line per call (name, latency, truncated args,
 // errish flag) plus the hard per-call deadline. Both consumers -- the MCP
@@ -3151,6 +3477,9 @@ export const getPenaltyLogTool = withToolTelemetry('get_penalty_log', getPenalty
 export const getSeasonOutlookTool = withToolTelemetry('get_season_outlook', getSeasonOutlookToolImpl)
 export const getExpectedPointsTool = withToolTelemetry('get_expected_points', getExpectedPointsToolImpl)
 export const renderChartTool = withToolTelemetry('render_chart', renderChartToolImpl)
+export const getPassingChartingTool = withToolTelemetry('get_passing_charting', getPassingChartingToolImpl)
+export const getTargetProfileTool = withToolTelemetry('get_target_profile', getTargetProfileToolImpl)
+export const getCoachTenureTool = withToolTelemetry('get_coach_tenure', getCoachTenureToolImpl)
 
 // ---------------------------------------------------------------------------
 
@@ -3432,5 +3761,38 @@ export function registerMcpTools(server: McpServer): void {
       annotations: { title: 'Render Chart', ...READ_ONLY_ANNOTATIONS },
     },
     async args => textResult(await renderChartTool(args))
+  )
+
+  server.registerTool(
+    'get_passing_charting',
+    {
+      title: 'Get Passing Charting',
+      description: getPassingChartingDescription,
+      inputSchema: getPassingChartingInputShape,
+      annotations: { title: 'Get Passing Charting', ...READ_ONLY_ANNOTATIONS },
+    },
+    async args => textResult(await getPassingChartingTool(args))
+  )
+
+  server.registerTool(
+    'get_target_profile',
+    {
+      title: 'Get Target Profile',
+      description: getTargetProfileDescription,
+      inputSchema: getTargetProfileInputShape,
+      annotations: { title: 'Get Target Profile', ...READ_ONLY_ANNOTATIONS },
+    },
+    async args => textResult(await getTargetProfileTool(args))
+  )
+
+  server.registerTool(
+    'get_coach_tenure',
+    {
+      title: 'Get Coach Tenure',
+      description: getCoachTenureDescription,
+      inputSchema: getCoachTenureInputShape,
+      annotations: { title: 'Get Coach Tenure', ...READ_ONLY_ANNOTATIONS },
+    },
+    async args => textResult(await getCoachTenureTool(args))
   )
 }

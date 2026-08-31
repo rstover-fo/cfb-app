@@ -9,7 +9,7 @@ vi.mock('@/app/coaches/actions', () => ({
   fetchCoachingHistory: (...args: unknown[]) => fetchCoachingHistory(...args),
 }))
 
-const STOOPS: SelectedCoach = { firstName: 'Bob', lastName: 'Stoops', displayName: 'Bob Stoops' }
+const STOOPS: SelectedCoach = { firstName: 'Bob', lastName: 'Stoops', coachId: '1234', displayName: 'Bob Stoops' }
 
 function getBodyRows() {
   return screen.getAllByRole('row').slice(1) // drop header row
@@ -32,7 +32,8 @@ describe('CoachHistoryDialog', () => {
 
     render(<CoachHistoryDialog coach={STOOPS} onOpenChange={() => {}} />)
 
-    expect(fetchCoachingHistory).toHaveBeenCalledWith('Bob', 'Stoops')
+    // coach_id rides along so same-named coaches resolve to one history.
+    expect(fetchCoachingHistory).toHaveBeenCalledWith('Bob', 'Stoops', '1234')
     expect(screen.getByRole('heading', { name: 'Bob Stoops' })).toBeInTheDocument()
     expect(await screen.findByText('Florida')).toBeInTheDocument()
   })

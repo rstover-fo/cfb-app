@@ -11,6 +11,9 @@ import type { CoachRecordRow, CoachingTenure } from '../../coaches'
 
 export function createCoachRecordRow(overrides: Partial<CoachRecordRow> = {}): CoachRecordRow {
   return {
+    // Sparse in production (~31%); the fixture carries one so the
+    // disambiguation path is exercisable. Override to null for the common case.
+    coach_id: '1234',
     coach_name: 'Bob Stoops',
     first_name: 'Bob',
     last_name: 'Stoops',
@@ -42,6 +45,7 @@ export function createCoachRecordRow(overrides: Partial<CoachRecordRow> = {}): C
 
 export function createCoachingTenureRow(overrides: Partial<CoachingTenure> = {}): CoachingTenure {
   return {
+    coach_id: '1234',
     first_name: 'Bob',
     last_name: 'Stoops',
     team: 'Oklahoma',

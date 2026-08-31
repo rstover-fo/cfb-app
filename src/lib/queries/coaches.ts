@@ -16,6 +16,14 @@ import { CURRENT_SEASON } from './constants'
 // [] on any query error, so no special-casing is needed here for that.
 // ---------------------------------------------------------------------------
 export interface CoachRecordRow {
+  /**
+   * CFBD coachId, added additively by cfb-database PR #81. SPARSE by design:
+   * ~31% of rows carry one (ref.coach_seasons is still backfilling, and the
+   * column is NULL on any ambiguous name+team+year match). Use it to
+   * disambiguate a name collision, NEVER as a population filter -- a
+   * `coach_id IS NOT NULL` filter would drop ~70% of coaches.
+   */
+  coach_id: string | null
   coach_name: string
   first_name: string | null
   last_name: string | null
@@ -79,7 +87,7 @@ export const getCoachRecords = cache(async ({
     .schema('api')
     .from('coach_records')
     .select(
-      'coach_name, first_name, last_name, team, first_season, last_season, seasons_count, games, wins, losses, ties, win_pct, ats_games, ats_wins, ats_losses, ats_pushes, ats_win_pct, seasons_with_ats_data'
+      'coach_id, coach_name, first_name, last_name, team, first_season, last_season, seasons_count, games, wins, losses, ties, win_pct, ats_games, ats_wins, ats_losses, ats_pushes, ats_win_pct, seasons_with_ats_data'
     )
     .in('team', fbsTeams)
     .gte('games', minGames ?? DEFAULT_MIN_GAMES)
@@ -137,6 +145,8 @@ export type CoachingTenure = Pick<
   | 'talent_improvement'
   | 'is_active'
 > & {
+  /** Sparse (~28.5% of rows) -- see CoachRecordRow.coach_id. */
+  coach_id: string | null
   first_name: string
   last_name: string
   team: string
@@ -148,6 +158,7 @@ export type CoachingTenure = Pick<
 // Explicit columns - NOT select('*'). Declared `as const` so Supabase can
 // infer a literal return type instead of falling back to a generic error row.
 const COACHING_HISTORY_COLUMNS = `
+  coach_id,
   first_name,
   last_name,
   team,
@@ -175,14 +186,16 @@ const COACHING_HISTORY_COLUMNS = `
 // single "First Last" display string, not reliably splittable back into
 // parts, so the caller must pass through coach_records' first_name/
 // last_name columns directly rather than parsing coach_name). Two coaches
-// who share an exact first+last name would collide here; no such collision
-// exists in current FBS data, and api.coach_records has the identical
-// limitation, so this matches the established join strategy rather than
-// introducing a new one. Returns [] on error or no rows -- normal for a
-// coach with no history rows yet.
+// who share an exact first+last name would otherwise collide here; passing
+// the optional coachId (from api.coach_records, cfb-database PR #81)
+// separates them WHEN both sides happen to carry it. That column is sparse
+// on both views and independently so -- ~31% on coach_records, ~28.5% here --
+// which is why it narrows rather than filters: see the guard in the body.
+// Returns [] on error or no rows -- normal for a coach with no history yet.
 export const getCoachingHistory = cache(async (
   firstName: string,
-  lastName: string
+  lastName: string,
+  coachId?: string | null
 ): Promise<CoachingTenure[]> => {
   const supabase = await createClient()
 
@@ -196,5 +209,34 @@ export const getCoachingHistory = cache(async (
 
   if (error || !data) return []
 
-  return data as CoachingTenure[]
+  const rows = data as CoachingTenure[]
+
+  // coach_id disambiguates a shared name -- it does not replace the name
+  // match. It is sparse on this view (~28.5%) and sparse PER ROW, so one
+  // coach's tenures can be a mix of keyed and unkeyed, and an unkeyed row
+  // pulls in two opposite directions:
+  //
+  //   * Drop it and a real career gets truncated -- a coach with a keyed
+  //     Oklahoma tenure and an unkeyed Florida one loses Florida. Measured
+  //     live: 56 of 1,814 name groups mix keyed and unkeyed rows.
+  //   * Keep it and, IF two coaches share a name, one's tenure could be
+  //     attributed to the other. Measured live: 0 of 1,814 name groups map
+  //     to more than one coach_id, so no such collision exists today.
+  //
+  // Which risk applies is decidable from the rows themselves, since they are
+  // every row for this first+last name. One known id means an unkeyed row can
+  // only be this coach's, so keep it. Two or more means the name really is
+  // shared and an unkeyed row is genuinely unattributable, so drop it --
+  // under-reporting a career beats inventing one. The second branch is
+  // unreachable on today's data and exists so it stays correct if a collision
+  // ever loads.
+  if (coachId && rows.some(row => row.coach_id === coachId)) {
+    const knownIds = new Set(rows.map(row => row.coach_id).filter(id => id != null))
+    const nameIsShared = knownIds.size > 1
+    return rows.filter(
+      row => row.coach_id === coachId || (!nameIsShared && row.coach_id == null)
+    )
+  }
+
+  return rows
 })
