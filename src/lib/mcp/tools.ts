@@ -3337,9 +3337,12 @@ export const getTargetProfileDescription =
   'target_share_charted is a share of the team CHARTED attempts, NOT a true target share -- do ' +
   'not call it "target share" without the qualifier, because the charted set is a partial sample; ' +
   'and partial_share is the fraction of contributing plays whose upstream parse_status is ' +
-  "'partial'. In 2025 that is almost exactly the UNCHARTED-WEEK set: CFBD charts backward from " +
-  "the end of the season, so partial_share is effectively the share of this receiver's targets " +
-  'that came before week 9, running 0.35-0.66 on the most-targeted receivers. Those plays get ' +
+  "'partial', running 0.35-0.66 on the most-targeted receivers. In 2025 it happens to track the " +
+  'UNCHARTED-WEEK set closely, because CFBD charts backward from the season end and the current ' +
+  'missingness is a whole-week slice -- but that coincidence is explicitly NOT a contract ' +
+  '(cfb-database verified the charting fields can decouple), so do not compute one from the ' +
+  'other or treat partial_share as a week marker. Read it as what it is: the parse-status share. ' +
+  'Those plays get ' +
   'charted as CFBD works backward, so the figures WILL move -- treat 2025 target numbers as a ' +
   'late-season snapshot rather than a settled season total, and do not store them as final. ' +
   'Per-metric denominators ship as ' +
