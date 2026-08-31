@@ -1354,6 +1354,21 @@ export const runSqlDescription =
   'SCHEMA CARD -- always prefix views with api. All snake_case. Team names are exact and ' +
   "case-sensitive ('Ohio State', 'Miami (OH)', 'Texas A&M'). season is the fall year; " +
   "season_type is 'regular' or 'postseason'.\n" +
+  'WHY A NUMBER IS MISSING -- three causes, and they take OPPOSITE caveats. Classify before\n' +
+  'you qualify; mixing them up produces a confidently wrong hedge:\n' +
+  '  (a) UPSTREAM PRODUCTION IN PROGRESS -- the 2025 pass-charting gaps. CFBD charts backward\n' +
+  '      from the season end, so weeks 1-8 are uncharted. Real, and faithfully reflected, but\n' +
+  '      it does NOT resolve by waiting: 2025 is a completed season and only updates on\n' +
+  '      explicit re-pulls. Say the figure covers weeks 9-16 and may move; never say\n' +
+  '      "check back later".\n' +
+  '  (b) STRUCTURAL -- permanent, and not missing data at all. YAC exists only on a\n' +
+  '      completion; a spike or throwaway has no air yards. That is football, not a gap.\n' +
+  '      Never caveat these as incomplete, and never divide by a denominator the metric\n' +
+  '      cannot exist on.\n' +
+  '  (c) OUR BACKFILL STILL DRAINING -- the only "wait and it improves" case. Covers\n' +
+  '      api.player_detail usage/PPA/games (NULL for most players today) and coach_id\n' +
+  '      sparsity on api.coaching_history / api.coach_records (match rates rise as\n' +
+  '      ref.coach_seasons fills). Here "still loading" is the correct, honest hedge.\n' +
   'Core views (key columns):\n' +
   '- api.team_detail: school, conference, wins, losses, ppg, opp_ppg, sp_rating, sp_rank, elo, fpi, core_overall/core_offense/core_defense (CFBD CORE, NULL = not rated), epa_per_play, recruiting_rank (current season, FBS only)\n' +
   '- api.team_history: school (column: team), season, wins, losses, ppg, opp_ppg, avg_margin,\n' +
