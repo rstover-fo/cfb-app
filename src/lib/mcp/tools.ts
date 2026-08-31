@@ -1418,9 +1418,13 @@ export const runSqlDescription =
   '- api.passing_charting_player_season: PASSER charting, 2025+ ONLY (season, player_id, team): attempts,\n' +
   '  completions, completion_rate, total_air_yards, average_depth_of_target, total_yards_after_catch,\n' +
   '  average_yards_after_catch, + TWO coverage denominators air_yards_attempts_available and\n' +
-  '  yards_after_catch_attempts_available. COVERAGE IS PARTIAL AND THIS RUINS NAIVE LEADERBOARDS:\n' +
-  '  2025 has 820 player-seasons, ~413 with nothing charted; the best-covered passer is 288/462\n' +
-  '  attempts (62%) -- nobody is complete. The averages divide by the CHARTED count, not by attempts\n' +
+  '  yards_after_catch_attempts_available (the latter bounded by completions -- YAC needs a catch).\n' +
+  '  COVERAGE IS A TIME WINDOW, NOT A QUALITY SCORE: CFBD charts 2025 backward from the season end,\n' +
+  '  so weeks 1-7 are 0% charted, week 8 is 2.7%, weeks 9-16 are 92-100%. These are LATE-SEASON\n' +
+  '  figures; low coverage means that passer played early, not that he is badly measured, and\n' +
+  '  cross-player comparison is fair because everyone shares the window. It has NOT finished\n' +
+  '  filling: 2025 is a completed season, so it updates only on explicit re-pulls -- a moving\n' +
+  '  snapshot, not settled totals. The averages divide by the CHARTED count, not by attempts\n' +
   '  (aDOT = total_air_yards / air_yards_attempts_available), so ORDER BY average_depth_of_target\n' +
   '  without a denominator floor ranks noise. Always add e.g. WHERE air_yards_attempts_available >= 50\n' +
   '  and show the denominator. NULL = not charted, never 0. Prefer the get_passing_charting tool\n' +
@@ -3218,14 +3222,25 @@ export const getPassingChartingDescription =
   'pass-charting. Use for "who throws deepest", "which QB has the highest aDOT", "how much of ' +
   "Oklahoma's passing yardage is air vs YAC\". Backed by api.passing_charting_player_season " +
   '(one row per season/player/team). ' +
-  'COVERAGE IS THE TRAP HERE and you must carry it into every answer. Charting starts in 2025 ' +
-  'and is PARTIAL: of 820 player-seasons in 2025, only ~407 have anything charted, and the ' +
-  'best-covered passer sits at 288 of 462 attempts (62%). Nobody is fully charted. The averages ' +
+  'COVERAGE IS THE TRAP HERE and you must carry it into every answer -- but carry it CORRECTLY. ' +
+  'CFBD charts 2025 backward from the end of the season: as of now weeks 1-7 are 0% charted, ' +
+  'week 8 is 2.7%, weeks 9-16 are 92-100%. So these figures are a LATE-SEASON WINDOW, and a ' +
+  "player's coverage percentage is his share of attempts falling inside it -- NOT a measurement-" +
+  'quality score. A passer at 26% coverage played most of his season before week 9; he is not ' +
+  'badly measured, he is measured over a smaller window. Say "through weeks 9-16" or "on N ' +
+  'charted throws", never "this number is unreliable". Cross-player comparison IS fair, since ' +
+  'everyone shares the same window. Two real consequences: a player benched or injured after ' +
+  'week 8 shows near-0% coverage and a late-season riser shows near-100%, so coverage doubles ' +
+  'as a when-did-he-play signal; and because 2025 is a completed season it only updates on ' +
+  'explicit re-pulls, so these are a moving snapshot, not settled totals -- do not store them ' +
+  'as final. Of 820 player-seasons in 2025, ~407 have anything charted. The averages ' +
   'are computed over charted plays ONLY -- aDOT is total_air_yards / air_yards_attempts_available, ' +
   'NOT per attempt -- so a player with 8 charted attempts can top a naive leaderboard on noise. ' +
-  'Two separate denominators ship because air-yards and YAC charting cover different play sets ' +
-  '(air_yards_attempts_available vs yards_after_catch_attempts_available), plus derived ' +
-  'air_yards_coverage_pct / yards_after_catch_coverage_pct as fractions of total attempts. ' +
+  'Two separate denominators ship because YAC exists only on completions while air yards exist ' +
+  'on every attempt (air_yards_attempts_available vs yards_after_catch_attempts_available). ' +
+  'The derived air_yards_coverage_pct is over ATTEMPTS and yards_after_catch_coverage_pct is ' +
+  'over COMPLETIONS for that reason -- they are directly comparable and both land near 0.52 ' +
+  'for a full-season starter, which is simply the size of the charted window. ' +
   `Results are floored at ${DEFAULT_MIN_CHARTED} charted attempts by default, applied to whichever ` +
   'denominator matches your sort (aDOT and air-yards sorts floor on air_yards_attempts_available; ' +
   'a yac_per_completion sort floors on yards_after_catch_attempts_available), so the floor always ' +
@@ -3318,9 +3333,12 @@ export const getTargetProfileDescription =
   'target_share_charted is a share of the team CHARTED attempts, NOT a true target share -- do ' +
   'not call it "target share" without the qualifier, because the charted set is a partial sample; ' +
   'and partial_share is the fraction of contributing plays whose upstream parse_status is ' +
-  "'partial', i.e. provisional and subject to re-charting -- in 2025 that runs 0.35-0.66 on the " +
-  'most-targeted receivers, so MOST rows are provisional and this is the norm rather than an ' +
-  'edge case: say so when quoting 2025 target figures. Per-metric denominators ship as ' +
+  "'partial'. In 2025 that is almost exactly the UNCHARTED-WEEK set: CFBD charts backward from " +
+  "the end of the season, so partial_share is effectively the share of this receiver's targets " +
+  'that came before week 9, running 0.35-0.66 on the most-targeted receivers. Those plays get ' +
+  'charted as CFBD works backward, so the figures WILL move -- treat 2025 target numbers as a ' +
+  'late-season snapshot rather than a settled season total, and do not store them as final. ' +
+  'Per-metric denominators ship as ' +
   'air_yards_charted_plays / yards_after_catch_charted_plays, plus derived coverage fractions. ' +
   `Floored at ${DEFAULT_TARGET_MIN_CHARTED} by default (receivers see far fewer plays than ` +
   'the passer throwing to all of them), applied to the denominator matching your sort: ' +
