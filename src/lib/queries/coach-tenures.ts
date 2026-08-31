@@ -82,6 +82,20 @@ export interface CoachTenureFilter {
   limit?: number
 }
 
+/**
+ * Drop a non-positive control so `clamp`/`??` fall back to the default.
+ *
+ * `clamp` only caps the upper bound, so a negative limit reaches PostgREST
+ * and surfaces a database error for what is really a caller mistake, and
+ * `limit: 0` returns zero rows that read as "nothing matched" rather than
+ * "invalid request". A floor of 0 is worse than useless here: it admits rows
+ * with nothing charted into a ranking whose entire purpose is to exclude
+ * them. The tool schemas enforce .min(1); this protects direct callers.
+ */
+function positive(value: number | undefined): number | undefined {
+  return value != null && value > 0 ? value : undefined
+}
+
 export async function queryCoachTenures(
   filter: CoachTenureFilter
 ): Promise<McpResult<CoachTenureRow>> {
@@ -112,7 +126,7 @@ export async function queryCoachTenures(
     .order('tenure_start', { ascending: false, nullsFirst: false })
     // Deterministic tiebreak across coaches sharing a start year.
     .order('coach_id', { ascending: true })
-    .limit(clamp(filter.limit, TENURE_DEFAULT_LIMIT))
+    .limit(clamp(positive(filter.limit), TENURE_DEFAULT_LIMIT))
 
   if (error) return { rows: [], error: fail('api.coach_tenures', error) }
   return { rows: (data ?? []) as unknown as CoachTenureRow[], error: null }

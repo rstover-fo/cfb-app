@@ -174,6 +174,20 @@ export interface PassingChartingFilter {
 }
 
 /**
+ * Drop a non-positive control so `clamp`/`??` fall back to the default.
+ *
+ * `clamp` only caps the upper bound, so a negative limit reaches PostgREST
+ * and surfaces a database error for what is really a caller mistake, and
+ * `limit: 0` returns zero rows that read as "nothing matched" rather than
+ * "invalid request". A floor of 0 is worse than useless here: it admits rows
+ * with nothing charted into a ranking whose entire purpose is to exclude
+ * them. The tool schemas enforce .min(1); this protects direct callers.
+ */
+function positive(value: number | undefined): number | undefined {
+  return value != null && value > 0 ? value : undefined
+}
+
+/**
  * Coverage as a fraction of total attempts, to 3dp.
  *
  * Returns null when either side is missing or attempts is 0 -- an unknown
@@ -198,7 +212,7 @@ export async function queryPassingChartingPlayers(
 ): Promise<McpResult<PassingChartingPlayerRow>> {
   const supabase = await createClient()
   const sort = filter.sort ?? 'adot'
-  const minCharted = filter.minCharted ?? DEFAULT_MIN_CHARTED
+  const minCharted = positive(filter.minCharted) ?? DEFAULT_MIN_CHARTED
 
   let query = supabase
     .schema('api')
@@ -217,7 +231,7 @@ export async function queryPassingChartingPlayers(
     .order(PLAYER_SORT_COLUMNS[sort], { ascending: false, nullsFirst: false })
     // Deterministic tiebreak so equal metrics do not reorder between calls.
     .order('player_id', { ascending: true })
-    .limit(clamp(filter.limit, PLAYER_DEFAULT_LIMIT))
+    .limit(clamp(positive(filter.limit), PLAYER_DEFAULT_LIMIT))
 
   if (error) return { rows: [], error: fail('api.passing_charting_player_season', error) }
   const rows = (data ?? []) as unknown as PassingChartingPlayerRow[]
@@ -317,7 +331,7 @@ export async function queryTargetProfiles(
   const sort = filter.sort ?? 'targets'
   // Receivers see far fewer plays than the passer throwing to all of them, so
   // the passer floor would empty the board; scale it down rather than reuse it.
-  const minCharted = filter.minCharted ?? Math.round(DEFAULT_MIN_CHARTED / 5)
+  const minCharted = positive(filter.minCharted) ?? Math.round(DEFAULT_MIN_CHARTED / 5)
 
   let query = supabase
     .schema('api')
@@ -331,7 +345,7 @@ export async function queryTargetProfiles(
   const { data, error } = await query
     .order(TARGET_SORT_COLUMNS[sort], { ascending: false, nullsFirst: false })
     .order('target_id', { ascending: true })
-    .limit(clamp(filter.limit, TARGET_DEFAULT_LIMIT))
+    .limit(clamp(positive(filter.limit), TARGET_DEFAULT_LIMIT))
 
   if (error) return { rows: [], error: fail('api.passing_charting_target_season', error) }
   const rows = (data ?? []) as unknown as TargetProfileRow[]

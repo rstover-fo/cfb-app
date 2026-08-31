@@ -3244,13 +3244,14 @@ export const getPassingChartingInputShape = {
   min_charted: z
     .number()
     .int()
+    .min(1)
     .optional()
     .describe(`Minimum charted attempts (floors air_yards_attempts_available). Default ${DEFAULT_MIN_CHARTED}. Lower it to widen a thin team, but say so when you do.`),
   sort: z
     .enum(['adot', 'air_yards', 'yac_per_completion', 'attempts'])
     .optional()
     .describe("Sort key, all descending. Default 'adot'."),
-  limit: z.number().int().optional().describe('Max rows (default 25, server-capped at 100).'),
+  limit: z.number().int().min(1).max(DEFAULT_ROW_CAP).optional().describe('Max rows (default 25, server-capped at 100).'),
 } as const
 
 // ---------------------------------------------------------------------------
@@ -3336,13 +3337,14 @@ export const getTargetProfileInputShape = {
   min_charted: z
     .number()
     .int()
+    .min(1)
     .optional()
     .describe(`Minimum charted targets. Default ${Math.round(DEFAULT_MIN_CHARTED / 5)}. A receiver with 3 charted targets has an aDOT and it means nothing.`),
   sort: z
     .enum(['targets', 'adot', 'air_yards', 'target_share', 'yac'])
     .optional()
     .describe("Sort key, all descending. Default 'targets'."),
-  limit: z.number().int().optional().describe('Max rows (default 25, server-capped at 100).'),
+  limit: z.number().int().min(1).max(DEFAULT_ROW_CAP).optional().describe('Max rows (default 25, server-capped at 100).'),
 } as const
 
 
@@ -3435,7 +3437,7 @@ export const getCoachTenureInputShape = {
     .string()
     .optional()
     .describe("Division filter, e.g. 'fbs'. Unset by default -- results include FCS and below."),
-  limit: z.number().int().optional().describe('Max rows (default 25, server-capped at 100).'),
+  limit: z.number().int().min(1).max(DEFAULT_ROW_CAP).optional().describe('Max rows (default 25, server-capped at 100).'),
 } as const
 
 

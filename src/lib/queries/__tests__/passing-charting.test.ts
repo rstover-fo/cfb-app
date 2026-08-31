@@ -78,6 +78,18 @@ describe('queryPassingChartingPlayers floor', () => {
     expect(rows[1].air_yards_coverage_pct).toBeNull()
   })
 
+  it('falls back to the default floor and limit on non-positive values', async () => {
+    const mock = mockClient({ apiTables: { passing_charting_player_season: ok([]) } })
+    // clamp only caps the upper bound, so a negative limit would otherwise
+    // reach PostgREST and surface a database error for a caller mistake; a
+    // zero floor would admit rows with nothing charted into a ranking that
+    // exists to exclude them.
+    await queryPassingChartingPlayers({ minCharted: 0, limit: -5 })
+    const chain = apiChain(mock)
+    expect(chain.gte).toHaveBeenCalledWith('air_yards_attempts_available', DEFAULT_MIN_CHARTED)
+    expect(chain.limit).toHaveBeenCalledWith(25)
+  })
+
   it('returns a friendly error string (never throws) on a PostgREST error', async () => {
     mockClient({ apiTables: { passing_charting_player_season: dbError('boom') } })
     const result = await queryPassingChartingPlayers({})
