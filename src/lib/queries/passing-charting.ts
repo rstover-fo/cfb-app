@@ -242,6 +242,13 @@ function coverage(charted: number | null | undefined, attempts: number | null | 
 function withPlayerCoverage(row: PassingChartingPlayerRow): PassingChartingPlayerRow {
   return {
     ...row,
+    // `attempts` is the closest available denominator, not a perfect one: it
+    // includes spikes and throwaways, which structurally cannot carry air
+    // yards, so this reads slightly pessimistic. By the rule in the schema
+    // card's missingness taxonomy those should be excluded -- but no
+    // eligible-attempt count is exposed on the view, and the effect is 73
+    // plays in 53,554 league-wide (~0.14%), far below the precision anyone
+    // reads off this. Documented rather than silently approximated.
     air_yards_coverage_pct: coverage(row.air_yards_attempts_available, row.attempts),
     // COMPLETIONS, not attempts: yards after catch only exist on a completion,
     // so dividing by attempts conflates "not caught" (a correct absence) with

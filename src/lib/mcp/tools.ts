@@ -3258,8 +3258,12 @@ export const getPassingChartingDescription =
   'Two separate denominators ship because YAC exists only on completions while air yards exist ' +
   'on every attempt (air_yards_attempts_available vs yards_after_catch_attempts_available). ' +
   'The derived air_yards_coverage_pct is over ATTEMPTS and yards_after_catch_coverage_pct is ' +
-  'over COMPLETIONS for that reason -- they are directly comparable and both land near 0.52 ' +
-  'for a full-season starter, which is simply the size of the charted window. ' +
+  'over COMPLETIONS for that reason, and both land near 0.52 for a full-season starter -- ' +
+  'essentially the size of the charted window. One caveat on the air-yards side: `attempts` ' +
+  'includes spikes and throwaways, which structurally have no air yards, so that ratio is a ' +
+  'hair pessimistic. The effect is tiny (73 such plays in 53,554 league-wide, ~0.14%) and no ' +
+  'eligible-attempt count is exposed to subtract them, so read the two as closely comparable ' +
+  'rather than exactly so. ' +
   `Results are floored at ${DEFAULT_MIN_CHARTED} charted attempts by default, applied to whichever ` +
   'denominator matches your sort (aDOT and air-yards sorts floor on air_yards_attempts_available; ' +
   'a yac_per_completion sort floors on yards_after_catch_attempts_available), so the floor always ' +
