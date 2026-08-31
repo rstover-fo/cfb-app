@@ -11,6 +11,7 @@ import {
   type PassingChartingSort,
   type TargetProfileSort,
 } from '@/lib/queries/passing-charting'
+import { queryCoachTenures } from '@/lib/queries/coach-tenures'
 import {
   DEFAULT_ROW_CAP,
   queryTeamDetail,
@@ -1400,10 +1401,14 @@ export const runSqlDescription =
   '  get_live_scoreboard tool\n' +
   '- api.coaching_history: coach_name, coach_id, team, tenure_start, tenure_end (null = active), seasons_count, total_wins, total_losses, win_pct, avg_sp_rating, peak_sp_rating -- one row per coach-tenure\n' +
   '- api.coach_records: coach career-at-school grain with ATS splits (ats_wins, ats_losses), plus coach_id\n' +
-  '  NOTE on coach_id (both views): only ~28% of rows carry one today -- ref.coach_seasons is still\n' +
-  '  backfilling, and the column is NULL on any ambiguous name+team+year match by design. Join on it\n' +
-  '  when present, but a coach_id IS NOT NULL filter silently drops ~72% of coaches: use it to\n' +
-  '  disambiguate, never as the population filter. Match rate rises as the backfill drains\n' +
+  '  NOTE on coach_id: SPARSE on these two aggregate views -- 28.5% on coaching_history, ~31% on\n' +
+  '  coach_records (ref.coach_seasons is still backfilling; NULL on any ambiguous name+team+year\n' +
+  '  match by design). It is 100% populated on api.coach_tenures. So when joining these views to\n' +
+  '  coach_tenures, match on (coach_name, team) and use coach_id only to break a tie: measured live,\n' +
+  '  name+team matches 99.6% of coach_records rows while coach_id matches 29%. A coach_id IS NOT NULL\n' +
+  '  filter silently drops ~70% of coaches -- never use it as the population filter. Note the\n' +
+  '  name+team join FANS OUT for a coach with two separate stints at one school (that is one\n' +
+  '  coach_records row against two coach_tenures rows), so aggregate or pick deliberately\n' +
   '- api.coach_tenures: (coach_id, team_id, tenure_start) grain, 2,738 rows -- coach_name, team, hire_date,\n' +
   '  tenure_end (NULL = active), is_interim, record_* splits, classification. Prefer this over\n' +
   '  coaching_history when you need interim status or an FBS/FCS filter\n' +
@@ -3335,6 +3340,91 @@ export const getTargetProfileInputShape = {
 
 
 // ---------------------------------------------------------------------------
+// 28. get_coach_tenure -- api.coach_tenures
+// ---------------------------------------------------------------------------
+
+export interface GetCoachTenureArgs {
+  coach?: string
+  team?: string
+  season?: number
+  active_only?: boolean
+  exclude_interim?: boolean
+  classification?: string
+  limit?: number
+}
+
+async function getCoachTenureToolImpl(args: GetCoachTenureArgs): Promise<string> {
+  if (!args.coach && !args.team && args.season == null && !args.active_only) {
+    return (
+      'Provide at least one of coach, team, season, or active_only -- an unfiltered tenure list ' +
+      'is just the 25 most recent hires across all of college football.'
+    )
+  }
+
+  const result = await queryCoachTenures({
+    coach: args.coach,
+    team: args.team,
+    season: args.season,
+    activeOnly: args.active_only,
+    excludeInterim: args.exclude_interim,
+    classification: args.classification,
+    limit: args.limit,
+  })
+  if (result.error) return result.error
+
+  if (result.rows.length === 0) {
+    return (
+      'No coaching tenures found for those filters. Coach names match as a case-insensitive ' +
+      'substring, so a partial surname works; team names are exact and case-sensitive.'
+    )
+  }
+
+  return dump(wrap('api.coach_tenures', result.rows))
+}
+
+export const getCoachTenureDescription =
+  'Coaching tenures with real coach ids: who coached where, when they were hired, whether they ' +
+  'were interim, and their record for that stint. Use for "who coaches Oklahoma", "when was ' +
+  'Brent Venables hired", "which coaches are interim this year", "list every Alabama head ' +
+  'coach". Backed by api.coach_tenures, grain (coach_id, team_id, tenure_start) -- 2,738 ' +
+  'tenures, and a coach with two separate stints at one school correctly has two rows. ' +
+  'This is the only coach surface with a complete key: coach_id is present on 100% of rows ' +
+  'here, whereas on api.coaching_history and api.coach_records the same column is sparse ' +
+  '(~28-31%, still backfilling, and NULL by design on ambiguous matches). When joining those ' +
+  'aggregate views to this one, match on (coach_name, team) and use coach_id only to ' +
+  'disambiguate -- measured live, name+team matches 99.6% of coach_records rows while coach_id ' +
+  'matches 29%, so filtering a population on coach_id IS NOT NULL silently drops ~70% of coaches. ' +
+  'Three field-level traps: tenure_end IS NULL means STILL ACTIVE, not unknown (138 active ' +
+  'tenures) -- never render it as a missing end date; hire_date is populated on only ~28% of ' +
+  'rows (759/2,738), so its absence is unrecorded rather than "no hire"; and is_interim is the ' +
+  'authoritative interim flag (63 rows) -- use it instead of inferring interim status from a ' +
+  'low game count, which also misclassifies genuinely short full-time tenures. classification ' +
+  'is per-tenure, so it stays historically correct across a school changing divisions; it is ' +
+  'NOT filtered by default, so results include FCS unless you pass one. ' +
+  'Returns JSON {"_source": "api.coach_tenures", "count", "rows"}.'
+
+export const getCoachTenureInputShape = {
+  coach: z
+    .string()
+    .optional()
+    .describe("Case-insensitive substring of the coach's name, e.g. 'Venables', 'Saban'."),
+  team: z.string().optional().describe("Exact school name, e.g. 'Oklahoma'. Case-sensitive."),
+  season: z
+    .number()
+    .int()
+    .optional()
+    .describe('Tenures active DURING this season (span overlap, not start year). An open tenure counts for every later season.'),
+  active_only: z.boolean().optional().describe('Only currently-active tenures (tenure_end IS NULL).'),
+  exclude_interim: z.boolean().optional().describe('Drop interim stints (is_interim = true).'),
+  classification: z
+    .string()
+    .optional()
+    .describe("Division filter, e.g. 'fbs'. Unset by default -- results include FCS and below."),
+  limit: z.number().int().optional().describe('Max rows (default 25, server-capped at 100).'),
+} as const
+
+
+// ---------------------------------------------------------------------------
 // Every tool function is exported through withToolTelemetry: one
 // {evt:'tool',...} JSON log line per call (name, latency, truncated args,
 // errish flag) plus the hard per-call deadline. Both consumers -- the MCP
@@ -3369,6 +3459,7 @@ export const getExpectedPointsTool = withToolTelemetry('get_expected_points', ge
 export const renderChartTool = withToolTelemetry('render_chart', renderChartToolImpl)
 export const getPassingChartingTool = withToolTelemetry('get_passing_charting', getPassingChartingToolImpl)
 export const getTargetProfileTool = withToolTelemetry('get_target_profile', getTargetProfileToolImpl)
+export const getCoachTenureTool = withToolTelemetry('get_coach_tenure', getCoachTenureToolImpl)
 
 // ---------------------------------------------------------------------------
 
@@ -3672,5 +3763,16 @@ export function registerMcpTools(server: McpServer): void {
       annotations: { title: 'Get Target Profile', ...READ_ONLY_ANNOTATIONS },
     },
     async args => textResult(await getTargetProfileTool(args))
+  )
+
+  server.registerTool(
+    'get_coach_tenure',
+    {
+      title: 'Get Coach Tenure',
+      description: getCoachTenureDescription,
+      inputSchema: getCoachTenureInputShape,
+      annotations: { title: 'Get Coach Tenure', ...READ_ONLY_ANNOTATIONS },
+    },
+    async args => textResult(await getCoachTenureTool(args))
   )
 }

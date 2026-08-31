@@ -189,3 +189,51 @@ describe('getCoachingHistory', () => {
     expect(result[0].team).toBe('Oklahoma')
   })
 })
+
+describe('getCoachingHistory coach_id disambiguation', () => {
+  it('narrows to the matching coach_id when the returned rows carry it', async () => {
+    const mock = mockClient({
+      apiTables: {
+        coaching_history: ok([
+          createCoachingTenureRow({ coach_id: '1234', team: 'Oklahoma' }),
+          createCoachingTenureRow({ coach_id: '9999', team: 'Florida' }),
+        ]),
+      },
+    })
+    const rows = await getCoachingHistory('Bob', 'Stoops', '1234')
+    expect(mock).toBeDefined()
+    // Two same-named coaches were merged before this column existed.
+    expect(rows).toHaveLength(1)
+    expect(rows[0].team).toBe('Oklahoma')
+  })
+
+  it('keeps every row when the id is absent upstream, rather than returning []', async () => {
+    // The sparsity of coach_id on api.coaching_history (~28.5%) is independent
+    // of api.coach_records' (~31%), so a caller can hold an id for a coach
+    // whose history rows carry none. Narrowing unconditionally would turn a
+    // real coaching history into an empty one -- the regression this guards.
+    mockClient({
+      apiTables: {
+        coaching_history: ok([
+          createCoachingTenureRow({ coach_id: null, team: 'Oklahoma' }),
+          createCoachingTenureRow({ coach_id: null, team: 'Florida' }),
+        ]),
+      },
+    })
+    const rows = await getCoachingHistory('Bob', 'Stoops', '1234')
+    expect(rows).toHaveLength(2)
+  })
+
+  it('is a no-op when no coachId is supplied', async () => {
+    mockClient({
+      apiTables: {
+        coaching_history: ok([
+          createCoachingTenureRow({ coach_id: '1234' }),
+          createCoachingTenureRow({ coach_id: '9999' }),
+        ]),
+      },
+    })
+    const rows = await getCoachingHistory('Bob', 'Stoops')
+    expect(rows).toHaveLength(2)
+  })
+})

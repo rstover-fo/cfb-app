@@ -16,6 +16,8 @@ import { fetchCoachingHistory, type CoachingTenure } from '@/app/coaches/actions
 export interface SelectedCoach {
   firstName: string
   lastName: string
+  /** Sparse upstream (~31%); disambiguates same-named coaches when present. */
+  coachId?: string | null
   /** Display name for the dialog title -- coach_records' coach_name. */
   displayName: string
 }
@@ -79,7 +81,7 @@ function LoadingRows() {
 }
 
 function coachKey(coach: SelectedCoach | null): string | null {
-  return coach ? `${coach.firstName}|${coach.lastName}` : null
+  return coach ? `${coach.firstName}|${coach.lastName}|${coach.coachId ?? ''}` : null
 }
 
 // Per-coach tenure history, fetched on demand when the dialog opens (not
@@ -100,7 +102,7 @@ export function CoachHistoryDialog({ coach, onOpenChange }: CoachHistoryDialogPr
     if (!coach) return
     let cancelled = false
 
-    fetchCoachingHistory(coach.firstName, coach.lastName).then(rows => {
+    fetchCoachingHistory(coach.firstName, coach.lastName, coach.coachId).then(rows => {
       if (cancelled) return
       setResult({ key: coachKey(coach)!, tenures: rows })
     })

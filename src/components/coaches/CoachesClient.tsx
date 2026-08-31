@@ -51,7 +51,7 @@ export function CoachesClient({ byWinPct, byAtsWinPct, activeByWinPct, activeByA
   // in src/lib/queries/coaches.ts). A row missing either isn't clickable.
   function openHistory(coach: CoachRecord) {
     if (!coach.first_name || !coach.last_name) return
-    setSelectedCoach({ firstName: coach.first_name, lastName: coach.last_name, displayName: coach.coach_name })
+    setSelectedCoach({ firstName: coach.first_name, lastName: coach.last_name, coachId: coach.coach_id, displayName: coach.coach_name })
   }
 
   function handleRowKeyDown(event: KeyboardEvent<HTMLTableRowElement>, coach: CoachRecord) {

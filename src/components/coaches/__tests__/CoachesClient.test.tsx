@@ -11,6 +11,7 @@ vi.mock('@/app/coaches/actions', () => ({
 
 function coach(overrides: Partial<CoachRecord> = {}): CoachRecord {
   return {
+    coach_id: '1234',
     coach_name: 'Bob Stoops',
     first_name: 'Bob',
     last_name: 'Stoops',
@@ -77,7 +78,8 @@ describe('CoachesClient', () => {
 
     expect(await screen.findByRole('dialog')).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Bob Stoops' })).toBeInTheDocument()
-    expect(fetchCoachingHistory).toHaveBeenCalledWith('Bob', 'Stoops')
+    // The row's coach_id is forwarded, not dropped, on the way to the dialog.
+    expect(fetchCoachingHistory).toHaveBeenCalledWith('Bob', 'Stoops', '1234')
   })
 
   it('does not open the dialog when a coach row has no first/last name', () => {

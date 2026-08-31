@@ -16,6 +16,14 @@ import { CURRENT_SEASON } from './constants'
 // [] on any query error, so no special-casing is needed here for that.
 // ---------------------------------------------------------------------------
 export interface CoachRecordRow {
+  /**
+   * CFBD coachId, added additively by cfb-database PR #81. SPARSE by design:
+   * ~31% of rows carry one (ref.coach_seasons is still backfilling, and the
+   * column is NULL on any ambiguous name+team+year match). Use it to
+   * disambiguate a name collision, NEVER as a population filter -- a
+   * `coach_id IS NOT NULL` filter would drop ~70% of coaches.
+   */
+  coach_id: string | null
   coach_name: string
   first_name: string | null
   last_name: string | null
@@ -79,7 +87,7 @@ export const getCoachRecords = cache(async ({
     .schema('api')
     .from('coach_records')
     .select(
-      'coach_name, first_name, last_name, team, first_season, last_season, seasons_count, games, wins, losses, ties, win_pct, ats_games, ats_wins, ats_losses, ats_pushes, ats_win_pct, seasons_with_ats_data'
+      'coach_id, coach_name, first_name, last_name, team, first_season, last_season, seasons_count, games, wins, losses, ties, win_pct, ats_games, ats_wins, ats_losses, ats_pushes, ats_win_pct, seasons_with_ats_data'
     )
     .in('team', fbsTeams)
     .gte('games', minGames ?? DEFAULT_MIN_GAMES)
@@ -137,6 +145,8 @@ export type CoachingTenure = Pick<
   | 'talent_improvement'
   | 'is_active'
 > & {
+  /** Sparse (~28.5% of rows) -- see CoachRecordRow.coach_id. */
+  coach_id: string | null
   first_name: string
   last_name: string
   team: string
@@ -148,6 +158,7 @@ export type CoachingTenure = Pick<
 // Explicit columns - NOT select('*'). Declared `as const` so Supabase can
 // infer a literal return type instead of falling back to a generic error row.
 const COACHING_HISTORY_COLUMNS = `
+  coach_id,
   first_name,
   last_name,
   team,
@@ -175,14 +186,16 @@ const COACHING_HISTORY_COLUMNS = `
 // single "First Last" display string, not reliably splittable back into
 // parts, so the caller must pass through coach_records' first_name/
 // last_name columns directly rather than parsing coach_name). Two coaches
-// who share an exact first+last name would collide here; no such collision
-// exists in current FBS data, and api.coach_records has the identical
-// limitation, so this matches the established join strategy rather than
-// introducing a new one. Returns [] on error or no rows -- normal for a
-// coach with no history rows yet.
+// who share an exact first+last name would otherwise collide here; passing
+// the optional coachId (from api.coach_records, cfb-database PR #81)
+// separates them WHEN both sides happen to carry it. That column is sparse
+// on both views and independently so -- ~31% on coach_records, ~28.5% here --
+// which is why it narrows rather than filters: see the guard in the body.
+// Returns [] on error or no rows -- normal for a coach with no history yet.
 export const getCoachingHistory = cache(async (
   firstName: string,
-  lastName: string
+  lastName: string,
+  coachId?: string | null
 ): Promise<CoachingTenure[]> => {
   const supabase = await createClient()
 
@@ -196,5 +209,18 @@ export const getCoachingHistory = cache(async (
 
   if (error || !data) return []
 
-  return data as CoachingTenure[]
+  const rows = data as CoachingTenure[]
+
+  // coach_id disambiguates a shared name -- it does not replace the name
+  // match. It is sparse on this view (~28.5%), and its sparsity here is
+  // independent of api.coach_records', so a caller can hold an id for a coach
+  // whose history rows carry none. Narrowing unconditionally would return []
+  // for those coaches, turning a real history into an empty one. So narrow
+  // only when at least one row actually carries the id: that is exactly the
+  // case where two same-named coaches could otherwise be merged.
+  if (coachId && rows.some(row => row.coach_id === coachId)) {
+    return rows.filter(row => row.coach_id === coachId)
+  }
+
+  return rows
 })
