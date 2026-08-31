@@ -71,6 +71,12 @@ export interface CoachTenureFilter {
   activeOnly?: boolean
   /** Exclude interim stints. */
   excludeInterim?: boolean
+  /**
+   * Only interim stints. Distinct from excludeInterim rather than a tri-state
+   * so the two read unambiguously at the call site; passing both yields the
+   * empty set it literally describes.
+   */
+  interimOnly?: boolean
   /** e.g. 'fbs'. Omitted by default: filtering here would silently hide FCS coaches. */
   classification?: string
   limit?: number
@@ -88,6 +94,10 @@ export async function queryCoachTenures(
   if (filter.classification) query = query.eq('classification', filter.classification)
   if (filter.activeOnly) query = query.is('tenure_end', null)
   if (filter.excludeInterim) query = query.not('is_interim', 'is', true)
+  // Applied server-side, before .limit(): 63 interim tenures across 2,738
+  // rows, so a client-side filter over the first capped page would usually
+  // return nothing at all.
+  if (filter.interimOnly) query = query.is('is_interim', true)
 
   if (filter.season != null) {
     // Span overlap: started on or before the season, and either still open or

@@ -212,14 +212,21 @@ export const getCoachingHistory = cache(async (
   const rows = data as CoachingTenure[]
 
   // coach_id disambiguates a shared name -- it does not replace the name
-  // match. It is sparse on this view (~28.5%), and its sparsity here is
-  // independent of api.coach_records', so a caller can hold an id for a coach
-  // whose history rows carry none. Narrowing unconditionally would return []
-  // for those coaches, turning a real history into an empty one. So narrow
-  // only when at least one row actually carries the id: that is exactly the
-  // case where two same-named coaches could otherwise be merged.
+  // match. It is sparse on this view (~28.5%) and sparse PER ROW, so one
+  // coach's tenures can be a mix of keyed and unkeyed. Two consequences,
+  // and the filter has to respect both:
+  //
+  //   * A NULL coach_id means UNKNOWN, not "a different coach". Dropping
+  //     those rows would truncate a real career -- a coach with a keyed
+  //     Oklahoma tenure and an unkeyed Florida one would lose Florida.
+  //   * Only a row carrying a DIFFERENT id is evidence of a different
+  //     person, so that is the only thing worth excluding.
+  //
+  // Hence: exclude conflicting ids, keep NULLs. And only engage at all when
+  // some row carries the id, so a caller holding an id for a coach whose
+  // history rows have none still gets the full name-matched history.
   if (coachId && rows.some(row => row.coach_id === coachId)) {
-    return rows.filter(row => row.coach_id === coachId)
+    return rows.filter(row => row.coach_id === coachId || row.coach_id == null)
   }
 
   return rows

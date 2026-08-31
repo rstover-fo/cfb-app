@@ -68,6 +68,27 @@ const PLAYER_SORT_COLUMNS: Record<PassingChartingSort, string> = {
   attempts: 'attempts',
 }
 
+/**
+ * Which denominator the charted-play floor applies to, per sort.
+ *
+ * The two denominators diverge sharply (live 2025: Henry Hesson has 60
+ * air-yards charted plays against 18 for YAC), so flooring on the air-yards
+ * count while ranking by YAC lets a passer qualify on one metric and rank on
+ * a handful of plays of another. Observed directly: with a flat
+ * air_yards >= 50 floor, the YAC leaderboard was topped by a passer with 32
+ * YAC-charted plays over a runner-up with 157. The floor has to bind the
+ * sample actually being ranked.
+ *
+ * `attempts` sorts on a raw count rather than a charted average, so it keeps
+ * the air-yards floor as the general "is this row charted at all" gate.
+ */
+const PLAYER_FLOOR_COLUMNS: Record<PassingChartingSort, string> = {
+  adot: 'air_yards_attempts_available',
+  air_yards: 'air_yards_attempts_available',
+  yac_per_completion: 'yards_after_catch_attempts_available',
+  attempts: 'air_yards_attempts_available',
+}
+
 /** What a target (receiver) leaderboard can be ordered by. All DESC. */
 export type TargetProfileSort = 'targets' | 'adot' | 'air_yards' | 'target_share' | 'yac'
 
@@ -77,6 +98,24 @@ const TARGET_SORT_COLUMNS: Record<TargetProfileSort, string> = {
   air_yards: 'total_air_yards',
   target_share: 'target_share_charted',
   yac: 'total_yards_after_catch',
+}
+
+/**
+ * Per-sort floor column, for the same reason as PLAYER_FLOOR_COLUMNS.
+ *
+ * targets_charted runs far ahead of the metric-specific counts here because a
+ * partial parse leaves air yards or YAC unavailable on a play that still
+ * counts as a charted target (live 2025: Danny Scudero, 155 targets charted
+ * against 52 air-yards charted plays). Flooring on targets_charted while
+ * ranking aDOT would let a receiver qualify on volume and rank on a couple of
+ * observations.
+ */
+const TARGET_FLOOR_COLUMNS: Record<TargetProfileSort, string> = {
+  targets: 'targets_charted',
+  target_share: 'targets_charted',
+  adot: 'air_yards_charted_plays',
+  air_yards: 'air_yards_charted_plays',
+  yac: 'yards_after_catch_charted_plays',
 }
 
 // ---------------------------------------------------------------------------
@@ -167,8 +206,9 @@ export async function queryPassingChartingPlayers(
     .select(PLAYER_COLUMNS)
     .eq('season', filter.season ?? CURRENT_SEASON)
     // Server-side, before .limit(): the floor must shrink the candidate set,
-    // not just the returned page.
-    .gte('air_yards_attempts_available', minCharted)
+    // not just the returned page. The column is sort-dependent -- see
+    // PLAYER_FLOOR_COLUMNS.
+    .gte(PLAYER_FLOOR_COLUMNS[sort], minCharted)
 
   if (filter.team) query = query.eq('team', filter.team)
   if (filter.conference) query = query.eq('conference', filter.conference)
@@ -284,7 +324,7 @@ export async function queryTargetProfiles(
     .from('passing_charting_target_season')
     .select(TARGET_COLUMNS)
     .eq('season', filter.season ?? CURRENT_SEASON)
-    .gte('targets_charted', minCharted)
+    .gte(TARGET_FLOOR_COLUMNS[sort], minCharted)
 
   if (filter.team) query = query.eq('team', filter.team)
 

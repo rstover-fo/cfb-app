@@ -57,7 +57,7 @@ beforeEach(() => {
 describe('get_coach_tenure', () => {
   it('requires at least one selective filter', async () => {
     const out = await getCoachTenureTool({})
-    expect(out).toMatch(/at least one of coach, team, season, or active_only/)
+    expect(out).toMatch(/at least one of coach, team, season, active_only, or interim_only/)
     expect(mockTenures).not.toHaveBeenCalled()
   })
 
@@ -104,9 +104,17 @@ describe('get_coach_tenure', () => {
       season: 2024,
       activeOnly: true,
       excludeInterim: true,
+      interimOnly: undefined,
       classification: 'fbs',
       limit: 10,
     })
+  })
+
+  it('accepts interim_only alone and forwards it as the advertised flow', async () => {
+    mockTenures.mockResolvedValue({ rows: [INTERIM], error: null })
+    const out = JSON.parse(await getCoachTenureTool({ interim_only: true }))
+    expect(out.rows[0].is_interim).toBe(true)
+    expect(mockTenures).toHaveBeenCalledWith(expect.objectContaining({ interimOnly: true }))
   })
 
   it('explains an empty result in terms of how the filters match', async () => {

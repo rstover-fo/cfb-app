@@ -3223,8 +3223,11 @@ export const getPassingChartingDescription =
   'Two separate denominators ship because air-yards and YAC charting cover different play sets ' +
   '(air_yards_attempts_available vs yards_after_catch_attempts_available), plus derived ' +
   'air_yards_coverage_pct / yards_after_catch_coverage_pct as fractions of total attempts. ' +
-  `Results are floored at ${DEFAULT_MIN_CHARTED} charted attempts by default; the floor is echoed ` +
-  'back as min_charted_attempts. State the coverage or the floor when you present a ranking -- ' +
+  `Results are floored at ${DEFAULT_MIN_CHARTED} charted attempts by default, applied to whichever ` +
+  'denominator matches your sort (aDOT and air-yards sorts floor on air_yards_attempts_available; ' +
+  'a yac_per_completion sort floors on yards_after_catch_attempts_available), so the floor always ' +
+  'binds the sample being ranked. The floor is echoed back as min_charted_attempts. State the ' +
+  'coverage or the floor when you present a ranking -- ' +
   'without it you are ranking on who got charted, not on who throws deepest. NULL means ' +
   'not-yet-charted, never zero: never render a NULL metric as 0. Rows with parse_status=partial ' +
   'upstream may be re-charted, so treat 2025 figures as provisional. ' +
@@ -3315,8 +3318,12 @@ export const getTargetProfileDescription =
   'most-targeted receivers, so MOST rows are provisional and this is the norm rather than an ' +
   'edge case: say so when quoting 2025 target figures. Per-metric denominators ship as ' +
   'air_yards_charted_plays / yards_after_catch_charted_plays, plus derived coverage fractions. ' +
-  `Floored at ${Math.round(DEFAULT_MIN_CHARTED / 5)} charted targets by default (receivers see far ` +
-  'fewer plays than the passer throwing to all of them), echoed as min_charted_targets. ' +
+  `Floored at ${Math.round(DEFAULT_MIN_CHARTED / 5)} by default (receivers see far fewer plays than ` +
+  'the passer throwing to all of them), applied to the denominator matching your sort: ' +
+  'targets_charted for targets/target_share, air_yards_charted_plays for adot/air_yards, ' +
+  'yards_after_catch_charted_plays for yac. Those diverge a lot -- a receiver can have 155 ' +
+  'charted targets but only 52 with air yards parsed -- so the floor tracks the ranked metric ' +
+  'rather than volume. Echoed as min_charted_targets. ' +
   'Returns JSON {"_source", "count", "rows", "min_charted_targets", "coverage_note"}.'
 
 export const getTargetProfileInputShape = {
@@ -3349,14 +3356,16 @@ export interface GetCoachTenureArgs {
   season?: number
   active_only?: boolean
   exclude_interim?: boolean
+  interim_only?: boolean
   classification?: string
   limit?: number
 }
 
 async function getCoachTenureToolImpl(args: GetCoachTenureArgs): Promise<string> {
-  if (!args.coach && !args.team && args.season == null && !args.active_only) {
+  if (!args.coach && !args.team && args.season == null && !args.active_only && !args.interim_only) {
     return (
-      'Provide at least one of coach, team, season, or active_only -- an unfiltered tenure list ' +
+      'Provide at least one of coach, team, season, active_only, or interim_only -- an ' +
+    'unfiltered tenure list ' +
       'is just the 25 most recent hires across all of college football.'
     )
   }
@@ -3367,6 +3376,7 @@ async function getCoachTenureToolImpl(args: GetCoachTenureArgs): Promise<string>
     season: args.season,
     activeOnly: args.active_only,
     excludeInterim: args.exclude_interim,
+    interimOnly: args.interim_only,
     classification: args.classification,
     limit: args.limit,
   })
@@ -3385,7 +3395,8 @@ async function getCoachTenureToolImpl(args: GetCoachTenureArgs): Promise<string>
 export const getCoachTenureDescription =
   'Coaching tenures with real coach ids: who coached where, when they were hired, whether they ' +
   'were interim, and their record for that stint. Use for "who coaches Oklahoma", "when was ' +
-  'Brent Venables hired", "which coaches are interim this year", "list every Alabama head ' +
+  'Brent Venables hired", "which coaches are interim this year" (pass interim_only), "list ' +
+  'every Alabama head ' +
   'coach". Backed by api.coach_tenures, grain (coach_id, team_id, tenure_start) -- 2,738 ' +
   'tenures, and a coach with two separate stints at one school correctly has two rows. ' +
   'This is the only coach surface with a complete key: coach_id is present on 100% of rows ' +
@@ -3416,6 +3427,10 @@ export const getCoachTenureInputShape = {
     .describe('Tenures active DURING this season (span overlap, not start year). An open tenure counts for every later season.'),
   active_only: z.boolean().optional().describe('Only currently-active tenures (tenure_end IS NULL).'),
   exclude_interim: z.boolean().optional().describe('Drop interim stints (is_interim = true).'),
+  interim_only: z
+    .boolean()
+    .optional()
+    .describe('ONLY interim stints. Use this for "which coaches are interim" -- there are just 63 across 2,738 tenures, so without it they are lost in the first capped page.'),
   classification: z
     .string()
     .optional()

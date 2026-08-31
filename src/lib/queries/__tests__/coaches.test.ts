@@ -207,6 +207,24 @@ describe('getCoachingHistory coach_id disambiguation', () => {
     expect(rows[0].team).toBe('Oklahoma')
   })
 
+  it('keeps unkeyed rows alongside the matching id, so a career is not truncated', async () => {
+    // coach_id is sparse PER ROW, so one coach's tenures can be a mix. A NULL
+    // id means unknown, not "a different coach" -- dropping those rows would
+    // lose a real tenure from the dialog. Only a CONFLICTING id is evidence
+    // of a different person.
+    mockClient({
+      apiTables: {
+        coaching_history: ok([
+          createCoachingTenureRow({ coach_id: '1234', team: 'Oklahoma' }),
+          createCoachingTenureRow({ coach_id: null, team: 'Florida' }),
+          createCoachingTenureRow({ coach_id: '9999', team: 'Texas' }),
+        ]),
+      },
+    })
+    const rows = await getCoachingHistory('Bob', 'Stoops', '1234')
+    expect(rows.map(r => r.team)).toEqual(['Oklahoma', 'Florida'])
+  })
+
   it('keeps every row when the id is absent upstream, rather than returning []', async () => {
     // The sparsity of coach_id on api.coaching_history (~28.5%) is independent
     // of api.coach_records' (~31%), so a caller can hold an id for a coach
