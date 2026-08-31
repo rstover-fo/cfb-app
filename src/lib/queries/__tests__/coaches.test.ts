@@ -208,21 +208,39 @@ describe('getCoachingHistory coach_id disambiguation', () => {
   })
 
   it('keeps unkeyed rows alongside the matching id, so a career is not truncated', async () => {
-    // coach_id is sparse PER ROW, so one coach's tenures can be a mix. A NULL
-    // id means unknown, not "a different coach" -- dropping those rows would
-    // lose a real tenure from the dialog. Only a CONFLICTING id is evidence
-    // of a different person.
+    // coach_id is sparse PER ROW, so one coach's tenures can be a mix. With a
+    // single known id under this name, a NULL means unknown rather than "a
+    // different coach", so dropping it would lose a real tenure from the
+    // dialog. This is the live case: 56 of 1,814 name groups look like this.
     mockClient({
       apiTables: {
         coaching_history: ok([
           createCoachingTenureRow({ coach_id: '1234', team: 'Oklahoma' }),
           createCoachingTenureRow({ coach_id: null, team: 'Florida' }),
-          createCoachingTenureRow({ coach_id: '9999', team: 'Texas' }),
         ]),
       },
     })
     const rows = await getCoachingHistory('Bob', 'Stoops', '1234')
     expect(rows.map(r => r.team)).toEqual(['Oklahoma', 'Florida'])
+  })
+
+  it('drops unkeyed rows when the name really is shared by two coaches', async () => {
+    // Two distinct ids under one name means the name IS a collision, so an
+    // unkeyed row is genuinely unattributable -- under-reporting a career
+    // beats attributing another coach's tenure to this one. Unreachable on
+    // today's data (0 of 1,814 name groups map to >1 coach_id) and here so
+    // the guard stays correct if a collision ever loads.
+    mockClient({
+      apiTables: {
+        coaching_history: ok([
+          createCoachingTenureRow({ coach_id: '1234', team: 'Oklahoma' }),
+          createCoachingTenureRow({ coach_id: '9999', team: 'Texas' }),
+          createCoachingTenureRow({ coach_id: null, team: 'Ambiguous State' }),
+        ]),
+      },
+    })
+    const rows = await getCoachingHistory('Bob', 'Stoops', '1234')
+    expect(rows.map(r => r.team)).toEqual(['Oklahoma'])
   })
 
   it('keeps every row when the id is absent upstream, rather than returning []', async () => {

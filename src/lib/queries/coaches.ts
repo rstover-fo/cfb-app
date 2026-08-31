@@ -213,20 +213,29 @@ export const getCoachingHistory = cache(async (
 
   // coach_id disambiguates a shared name -- it does not replace the name
   // match. It is sparse on this view (~28.5%) and sparse PER ROW, so one
-  // coach's tenures can be a mix of keyed and unkeyed. Two consequences,
-  // and the filter has to respect both:
+  // coach's tenures can be a mix of keyed and unkeyed, and an unkeyed row
+  // pulls in two opposite directions:
   //
-  //   * A NULL coach_id means UNKNOWN, not "a different coach". Dropping
-  //     those rows would truncate a real career -- a coach with a keyed
-  //     Oklahoma tenure and an unkeyed Florida one would lose Florida.
-  //   * Only a row carrying a DIFFERENT id is evidence of a different
-  //     person, so that is the only thing worth excluding.
+  //   * Drop it and a real career gets truncated -- a coach with a keyed
+  //     Oklahoma tenure and an unkeyed Florida one loses Florida. Measured
+  //     live: 56 of 1,814 name groups mix keyed and unkeyed rows.
+  //   * Keep it and, IF two coaches share a name, one's tenure could be
+  //     attributed to the other. Measured live: 0 of 1,814 name groups map
+  //     to more than one coach_id, so no such collision exists today.
   //
-  // Hence: exclude conflicting ids, keep NULLs. And only engage at all when
-  // some row carries the id, so a caller holding an id for a coach whose
-  // history rows have none still gets the full name-matched history.
+  // Which risk applies is decidable from the rows themselves, since they are
+  // every row for this first+last name. One known id means an unkeyed row can
+  // only be this coach's, so keep it. Two or more means the name really is
+  // shared and an unkeyed row is genuinely unattributable, so drop it --
+  // under-reporting a career beats inventing one. The second branch is
+  // unreachable on today's data and exists so it stays correct if a collision
+  // ever loads.
   if (coachId && rows.some(row => row.coach_id === coachId)) {
-    return rows.filter(row => row.coach_id === coachId || row.coach_id == null)
+    const knownIds = new Set(rows.map(row => row.coach_id).filter(id => id != null))
+    const nameIsShared = knownIds.size > 1
+    return rows.filter(
+      row => row.coach_id === coachId || (!nameIsShared && row.coach_id == null)
+    )
   }
 
   return rows
