@@ -14,6 +14,13 @@ import {
   type PassingChartingSort,
   type TargetProfileSort,
 } from '@/lib/queries/passing-charting'
+import {
+  queryRushingChartingPlayers,
+  resolveMinAttempts,
+  resolvePosition,
+  DEFAULT_MIN_ATTEMPTS,
+  type RushingChartingSort,
+} from '@/lib/queries/rushing-charting'
 import { queryCoachTenures } from '@/lib/queries/coach-tenures'
 import {
   DEFAULT_ROW_CAP,
@@ -91,7 +98,7 @@ import {
 import { CURRENT_SEASON, PREDICTION_MODEL_VERSIONS, DEFAULT_PREDICTION_MODEL } from '@/lib/queries/constants'
 
 // ---------------------------------------------------------------------------
-// MCP v2: twenty-five read-only tools over the cfb-database warehouse, mounted
+// MCP v2: twenty-nine read-only tools over the cfb-database warehouse, mounted
 // at src/app/api/[transport]/route.ts via mcp-handler's createMcpHandler.
 //
 // Tools 1-8 are a TypeScript port of the reference Python server
@@ -181,7 +188,7 @@ import { CURRENT_SEASON, PREDICTION_MODEL_VERSIONS, DEFAULT_PREDICTION_MODEL } f
 //   alongside the old one here, and consumers migrate at their own pace.
 // ---------------------------------------------------------------------------
 
-// All twenty-five tools are read-only, non-destructive, idempotent, and talk to
+// All twenty-nine tools are read-only, non-destructive, idempotent, and talk to
 // an external service (Supabase/PostgREST) -- same annotation set for every
 // one, mirroring cfb_mcp/server.py's READ_ONLY_ANNOTATIONS.
 const READ_ONLY_ANNOTATIONS = {
@@ -623,7 +630,15 @@ export const searchPlayersDescription =
   'player named Bijan on Texas". Two-step workflow: (1) get_player_search(p_query, p_team, ' +
   'p_season, p_limit) -- fuzzy name match via pg_trgm, ranked by similarity_score descending; (2) ' +
   'get_player_detail(p_player_id, p_season) is then called automatically for the single ' +
-  'top-ranked hit, returning full bio/recruiting/season stats/PPA/WEPA/PAAR. If multiple players ' +
+  'top-ranked hit, returning full bio/recruiting/season stats/PPA/WEPA/PAAR plus a rushing_charting ' +
+  'jsonb block (2025+): headline rushing metrics, the denominators rushing_yards_available / ' +
+  'direction_eligible_attempts / direction_available_attempts, attribution counters, and a nested ' +
+  'directions object keyed left/middle/right/unknown (15 metrics each). A direction\'s share is ' +
+  'directions.<dir>.carries / direction_available_attempts for left/middle/right only; unknown is the ' +
+  'unresolved remainder and unknown / direction_eligible_attempts is the coverage gap (never divide ' +
+  'unknown by available). rushing_charting is NULL whenever the player-season has no rushing-charting ' +
+  'row (every season before 2025, and any 2025+ player with no charted carries) -- absence of ' +
+  'charting, never zero carries. If multiple players ' +
   'share a similar name, only the top hit gets full detail -- inspect the "search" rows for other ' +
   'candidates and call again with a more specific query/team/season if the top hit is wrong. If ' +
   '`season` is omitted, get_player_detail returns that player\'s most recent season on record, ' +
@@ -1433,6 +1448,25 @@ export const runSqlDescription =
   '  Same floor rule as above. Prefer the get_target_profile tool\n' +
   '- api.passing_charting_team_season: (season, team_id) with offense_*/defense_* pairs. defense_* is THIS\n' +
   '  team\'s passing defense (what opponents did against them), not the opponent row\n' +
+  '- api.rushing_charting_player_season: RUSHER charting, 2025+ ONLY (season, player_id, team): position,\n' +
+  '  attempts, total_rushing_yards, yards_per_carry, success_rate, ppa (per rush), total_ppa, stuff_rate,\n' +
+  '  power_success, explosiveness, line_yards / second_level_yards / open_field_yards (per-carry) + *_total.\n' +
+  '  UNLIKE passing, the rate metrics are over EVERY carry (rushing_yards_available = attempts in 2025),\n' +
+  '  so they need a sample floor, not a coverage caveat: always WHERE attempts >= 50 (or say the floor).\n' +
+  '  Direction is the partial part: direction_eligible_attempts vs direction_available_attempts (~40%\n' +
+  '  resolved in 2025, ~99% in 2026). Filter position = \'RB\' unless asked -- QB rows count sacks as\n' +
+  '  attempts. NULL = not charted, never 0. Prefer the get_rushing_charting tool\n' +
+  '- api.rushing_charting_team_season: (season, team_id, team) with offense_*/defense_* pairs of the same\n' +
+  '  metrics plus offense_/defense_rushing_touchdowns and their own *_touchdown_status_available\n' +
+  '  denominator. defense_* is THIS team\'s run defense. offense_attempts does NOT equal the sum of its\n' +
+  '  players\' attempts (CFBD keeps team-only/multi-carrier/unresolved carries off player rows) --\n' +
+  '  never compute a player\'s share of team carries from these two views\n' +
+  '- api.rushing_charting_direction_season: tall, 2025+ (season, entity_type \'player\'|\'team\', entity_id\n' +
+  '  TEXT, team, side \'offense\'|\'defense\', direction \'left\'|\'middle\'|\'right\'|\'unknown\') -- exactly 4 rows\n' +
+  '  per entity+side, 15 metrics each (carries, yards, ypc, success_rate, ppa, stuff_rate, explosiveness...).\n' +
+  '  \'unknown\' = eligible carries not yet resolved to a direction, NOT a charted bucket: share of resolved\n' +
+  '  = carries / direction_available_attempts for left/middle/right only; unknown / eligible is the\n' +
+  '  coverage gap (never divide unknown by available). Join players on entity_id = player_id::text\n' +
   '- api.refresh_campaign_status: (campaign, season) -- games_refreshed, games_no_data, completed_at,\n' +
   '  last_finalized_at. The 2014-2025 corrections campaign drains through ~early October and shifts\n' +
   '  historical EPA slightly. completed_at IS NOT NULL means that season is settled; until then treat\n' +
@@ -1492,7 +1526,10 @@ export const runSqlDescription =
   '  quote recruit pedigree without pinning recruit_class. For percentile work prefer\n' +
   '  api.player_comparison (plus *_pctl columns) -- verified clean, one row per player-season\n' +
   '- api.roster_lookup: roster rows per team-season 2004+ (first/last_name, team, position,\n' +
-  '  height, weight, year = season, jersey, home_city, home_state, home_country)\n' +
+  '  height, weight, year = season, jersey, home_city, home_state, home_country). 2026 rosters are\n' +
+  '  present as of 2026-09-03 (30,109 players, 284 teams). The "returning in 2026" join against a\n' +
+  '  player-grain view is r.id = p.player_id AND r.team = p.team AND r.year = 2026 -- both ids are\n' +
+  '  text; join on id, not name\n' +
   '- api.recruit_lookup: individual recruits 2000+ (name, year, stars, rating, ranking,\n' +
   '  position, school = HIGH SCHOOL, committed_to = college)\n' +
   '- api.recruiting_roi, api.transfer_portal_impact, api.team_returning_production, api.conference_comparison\n' +
@@ -3445,6 +3482,140 @@ export const getCoachTenureInputShape = {
 
 
 // ---------------------------------------------------------------------------
+// 29. get_rushing_charting -- api.rushing_charting_player_season
+// ---------------------------------------------------------------------------
+
+export interface GetRushingChartingArgs {
+  season?: number
+  team?: string
+  conference?: string
+  position?: string
+  sort?: RushingChartingSort
+  min_attempts?: number
+  limit?: number
+}
+
+async function getRushingChartingToolImpl(args: GetRushingChartingArgs): Promise<string> {
+  if (args.season != null && args.season < CHARTING_MIN_SEASON) {
+    return (
+      `Rushing charting starts in ${CHARTING_MIN_SEASON}. Season ${args.season} has no charted ` +
+      'carries -- this is a coverage boundary, not an empty result.'
+    )
+  }
+
+  const result = await queryRushingChartingPlayers({
+    season: args.season,
+    team: args.team,
+    conference: args.conference,
+    position: args.position,
+    minAttempts: args.min_attempts,
+    sort: args.sort,
+    limit: args.limit,
+  })
+  if (result.error) return result.error
+
+  const floor = resolveMinAttempts(args.min_attempts)
+  const position = resolvePosition(args.position)
+  const season = args.season ?? CURRENT_SEASON
+
+  if (result.rows.length === 0) {
+    const positionPhrase = position === 'ALL' ? 'rushers' : `${position} rushers`
+    return (
+      `No ${positionPhrase} with at least ${floor} carries found for season ${season} with those ` +
+      `filters. Either no rusher in this slice has reached ${floor} carries yet, or the filter is ` +
+      'too narrow. Lower min_attempts to widen it -- but say what the floor was.'
+    )
+  }
+
+  return dump({
+    ...wrap('api.rushing_charting_player_season', result.rows),
+    min_attempts: floor,
+    position,
+    coverage_note:
+      'Rate metrics (yards_per_carry, success_rate, ppa, stuff_rate, power_success, explosiveness, ' +
+      'line_yards, second_level_yards, open_field_yards) are averaged over every carry, not a partial ' +
+      'sample -- min_attempts is a sample-size floor, not a coverage floor. direction_coverage_pct ' +
+      '(direction_available_attempts / direction_eligible_attempts) is the ONLY partial figure here; ' +
+      'quote it alongside any claim about run direction. NULL means not charted, never 0. Player ' +
+      "attempts do NOT sum to a team's offense_attempts (CFBD keeps team-only and multi-carrier " +
+      'carries off player rows), so never compute a share of team carries from these rows.',
+  })
+}
+
+export const getRushingChartingDescription =
+  'Rushing charting for RUNNING BACKS by default: rate stats (yards per carry, success rate, PPA, ' +
+  'stuff rate, power success, explosiveness, line/second-level/open-field yards) plus run-direction ' +
+  'coverage, from CFBD rush-charting. Use for "who has the best yards per carry", "which running ' +
+  'back has the lowest stuff rate", "how much of this back\'s yardage comes before/after the line". Backed by ' +
+  'api.rushing_charting_player_season (one row per season/player/team). ' +
+  'Unlike passing charting, every rate metric here is averaged over every carry -- ' +
+  'rushing_yards_available equals attempts on every row -- so min_attempts is a SAMPLE-SIZE floor, ' +
+  'not a coverage floor: it exists to cut noisy small samples, not to compensate for an uncharted ' +
+  `subset. Results are floored at ${DEFAULT_MIN_ATTEMPTS} carries by default; the floor ENFORCED is ` +
+  'echoed back as min_attempts, never the requested value. ' +
+  "Defaults to position='RB' -- QB attempts include SACKS, which would silently misstate a rushing " +
+  "leaderboard if mixed in. Pass position='ALL' to drop the filter, or any of the view's other " +
+  "position codes (e.g. 'QB', 'WR') to switch it; matching is case-insensitive. " +
+  'Run direction (left/middle/right) is the one partially covered figure: about 40% of eligible ' +
+  'carries resolved a direction in 2025, and coverage is near-complete same-day in 2026. That ' +
+  'coverage ships ONLY as the derived direction_coverage_pct (direction_available_attempts / ' +
+  'direction_eligible_attempts) -- there is no direction-based sort in this tool, and any claim ' +
+  'about run direction must carry that fraction alongside it. ' +
+  'NULL on any metric means the play was not charted for it, never zero -- never render a NULL rate ' +
+  "as 0. Player-level attempts and yardage do NOT reconcile to a team's offense_attempts in " +
+  'api.rushing_charting_team_season -- CFBD attributes team-only, multi-carrier, and unresolved ' +
+  "carries to buckets that never attach to a player -- so never compute a player's share of team " +
+  'carries from the two views. 2025 figures only change through an explicit cfb-database re-pull ' +
+  '(the daily load carries only the in-season year), so treat a 2025 direction answer as ' +
+  'provisional until that re-pull lands. ' +
+  'Sort keys, all DESCENDING except stuff_rate (ASCENDING -- lower stuff rate is better): ppa ' +
+  '(default), success_rate, explosiveness, ypc, stuff_rate, power_success, yards, attempts, ' +
+  'line_yards, second_level_yards, open_field_yards. ' +
+  'Returns JSON {"_source", "count", "rows", "min_attempts", "position", "coverage_note"}.'
+
+export const getRushingChartingInputShape = {
+  season: z
+    .number()
+    .int()
+    .optional()
+    .describe(`Season year. Defaults to ${CURRENT_SEASON}. Rushing charting exists from ${CHARTING_MIN_SEASON} on; earlier seasons return a coverage-boundary message.`),
+  team: z.string().optional().describe("Exact school name, e.g. 'Ohio State'. Case-sensitive."),
+  conference: z.string().optional().describe("Exact conference name, e.g. 'Big Ten'."),
+  position: z
+    .string()
+    .optional()
+    .describe(
+      "Position code, case-insensitive. Defaults to 'RB' -- QB attempts include sacks, which would " +
+        "misstate a rushing leaderboard. Pass 'ALL' to drop the filter, or another of the view's " +
+        "codes (e.g. 'QB', 'WR')."
+    ),
+  sort: z
+    .enum([
+      'ppa',
+      'success_rate',
+      'explosiveness',
+      'ypc',
+      'stuff_rate',
+      'power_success',
+      'yards',
+      'attempts',
+      'line_yards',
+      'second_level_yards',
+      'open_field_yards',
+    ])
+    .optional()
+    .describe("Sort key. All descending except 'stuff_rate' (ascending -- lower is better). Default 'ppa'."),
+  min_attempts: z
+    .number()
+    .int()
+    .min(1)
+    .optional()
+    .describe(`Minimum carries (floors attempts, applied regardless of sort). Default ${DEFAULT_MIN_ATTEMPTS}.`),
+  limit: z.number().int().min(1).max(DEFAULT_ROW_CAP).optional().describe('Max rows (default 25, server-capped at 100).'),
+} as const
+
+
+// ---------------------------------------------------------------------------
 // Every tool function is exported through withToolTelemetry: one
 // {evt:'tool',...} JSON log line per call (name, latency, truncated args,
 // errish flag) plus the hard per-call deadline. Both consumers -- the MCP
@@ -3480,6 +3651,7 @@ export const renderChartTool = withToolTelemetry('render_chart', renderChartTool
 export const getPassingChartingTool = withToolTelemetry('get_passing_charting', getPassingChartingToolImpl)
 export const getTargetProfileTool = withToolTelemetry('get_target_profile', getTargetProfileToolImpl)
 export const getCoachTenureTool = withToolTelemetry('get_coach_tenure', getCoachTenureToolImpl)
+export const getRushingChartingTool = withToolTelemetry('get_rushing_charting', getRushingChartingToolImpl)
 
 // ---------------------------------------------------------------------------
 
@@ -3794,5 +3966,16 @@ export function registerMcpTools(server: McpServer): void {
       annotations: { title: 'Get Coach Tenure', ...READ_ONLY_ANNOTATIONS },
     },
     async args => textResult(await getCoachTenureTool(args))
+  )
+
+  server.registerTool(
+    'get_rushing_charting',
+    {
+      title: 'Get Rushing Charting',
+      description: getRushingChartingDescription,
+      inputSchema: getRushingChartingInputShape,
+      annotations: { title: 'Get Rushing Charting', ...READ_ONLY_ANNOTATIONS },
+    },
+    async args => textResult(await getRushingChartingTool(args))
   )
 }
