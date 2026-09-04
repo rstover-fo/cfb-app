@@ -17,8 +17,19 @@ vi.mock('@/lib/supabase/server', () => ({
 }))
 
 import { createClient } from '@/lib/supabase/server'
-import { queryPassingChartingPlayers, queryTargetProfiles, DEFAULT_MIN_CHARTED } from '../passing-charting'
+import {
+  queryPassingChartingPlayers,
+  queryTargetProfiles,
+  resolvePlayerMinCharted,
+  resolveTargetMinCharted,
+  DEFAULT_MIN_CHARTED,
+  DEFAULT_TARGET_MIN_CHARTED,
+} from '../passing-charting'
+import type { SeasonState } from '../season'
 import { createSupabaseMock, ok, dbError, type SupabaseMockConfig } from './helpers'
+
+const LIVE_WEEK_3: SeasonState = { season: 2026, through_week: 3, is_live: true, source: 'games' }
+const COMPLETED_2025: SeasonState = { season: 2025, through_week: 16, is_live: false, source: 'games' }
 
 function mockClient(config: SupabaseMockConfig) {
   const mock = createSupabaseMock(config)
@@ -96,6 +107,39 @@ describe('queryPassingChartingPlayers floor', () => {
     expect(result.rows).toEqual([])
     expect(result.error).toMatch(/^Error: api\.passing_charting_player_season/)
   })
+
+  it('resolves the season from state when no explicit season is given', async () => {
+    const mock = mockClient({ apiTables: { passing_charting_player_season: ok([]) } })
+    await queryPassingChartingPlayers({ state: COMPLETED_2025 })
+    const chain = apiChain(mock)
+    expect(chain.eq).toHaveBeenCalledWith('season', COMPLETED_2025.season)
+  })
+})
+
+describe('resolvePlayerMinCharted / resolveTargetMinCharted floor scaling', () => {
+  it('scales the passer floor down early in a live season (week 3 of 12), never below the minimum', () => {
+    // ceil(50 * 3/12) = 13
+    expect(resolvePlayerMinCharted(undefined, LIVE_WEEK_3)).toBe(13)
+  })
+
+  it('scales the target floor down early in a live season but clamps at the 10-floor minimum', () => {
+    // ceil(10 * 3/12) = 3, clamped up to 10.
+    expect(resolveTargetMinCharted(undefined, LIVE_WEEK_3)).toBe(10)
+  })
+
+  it('leaves an explicit positive floor unscaled even in a live season', () => {
+    expect(resolvePlayerMinCharted(30, LIVE_WEEK_3)).toBe(30)
+  })
+
+  it('does not scale either floor once the season has completed', () => {
+    expect(resolvePlayerMinCharted(undefined, COMPLETED_2025)).toBe(DEFAULT_MIN_CHARTED)
+    expect(resolveTargetMinCharted(undefined, COMPLETED_2025)).toBe(DEFAULT_TARGET_MIN_CHARTED)
+  })
+
+  it('falls back to the unscaled default with no state at all', () => {
+    expect(resolvePlayerMinCharted(undefined)).toBe(DEFAULT_MIN_CHARTED)
+    expect(resolveTargetMinCharted(undefined)).toBe(DEFAULT_TARGET_MIN_CHARTED)
+  })
 })
 
 describe('queryTargetProfiles floor', () => {
@@ -137,5 +181,12 @@ describe('queryTargetProfiles floor', () => {
     expect(rows[0].target_share_charted).toBe(0.344)
     expect(rows[0].partial_share).toBe(0.665)
     expect(rows[0].air_yards_coverage_pct).toBeCloseTo(0.335, 3)
+  })
+
+  it('resolves the season from state when no explicit season is given', async () => {
+    const mock = mockClient({ apiTables: { passing_charting_target_season: ok([]) } })
+    await queryTargetProfiles({ state: COMPLETED_2025 })
+    const chain = apiChain(mock)
+    expect(chain.eq).toHaveBeenCalledWith('season', COMPLETED_2025.season)
   })
 })

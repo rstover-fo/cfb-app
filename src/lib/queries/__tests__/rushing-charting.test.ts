@@ -23,8 +23,11 @@ import {
   DEFAULT_MIN_ATTEMPTS,
   type RushingChartingSort,
 } from '../rushing-charting'
-import { CURRENT_SEASON } from '../constants'
+import type { SeasonState } from '../season'
 import { createSupabaseMock, ok, dbError, type SupabaseMockConfig } from './helpers'
+
+const LIVE_WEEK_1: SeasonState = { season: 2026, through_week: 1, is_live: true, source: 'games' }
+const COMPLETED_2025: SeasonState = { season: 2025, through_week: 16, is_live: false, source: 'games' }
 
 function mockClient(config: SupabaseMockConfig) {
   const mock = createSupabaseMock(config)
@@ -43,12 +46,12 @@ beforeEach(() => {
 describe('queryRushingChartingPlayers defaults', () => {
   it('floors attempts at 50, defaults to RB, sorts ppa desc with nullsFirst:false, then player_id asc, limit 25', async () => {
     const mock = mockClient({ apiTables: { rushing_charting_player_season: ok([]) } })
-    await queryRushingChartingPlayers({})
+    await queryRushingChartingPlayers({ state: COMPLETED_2025 })
     const chain = apiChain(mock)
 
     expect(chain.gte).toHaveBeenCalledWith('attempts', DEFAULT_MIN_ATTEMPTS)
     expect(chain.eq).toHaveBeenCalledWith('position', 'RB')
-    expect(chain.eq).toHaveBeenCalledWith('season', CURRENT_SEASON)
+    expect(chain.eq).toHaveBeenCalledWith('season', COMPLETED_2025.season)
     expect(chain.order.mock.calls[0]).toEqual(['ppa', { ascending: false, nullsFirst: false }])
     expect(chain.order.mock.calls[1]).toEqual(['player_id', { ascending: true }])
     // (season, player_id, team) grain: a two-stint player has two rows, so team
@@ -58,11 +61,18 @@ describe('queryRushingChartingPlayers defaults', () => {
     expect(chain.limit).toHaveBeenCalledWith(25)
   })
 
-  it('applies the given season instead of the CURRENT_SEASON default', async () => {
+  it('applies the given season instead of the state default', async () => {
     const mock = mockClient({ apiTables: { rushing_charting_player_season: ok([]) } })
-    await queryRushingChartingPlayers({ season: 2023 })
+    await queryRushingChartingPlayers({ season: 2023, state: COMPLETED_2025 })
     const chain = apiChain(mock)
     expect(chain.eq).toHaveBeenCalledWith('season', 2023)
+  })
+
+  it('omits the season filter entirely when neither season nor state is given', async () => {
+    const mock = mockClient({ apiTables: { rushing_charting_player_season: ok([]) } })
+    await queryRushingChartingPlayers({})
+    const chain = apiChain(mock)
+    expect(chain.eq).not.toHaveBeenCalledWith('season', expect.anything())
   })
 
   it('orders stuff_rate ascending (lower is better) with nullsFirst:false', async () => {
@@ -137,11 +147,24 @@ describe('queryRushingChartingPlayers other filters', () => {
 })
 
 describe('resolveMinAttempts / resolvePosition', () => {
-  it('resolveMinAttempts falls back to the default on 0/negative/undefined', () => {
+  it('resolveMinAttempts falls back to the default on 0/negative/undefined with no state', () => {
     expect(resolveMinAttempts(0)).toBe(DEFAULT_MIN_ATTEMPTS)
     expect(resolveMinAttempts(-3)).toBe(DEFAULT_MIN_ATTEMPTS)
     expect(resolveMinAttempts(undefined)).toBe(DEFAULT_MIN_ATTEMPTS)
     expect(resolveMinAttempts(20)).toBe(20)
+  })
+
+  it('scales the default floor down early in a live season, but never below the minimum', () => {
+    // week 1 of 12: ceil(50 * 1/12) = 5, clamped up to the 10-floor minimum.
+    expect(resolveMinAttempts(undefined, LIVE_WEEK_1)).toBe(10)
+  })
+
+  it('leaves an explicit positive floor unscaled even in a live season', () => {
+    expect(resolveMinAttempts(30, LIVE_WEEK_1)).toBe(30)
+  })
+
+  it('does not scale the floor once the season has completed', () => {
+    expect(resolveMinAttempts(undefined, COMPLETED_2025)).toBe(DEFAULT_MIN_ATTEMPTS)
   })
 
   it('resolvePosition defaults to RB and uppercases input', () => {

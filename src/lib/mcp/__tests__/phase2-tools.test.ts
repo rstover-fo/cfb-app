@@ -28,6 +28,23 @@ vi.mock('@/lib/queries/predictions', () => ({
   getPredictionAccuracy: vi.fn(),
 }))
 
+// Season-rollover U2: getPlaycallingProfileTool/getAdjustedEpaTool now resolve
+// their season default via getCurrentSeasonForRoute() instead of the
+// CURRENT_SEASON constant. Pin it to a fixed, non-live state so these tests
+// keep their existing "defaults to 2025" expectations; scaleFloor/etc stay real.
+vi.mock('@/lib/queries/season', async importOriginal => {
+  const actual = await importOriginal<typeof import('@/lib/queries/season')>()
+  return {
+    ...actual,
+    getCurrentSeasonForRoute: vi.fn().mockResolvedValue({
+      season: 2025,
+      through_week: 16,
+      is_live: false,
+      source: 'games',
+    }),
+  }
+})
+
 import { getPlaycallingProfile, getTeamWeekFeatures } from '@/lib/queries/playcalling'
 import { getLiveScoreboard } from '@/lib/queries/live'
 import { getPredictionAccuracy } from '@/lib/queries/predictions'
@@ -56,7 +73,12 @@ describe('getPlaycallingProfileTool', () => {
 
     const parsed = JSON.parse(await getPlaycallingProfileTool({ team: 'Oklahoma' }))
 
-    expect(parsed).toEqual({ _source: 'api.team_playcalling_profile', count: 1, rows: [profile] })
+    expect(parsed).toEqual({
+      _source: 'api.team_playcalling_profile',
+      count: 1,
+      rows: [profile],
+      as_of: { season: 2025, through_week: 16, source: 'games' },
+    })
     expect(getPlaycallingProfile).toHaveBeenCalledWith('Oklahoma', 2025)
   })
 
@@ -81,6 +103,14 @@ describe('getPlaycallingProfileTool', () => {
 
     await expect(getPlaycallingProfileTool({ team: 'Nobody State' })).resolves.toEqual(expect.any(String))
   })
+
+  it('as_of.through_week is null when an explicit season differs from the resolved one', async () => {
+    vi.mocked(getPlaycallingProfile).mockResolvedValue({ team: 'Oklahoma', season: 2019 } as never)
+
+    const parsed = JSON.parse(await getPlaycallingProfileTool({ team: 'Oklahoma', season: 2019 }))
+
+    expect(parsed.as_of).toEqual({ season: 2019, through_week: null, source: 'games' })
+  })
 })
 
 describe('getAdjustedEpaTool', () => {
@@ -93,7 +123,12 @@ describe('getAdjustedEpaTool', () => {
 
     const parsed = JSON.parse(await getAdjustedEpaTool({ team: 'Oklahoma' }))
 
-    expect(parsed).toEqual({ _source: 'api.team_week_features', count: 2, rows: weeks })
+    expect(parsed).toEqual({
+      _source: 'api.team_week_features',
+      count: 2,
+      rows: weeks,
+      as_of: { season: 2025, through_week: 16, source: 'games' },
+    })
     expect(getTeamWeekFeatures).toHaveBeenCalledWith('Oklahoma', 2025)
   })
 

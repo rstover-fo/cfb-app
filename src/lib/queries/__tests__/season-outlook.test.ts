@@ -17,7 +17,7 @@ import {
   SEASON_OUTLOOK_MODEL,
   SEASON_OUTLOOK_DEFAULT_LIMIT,
   MODEL_BACKTEST_SCOPE_FBS,
-  queryLatestOutlookSeason,
+  queryLatestProjectionSeason,
   querySeasonOutlook,
   queryModelBacktest,
   resolveModelBacktest,
@@ -38,10 +38,10 @@ beforeEach(() => {
   vi.clearAllMocks()
 })
 
-describe('queryLatestOutlookSeason', () => {
+describe('queryLatestProjectionSeason', () => {
   it('asks for the single newest season, pinned to the house model', async () => {
     const mock = mockClient({ apiTables: { season_outlook: ok([{ season: 2026 }]) } })
-    const result = await queryLatestOutlookSeason()
+    const result = await queryLatestProjectionSeason()
 
     expect(result).toEqual({ rows: [{ season: 2026 }], error: null })
     const chain = apiChain(mock)
@@ -53,12 +53,12 @@ describe('queryLatestOutlookSeason', () => {
 
   it('returns [] with no error when the view is empty', async () => {
     mockClient({ apiTables: { season_outlook: ok([]) } })
-    expect(await queryLatestOutlookSeason()).toEqual({ rows: [], error: null })
+    expect(await queryLatestProjectionSeason()).toEqual({ rows: [], error: null })
   })
 
   it('returns a friendly "Error: ..." string (never throws) on PostgREST error', async () => {
     mockClient({ apiTables: { season_outlook: dbError('connection refused') } })
-    const result = await queryLatestOutlookSeason()
+    const result = await queryLatestProjectionSeason()
 
     expect(result.rows).toEqual([])
     expect(result.error).toMatch(/^Error: api\.season_outlook request failed: connection refused$/)

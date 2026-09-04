@@ -71,7 +71,7 @@ import {
   type PenaltyPlayAggRow,
 } from '@/lib/queries/penalties'
 import {
-  queryLatestOutlookSeason,
+  queryLatestProjectionSeason,
   querySeasonOutlook,
   resolveModelBacktest,
   backtestRowsDisagree,
@@ -95,7 +95,8 @@ import {
   type ExpectedPointsDistanceBucket,
   type ExpectedPointsRow,
 } from '@/lib/queries/expected-points'
-import { CURRENT_SEASON, PREDICTION_MODEL_VERSIONS, DEFAULT_PREDICTION_MODEL } from '@/lib/queries/constants'
+import { PREDICTION_MODEL_VERSIONS, DEFAULT_PREDICTION_MODEL } from '@/lib/queries/constants'
+import { getCurrentSeasonForRoute, type SeasonState } from '@/lib/queries/season'
 
 // ---------------------------------------------------------------------------
 // MCP v2: twenty-nine read-only tools over the cfb-database warehouse, mounted
@@ -206,6 +207,38 @@ function dump(payload: unknown): string {
 // cfb_mcp/server.py's _wrap().
 function wrap(source: string, rows: unknown[]): { _source: string; count: number; rows: unknown[] } {
   return { _source: source, count: rows.length, rows }
+}
+
+// ---------------------------------------------------------------------------
+// R7/R8 (season-rollover U2): every tool that defaults `season` resolves it
+// at call time via getCurrentSeasonForRoute() (src/lib/queries/season.ts)
+// instead of the app-wide CURRENT_SEASON constant, which goes stale the
+// moment a season rolls over. Two small helpers keep that consistent across
+// every call site rather than reinventing the shape per tool:
+//
+// - seasonStateFor(usedSeason, resolved) answers "what SeasonState actually
+//   describes the season this call ended up using" -- which is `resolved`
+//   itself when usedSeason matches the resolver's answer, or a degraded
+//   state (through_week/is_live unknown) when the caller named a DIFFERENT
+//   season explicitly (or a fallback, e.g. get_conference_comparison's
+//   season-1 retry, landed on one). This is what makes `season` safe to pass
+//   in either case: the resolved season and an explicitly-requested season
+//   are never confused with each other in the response.
+// - withAsOf(payload, state) attaches the resulting `as_of` block. `is_live`
+//   is deliberately omitted (R8) -- it is resolver-internal detail, not
+//   something a tool caller needs to reason about the answer.
+// ---------------------------------------------------------------------------
+
+function seasonStateFor(usedSeason: number, resolved: SeasonState): SeasonState {
+  if (usedSeason === resolved.season) return resolved
+  return { season: usedSeason, through_week: null, is_live: false, source: resolved.source }
+}
+
+function withAsOf<T extends object>(
+  payload: T,
+  state: SeasonState
+): T & { as_of: { season: number; through_week: number | null; source: SeasonState['source'] } } {
+  return { ...payload, as_of: { season: state.season, through_week: state.through_week, source: state.source } }
 }
 
 const SPLIT_TYPES = ['home_away', 'conference', 'red_zone', 'down_distance', 'field_position'] as const
@@ -669,19 +702,29 @@ export const searchPlayersInputShape = {
 // ---------------------------------------------------------------------------
 
 async function getDataFreshnessToolImpl(): Promise<string> {
-  const result = await callDataFreshness()
+  const [result, resolved] = await Promise.all([callDataFreshness(), getCurrentSeasonForRoute()])
   if (result.error) return result.error
-  return dump(wrap('public.get_data_freshness', result.rows))
+  return dump({
+    current_season: resolved.season,
+    through_week: resolved.through_week,
+    season_source: resolved.source,
+    ...wrap('public.get_data_freshness', result.rows),
+  })
 }
 
 export const getDataFreshnessDescription =
-  'Get freshness/staleness status for all tracked warehouse tables. Use before answering ' +
-  'questions about very recent games/stats, to qualify how current the data is -- e.g. "as of ' +
-  'the last refresh (X days ago), ...". Also useful if a query returns unexpectedly few/no rows ' +
-  'for the current week, to check whether the pipeline has run yet. Takes no arguments. Backed by ' +
-  'the public.get_data_freshness() RPC, which reports row_count, expected_refresh_frequency, ' +
-  'days_since_activity, and is_stale for each of ~23 tracked tables, ordered stale-first. Returns ' +
-  'JSON {"_source": "public.get_data_freshness", "count", "rows"}.'
+  'Get freshness/staleness status for all tracked warehouse tables, plus which season the app ' +
+  'currently considers "current" and why. Use before answering questions about very recent ' +
+  'games/stats, to qualify how current the data is -- e.g. "as of the last refresh (X days ago), ' +
+  '...". Also useful if a query returns unexpectedly few/no rows for the current week, to check ' +
+  'whether the pipeline has run yet, or if a season-defaulted tool answered for a season other ' +
+  'than the one expected. Takes no arguments. Backed by the public.get_data_freshness() RPC, ' +
+  'which reports row_count, expected_refresh_frequency, days_since_activity, and is_stale for ' +
+  'each of ~23 tracked tables, ordered stale-first, alongside the same season resolver every ' +
+  'other season-defaulting tool uses. Returns JSON {"current_season", "through_week", ' +
+  '"season_source", "_source": "public.get_data_freshness", "count", "rows"} -- ' +
+  '`season_source` is one of "override" (CFB_SEASON env var), "season_state" (api.season_state), ' +
+  '"games" (derived from public.games), or "fallback" (the warehouse could not be reached).'
 
 export const getDataFreshnessInputShape = {} as const
 
@@ -769,7 +812,8 @@ export interface GetTeamEloArgs {
 }
 
 async function getTeamEloToolImpl(args: GetTeamEloArgs): Promise<string> {
-  const season = args.season ?? CURRENT_SEASON
+  const resolved = await getCurrentSeasonForRoute()
+  const season = args.season ?? resolved.season
 
   // Fetched in parallel: season-end summary (api.team_elo, at most one row)
   // and the full game-by-game trajectory (api.game_elo_history). Both fns
@@ -783,10 +827,15 @@ async function getTeamEloToolImpl(args: GetTeamEloArgs): Promise<string> {
     return `No Elo data found for '${args.team}' in ${season}. Check the team name (exact, case-sensitive) and season.`
   }
 
-  return dump({
-    elo: wrap('api.team_elo', elo ? [elo] : []),
-    history: wrap('api.game_elo_history', history),
-  })
+  return dump(
+    withAsOf(
+      {
+        elo: wrap('api.team_elo', elo ? [elo] : []),
+        history: wrap('api.game_elo_history', history),
+      },
+      seasonStateFor(season, resolved)
+    )
+  )
 }
 
 export const getTeamEloDescription =
@@ -809,7 +858,7 @@ export const getTeamEloInputShape = {
     .number()
     .int()
     .optional()
-    .describe(`Season year, e.g. 2024. Defaults to the current season (${CURRENT_SEASON}) if omitted.`),
+    .describe('Season year, e.g. 2024. Defaults to the current season if omitted.'),
 } as const
 
 // ---------------------------------------------------------------------------
@@ -827,7 +876,8 @@ export interface GetMatchupEdgesArgs {
 }
 
 async function getMatchupEdgesToolImpl(args: GetMatchupEdgesArgs): Promise<string> {
-  const season = args.season ?? CURRENT_SEASON
+  const resolved = await getCurrentSeasonForRoute()
+  const season = args.season ?? resolved.season
   const modelVersion = args.model_version ?? DEFAULT_PREDICTION_MODEL
   const limit = Math.min(Math.max(args.limit ?? MATCHUP_EDGES_DEFAULT_LIMIT, 1), MATCHUP_EDGES_MAX_LIMIT)
 
@@ -837,7 +887,7 @@ async function getMatchupEdgesToolImpl(args: GetMatchupEdgesArgs): Promise<strin
   // predictions.ts) -- an empty slate is a normal off-season/post-lock-in
   // state, not an error, so this always returns the envelope (possibly with
   // count: 0) rather than a "No ... found" string.
-  return dump(wrap('api.scored_matchup_edges', edges.slice(0, limit)))
+  return dump(withAsOf(wrap('api.scored_matchup_edges', edges.slice(0, limit)), seasonStateFor(season, resolved)))
 }
 
 export const getMatchupEdgesDescription =
@@ -853,15 +903,16 @@ export const getMatchupEdgesDescription =
   'IMPORTANT: this view only ever contains games that have not yet been played, so during the ' +
   'off-season, or after a season\'s full slate has already locked in and completed, an EMPTY result ' +
   '({"count": 0, "rows": []}) is the expected, correct response -- not an error and not a sign the ' +
-  'query is broken. Returns JSON {"_source": "api.scored_matchup_edges", "count", "rows"}, sliced to ' +
-  'at most `limit` rows (default 25, hard-capped at 100) after sorting by conviction.'
+  'query is broken. Returns JSON {"_source": "api.scored_matchup_edges", "count", "rows", "as_of": ' +
+  '{"season", "through_week", "source"}}, sliced to at most `limit` rows (default 25, hard-capped ' +
+  'at 100) after sorting by conviction.'
 
 export const getMatchupEdgesInputShape = {
   season: z
     .number()
     .int()
     .optional()
-    .describe(`Season year, e.g. 2024. Defaults to the current season (${CURRENT_SEASON}) if omitted.`),
+    .describe('Season year, e.g. 2024. Defaults to the current season if omitted.'),
   week: z
     .number()
     .int()
@@ -893,7 +944,8 @@ export interface GetPlaycallingProfileArgs {
 }
 
 async function getPlaycallingProfileToolImpl(args: GetPlaycallingProfileArgs): Promise<string> {
-  const season = args.season ?? CURRENT_SEASON
+  const resolved = await getCurrentSeasonForRoute()
+  const season = args.season ?? resolved.season
   const profile = await getPlaycallingProfile(args.team, season)
 
   // getPlaycallingProfile (src/lib/queries/playcalling.ts) returns null for
@@ -907,7 +959,7 @@ async function getPlaycallingProfileToolImpl(args: GetPlaycallingProfileArgs): P
     )
   }
 
-  return dump(wrap('api.team_playcalling_profile', [profile]))
+  return dump(withAsOf(wrap('api.team_playcalling_profile', [profile]), seasonStateFor(season, resolved)))
 }
 
 export const getPlaycallingProfileDescription =
@@ -920,10 +972,10 @@ export const getPlaycallingProfileDescription =
   '(0-100) against the rest of FBS that same season -- a higher percentile means more extreme ' +
   "relative to the league, not necessarily 'better' (e.g. a very high third_down_pass_rate_pctl " +
   'just means this team passes on 3rd down far more than most FBS teams). `season` defaults to ' +
-  `the current season (${CURRENT_SEASON}) if omitted. Returns JSON {"_source": ` +
-  '"api.team_playcalling_profile", "count", "rows"} with at most one row, or a friendly "No ' +
-  'playcalling profile found..." string if the team/season combination has too few qualifying ' +
-  'plays for the view to emit a row.'
+  'the current season if omitted. Returns JSON {"_source": ' +
+  '"api.team_playcalling_profile", "count", "rows", "as_of": {"season", "through_week", "source"}} ' +
+  'with at most one row, or a friendly "No playcalling profile found..." string if the team/season ' +
+  'combination has too few qualifying plays for the view to emit a row.'
 
 export const getPlaycallingProfileInputShape = {
   team: z.string().describe("Exact school name as used by CFBD, e.g. 'Oklahoma'. Case-sensitive."),
@@ -931,7 +983,7 @@ export const getPlaycallingProfileInputShape = {
     .number()
     .int()
     .optional()
-    .describe(`Season year, e.g. 2024. Defaults to the current season (${CURRENT_SEASON}) if omitted.`),
+    .describe('Season year, e.g. 2024. Defaults to the current season if omitted.'),
 } as const
 
 // ---------------------------------------------------------------------------
@@ -944,7 +996,8 @@ export interface GetAdjustedEpaArgs {
 }
 
 async function getAdjustedEpaToolImpl(args: GetAdjustedEpaArgs): Promise<string> {
-  const season = args.season ?? CURRENT_SEASON
+  const resolved = await getCurrentSeasonForRoute()
+  const season = args.season ?? resolved.season
 
   // getTeamWeekFeatures carries both the walk-forward opponent-adjusted EPA
   // columns (adj_epa_off/def/net) and the matching raw, unadjusted per-play
@@ -959,7 +1012,7 @@ async function getAdjustedEpaToolImpl(args: GetAdjustedEpaArgs): Promise<string>
     )
   }
 
-  return dump(wrap('api.team_week_features', weeks))
+  return dump(withAsOf(wrap('api.team_week_features', weeks), seasonStateFor(season, resolved)))
 }
 
 export const getAdjustedEpaDescription =
@@ -977,9 +1030,10 @@ export const getAdjustedEpaDescription =
   "team's raw EPA is opponent-strength noise versus real performance. Also includes elo_pregame, " +
   'games_played_to_date, off_success_rate, and both havoc-rate columns (havoc_rate_defense, ' +
   'havoc_rate_offense_allowed). `season` defaults to the current season ' +
-  `(${CURRENT_SEASON}) if omitted. Returns JSON {"_source": "api.team_week_features", "count", ` +
-  '"rows"} ordered week_index ascending, or a friendly "No adjusted-EPA data found..." string if ' +
-  "the feature build hasn't run yet for this team/season."
+  'if omitted. Returns JSON {"_source": "api.team_week_features", "count", ' +
+  '"rows", "as_of": {"season", "through_week", "source"}} ordered week_index ascending, or a ' +
+  'friendly "No adjusted-EPA data found..." string if the feature build hasn\'t run yet for this ' +
+  'team/season.'
 
 export const getAdjustedEpaInputShape = {
   team: z.string().describe("Exact school name as used by CFBD, e.g. 'Oklahoma'. Case-sensitive."),
@@ -987,7 +1041,7 @@ export const getAdjustedEpaInputShape = {
     .number()
     .int()
     .optional()
-    .describe(`Season year, e.g. 2024. Defaults to the current season (${CURRENT_SEASON}) if omitted.`),
+    .describe('Season year, e.g. 2024. Defaults to the current season if omitted.'),
 } as const
 
 // ---------------------------------------------------------------------------
@@ -1075,7 +1129,9 @@ export interface GetPlayerLeadersArgs {
 }
 
 async function getPlayerLeadersToolImpl(args: GetPlayerLeadersArgs): Promise<string> {
-  const season = args.season ?? CURRENT_SEASON
+  const resolved = await getCurrentSeasonForRoute()
+  const season = args.season ?? resolved.season
+  const state = seasonStateFor(season, resolved)
   const limit = Math.min(Math.max(args.limit ?? PLAYER_LEADERS_DEFAULT_LIMIT, 1), PLAYER_LEADERS_MAX_LIMIT)
 
   // getWepaLeaders/getUsageLeaders (src/lib/queries/players.ts) both collapse
@@ -1090,7 +1146,7 @@ async function getPlayerLeadersToolImpl(args: GetPlayerLeadersArgs): Promise<str
         'play-by-play data has been processed for that season.'
       )
     }
-    return dump(wrap('api.player_wepa_leaders', rows))
+    return dump(withAsOf(wrap('api.player_wepa_leaders', rows), state))
   }
 
   // `category` only applies to wepa leaders (api.player_wepa_leaders has a
@@ -1103,7 +1159,7 @@ async function getPlayerLeadersToolImpl(args: GetPlayerLeadersArgs): Promise<str
       'data has been processed for that season.'
     )
   }
-  return dump(wrap('api.player_usage_leaders', rows))
+  return dump(withAsOf(wrap('api.player_usage_leaders', rows), state))
 }
 
 export const getPlayerLeadersDescription =
@@ -1117,15 +1173,16 @@ export const getPlayerLeadersDescription =
   'situational usage splits, sorted usage_overall descending) and has no category breakdown -- ' +
   '`category` is ignored if passed with type=\'usage\'. Both views are derived from play-by-play ' +
   'data, so only seasons from 2014 on have coverage. `season` defaults to the current season ' +
-  `(${CURRENT_SEASON}) if omitted. Returns JSON {"_source", "count", "rows"}, or a friendly "No ` +
-  '... leaders found..." string if the season/category combination has no data yet.'
+  'if omitted. Returns JSON {"_source", "count", "rows", "as_of": {"season", "through_week", ' +
+  '"source"}}, or a friendly "No ... leaders found..." string if the season/category combination ' +
+  'has no data yet.'
 
 export const getPlayerLeadersInputShape = {
   season: z
     .number()
     .int()
     .optional()
-    .describe(`Season year, e.g. 2024. Defaults to the current season (${CURRENT_SEASON}) if omitted.`),
+    .describe('Season year, e.g. 2024. Defaults to the current season if omitted.'),
   type: z
     .enum(['wepa', 'usage'])
     .describe(
@@ -1228,11 +1285,12 @@ export interface GetConferenceComparisonArgs {
 }
 
 async function getConferenceComparisonToolImpl(args: GetConferenceComparisonArgs): Promise<string> {
+  const resolved = await getCurrentSeasonForRoute()
   // Mirrors src/app/conferences/page.tsx's offseason fallback: a season with
   // no computed aggregates yet (early in the year, before enough games have
   // been played) is a valid, non-error state -- retry one season back before
   // giving up.
-  let season = args.season ?? CURRENT_SEASON
+  let season = args.season ?? resolved.season
   let rows = await getConferenceComparison(season)
 
   if (rows.length === 0) {
@@ -1242,7 +1300,7 @@ async function getConferenceComparisonToolImpl(args: GetConferenceComparisonArgs
 
   if (rows.length === 0) {
     return (
-      `No conference comparison data found for season=${args.season ?? CURRENT_SEASON} or the prior ` +
+      `No conference comparison data found for season=${args.season ?? resolved.season} or the prior ` +
       'season.'
     )
   }
@@ -1250,7 +1308,7 @@ async function getConferenceComparisonToolImpl(args: GetConferenceComparisonArgs
   // `season` is included alongside the envelope since it may differ from the
   // requested/default season after the fallback -- callers need to know
   // which season the returned rows actually belong to.
-  return dump({ season, ...wrap('api.conference_comparison', rows) })
+  return dump(withAsOf({ season, ...wrap('api.conference_comparison', rows) }, seasonStateFor(season, resolved)))
 }
 
 export const getConferenceComparisonDescription =
@@ -1260,14 +1318,14 @@ export const getConferenceComparisonDescription =
   'SEC in recruiting", "best non-conference performance by league". Backed by ' +
   'api.conference_comparison (one row per conference/season, member_count always >= 4), sorted ' +
   'strongest-first by avg_sp_rating (nulls last). `season` defaults to the current season ' +
-  `(${CURRENT_SEASON}) if omitted. IMPORTANT: early in a season, before enough games have been ` +
+  'if omitted. IMPORTANT: early in a season, before enough games have been ' +
   'played, the requested season may have no computed aggregates yet -- this tool automatically ' +
   'retries season-1 once in that case (mirroring the /conferences page\'s own offseason fallback) ' +
   'rather than returning an empty result. Returns JSON {"season", "_source": ' +
-  '"api.conference_comparison", "count", "rows"} where `season` reports which season the returned ' +
-  'rows actually belong to (it may differ from the requested/default season after the fallback), ' +
-  'or a friendly "No conference comparison data found..." string if both the requested season and ' +
-  'season-1 come back empty.'
+  '"api.conference_comparison", "count", "rows", "as_of": {"season", "through_week", "source"}} ' +
+  'where `season` reports which season the returned rows actually belong to (it may differ from ' +
+  'the requested/default season after the fallback), or a friendly "No conference comparison data ' +
+  'found..." string if both the requested season and season-1 come back empty.'
 
 export const getConferenceComparisonInputShape = {
   season: z
@@ -1275,7 +1333,7 @@ export const getConferenceComparisonInputShape = {
     .int()
     .optional()
     .describe(
-      `Season year, e.g. 2024. Defaults to the current season (${CURRENT_SEASON}) if omitted; ` +
+      'Season year, e.g. 2024. Defaults to the current season if omitted; ' +
         'falls back to season-1 automatically if the season has no computed aggregates yet.'
     ),
 } as const
@@ -1683,7 +1741,8 @@ export interface GetPenaltyProfileArgs {
 }
 
 async function getPenaltyProfileToolImpl(args: GetPenaltyProfileArgs): Promise<string> {
-  const season = args.season ?? CURRENT_SEASON
+  const resolved = await getCurrentSeasonForRoute()
+  const season = args.season ?? resolved.season
 
   const [games, committed, drawn] = await Promise.all([
     queryTeamPenaltyGames(args.team, season),
@@ -1704,21 +1763,26 @@ async function getPenaltyProfileToolImpl(args: GetPenaltyProfileArgs): Promise<s
     )
   }
 
-  return dump({
-    team: args.team,
-    season,
-    summary: aggregatePenaltySummary(games.rows),
-    ...(committed.error
-      ? { infraction_breakdown_error: committed.error }
-      : {
-          infraction_breakdown: wrap('api.penalty_log (aggregated: penalized_team = team)', groupInfractions(committed.rows)),
-          most_costly: wrap('api.penalty_log (top accepted by penalty_yards)', mostCostlyPenalties(committed.rows)),
-        }),
-    ...(drawn.error
-      ? { drawn_breakdown_error: drawn.error }
-      : { drawn_breakdown: wrap('api.penalty_log (aggregated: benefiting_team = team)', groupInfractions(drawn.rows)) }),
-    game_log: wrap('api.team_penalties', games.rows),
-  })
+  return dump(
+    withAsOf(
+      {
+        team: args.team,
+        season,
+        summary: aggregatePenaltySummary(games.rows),
+        ...(committed.error
+          ? { infraction_breakdown_error: committed.error }
+          : {
+              infraction_breakdown: wrap('api.penalty_log (aggregated: penalized_team = team)', groupInfractions(committed.rows)),
+              most_costly: wrap('api.penalty_log (top accepted by penalty_yards)', mostCostlyPenalties(committed.rows)),
+            }),
+        ...(drawn.error
+          ? { drawn_breakdown_error: drawn.error }
+          : { drawn_breakdown: wrap('api.penalty_log (aggregated: benefiting_team = team)', groupInfractions(drawn.rows)) }),
+        game_log: wrap('api.team_penalties', games.rows),
+      },
+      seasonStateFor(season, resolved)
+    )
+  )
 }
 
 export const getPenaltyProfileDescription =
@@ -1743,12 +1807,13 @@ export const getPenaltyProfileDescription =
   'is also why breakdown totals run below the summary counts); use the breakdowns for the ' +
   'infraction MIX only. Coverage runs from 2004; parse quality is validated for seasons >= 2022 ' +
   '(>= 90% of penalties get an infraction label, >= 50% get a team attribution) and degrades in ' +
-  `older seasons. \`season\` defaults to the current season (${CURRENT_SEASON}) if omitted. For ` +
+  'older seasons. `season` defaults to the current season if omitted. For ' +
   'league-wide discipline leaderboards or cross-metric combos (e.g. havoc rate vs penalties drawn), ' +
   'use run_sql over api.team_penalties / api.penalty_log instead. Returns JSON with "team", ' +
-  '"season", "summary", "infraction_breakdown", "drawn_breakdown", "most_costly", and "game_log" ' +
-  'keys (envelope keys are {"_source", "count", "rows"}; a failed secondary lookup degrades to an ' +
-  '"..._error" key without discarding the rest), or a friendly "No penalty data found..." string.'
+  '"season", "summary", "infraction_breakdown", "drawn_breakdown", "most_costly", "game_log", and ' +
+  '"as_of" keys (envelope keys are {"_source", "count", "rows"}; "as_of" is {"season", ' +
+  '"through_week", "source"}; a failed secondary lookup degrades to an "..._error" key without ' +
+  'discarding the rest), or a friendly "No penalty data found..." string.'
 
 export const getPenaltyProfileInputShape = {
   team: z.string().describe("Exact school name as used by CFBD, e.g. 'Oklahoma'. Case-sensitive."),
@@ -1757,7 +1822,7 @@ export const getPenaltyProfileInputShape = {
     .int()
     .optional()
     .describe(
-      `Season year, e.g. 2024. Defaults to the current season (${CURRENT_SEASON}) if omitted. ` +
+      'Season year, e.g. 2024. Defaults to the current season if omitted. ' +
         'Penalty data covers 2004+; parse quality is best for seasons >= 2022.'
     ),
 } as const
@@ -1988,11 +2053,11 @@ function metricChoice(args: RenderChartArgs, chart: string): { metric: MetricId 
   return { metric }
 }
 
-function playcallingRequest(args: RenderChartArgs): ChartRequest {
+function playcallingRequest(args: RenderChartArgs, defaultSeason: number): ChartRequest {
   const team = args.team?.trim()
   if (!team) return { guidance: "chart='team-playcalling' needs a `team`, e.g. team='Oklahoma'." }
 
-  const season = args.season ?? CURRENT_SEASON
+  const season = args.season ?? defaultSeason
   return {
     params: { team, season, mode: args.mode ?? 'light' },
     alt: `${team} -- ${CHART_METADATA['team-playcalling'].description} (${season})`,
@@ -2005,7 +2070,7 @@ function playcallingRequest(args: RenderChartArgs): ChartRequest {
  * text: in Discord a 400 is a broken-image icon with no explanation, while a
  * sentence back to the model gets the next call right.
  */
-function trendRequest(args: RenderChartArgs): ChartRequest {
+function trendRequest(args: RenderChartArgs, defaultSeason: number): ChartRequest {
   const chosen = metricChoice(args, 'team-metric-trend')
   if ('guidance' in chosen) return chosen
   const { metric } = chosen
@@ -2014,10 +2079,11 @@ function trendRequest(args: RenderChartArgs): ChartRequest {
   if ('guidance' in named) return named
   const { teams } = named
 
-  const to = args.to ?? CURRENT_SEASON
+  const to = args.to ?? defaultSeason
   const from = args.from ?? to - (TREND_DEFAULT_SPAN - 1)
-  if (!Number.isInteger(from) || !Number.isInteger(to) || from < METRIC_MIN_SEASON || to > CURRENT_SEASON + 5) {
-    return { guidance: `Seasons must be whole years between ${METRIC_MIN_SEASON} and ${CURRENT_SEASON}.` }
+  const maxSeason = defaultSeason + 5
+  if (!Number.isInteger(from) || !Number.isInteger(to) || from < METRIC_MIN_SEASON || to > maxSeason) {
+    return { guidance: `Seasons must be whole years between ${METRIC_MIN_SEASON} and ${maxSeason}.` }
   }
   if (to < from) return { guidance: '`to` must be the same season as `from` or later.' }
   if (to - from >= TREND_MAX_SPAN) {
@@ -2052,7 +2118,7 @@ function trendRequest(args: RenderChartArgs): ChartRequest {
  * one `season` instead of a range, and no annotations (there is no time axis
  * to mark, and the route's `.strict()` would reject one).
  */
-function barsRequest(args: RenderChartArgs): ChartRequest {
+function barsRequest(args: RenderChartArgs, defaultSeason: number): ChartRequest {
   const chosen = metricChoice(args, 'team-metric-bars')
   if ('guidance' in chosen) return chosen
   const { metric } = chosen
@@ -2061,9 +2127,10 @@ function barsRequest(args: RenderChartArgs): ChartRequest {
   if ('guidance' in named) return named
   const { teams } = named
 
-  const season = args.season ?? CURRENT_SEASON
-  if (!Number.isInteger(season) || season < METRIC_MIN_SEASON || season > CURRENT_SEASON + 5) {
-    return { guidance: `\`season\` must be a whole year between ${METRIC_MIN_SEASON} and ${CURRENT_SEASON}.` }
+  const season = args.season ?? defaultSeason
+  const maxSeason = defaultSeason + 5
+  if (!Number.isInteger(season) || season < METRIC_MIN_SEASON || season > maxSeason) {
+    return { guidance: `\`season\` must be a whole year between ${METRIC_MIN_SEASON} and ${maxSeason}.` }
   }
 
   const meta = METRICS[metric]
@@ -2087,7 +2154,7 @@ function barsRequest(args: RenderChartArgs): ChartRequest {
  *   `rank_by` chooses the field and is left off the URL when it is the default,
  *   so the common request keeps the shortest, most cacheable URL.
  */
-function scatterRequest(args: RenderChartArgs): ChartRequest {
+function scatterRequest(args: RenderChartArgs, defaultSeason: number): ChartRequest {
   const x = args.x ?? args.metric
   const y = args.y
   if (!x || !(x in METRICS) || !y || !(y in METRICS)) {
@@ -2122,9 +2189,10 @@ function scatterRequest(args: RenderChartArgs): ChartRequest {
     }
   }
 
-  const season = args.season ?? CURRENT_SEASON
-  if (!Number.isInteger(season) || season < METRIC_MIN_SEASON || season > CURRENT_SEASON + 5) {
-    return { guidance: `\`season\` must be a whole year between ${METRIC_MIN_SEASON} and ${CURRENT_SEASON}.` }
+  const season = args.season ?? defaultSeason
+  const maxSeason = defaultSeason + 5
+  if (!Number.isInteger(season) || season < METRIC_MIN_SEASON || season > maxSeason) {
+    return { guidance: `\`season\` must be a whole year between ${METRIC_MIN_SEASON} and ${maxSeason}.` }
   }
 
   const subject = teams.length > 0 ? `${teams.join(' and ')} against the ${season} field` : `the ${season} field`
@@ -2142,7 +2210,7 @@ function scatterRequest(args: RenderChartArgs): ChartRequest {
 }
 
 /** Which builder answers for which id. Exhaustive over `ChartId` by construction. */
-const CHART_REQUEST_BUILDERS: Record<ChartId, (args: RenderChartArgs) => ChartRequest> = {
+const CHART_REQUEST_BUILDERS: Record<ChartId, (args: RenderChartArgs, defaultSeason: number) => ChartRequest> = {
   'team-playcalling': playcallingRequest,
   'team-metric-trend': trendRequest,
   'team-metric-bars': barsRequest,
@@ -2158,7 +2226,8 @@ async function renderChartToolImpl(args: RenderChartArgs): Promise<string> {
     return `Unknown chart '${args.chart}'. Available charts: ${RENDER_CHART_IDS.join(', ')}.`
   }
 
-  const request = build(args)
+  const resolved = await getCurrentSeasonForRoute()
+  const request = build(args, resolved.season)
   if ('guidance' in request) return request.guidance
 
   let url: string
@@ -2173,7 +2242,18 @@ async function renderChartToolImpl(args: RenderChartArgs): Promise<string> {
     return 'Chart rendering is not configured on this deployment. Answer in text instead.'
   }
 
-  return dump({
+  // The season actually drawn: a single `season` param for team-playcalling/
+  // bars/scatter, or `to` (the trend's last season) for team-metric-trend --
+  // whichever the request actually minted, falling back to the resolved
+  // default for the rare case neither is present.
+  const usedSeason =
+    typeof request.params.season === 'number'
+      ? request.params.season
+      : typeof request.params.to === 'number'
+        ? request.params.to
+        : resolved.season
+
+  return dump(withAsOf({
     _source: 'chart-renderer',
     chart: args.chart,
     url,
@@ -2188,7 +2268,7 @@ async function renderChartToolImpl(args: RenderChartArgs): Promise<string> {
       "chart='team-metric-trend' and chart='team-metric-bars') and state the key figures in prose -- " +
       'the chart supplements the numbers, it does not replace them. Include at most one chart per answer. ' +
       "For chart='team-metric-scatter', get_leaderboard or query_team gives the figures behind the field.",
-  })
+  }, seasonStateFor(usedSeason, resolved)))
 }
 
 export const renderChartDescription =
@@ -2237,7 +2317,8 @@ export const renderChartDescription =
   'Post the returned URL on its own line in the reply so it renders as ' +
   'an image, and still state the key numbers in prose alongside it; include at most one chart per ' +
   'answer. Returns JSON {"_source": "chart-renderer", "chart", "url", "alt", "width", "height", ' +
-  '"usage"}, a short sentence explaining what is missing if the arguments do not describe a ' +
+  '"usage", "as_of": {"season", "through_week", "source"}}, a short sentence explaining what is ' +
+  'missing if the arguments do not describe a ' +
   'chart (e.g. no metric, or more than four teams), or a plain "Chart rendering is not configured ' +
   'on this deployment..." string if the deployment is missing required signing configuration -- ' +
   'in either case just answer in text and, for the former, fix the arguments if a chart still helps.'
@@ -2265,8 +2346,8 @@ export const renderChartInputShape = {
     .optional()
     .describe(
       "The single season to draw, for chart='team-playcalling', chart='team-metric-bars' and " +
-        `chart='team-metric-scatter', e.g. 2024. Defaults to the current season ` +
-        `(${CURRENT_SEASON}) if omitted. Use from/to for chart='team-metric-trend' instead.`
+        "chart='team-metric-scatter', e.g. 2024. Defaults to the current season " +
+        'if omitted. Use from/to for chart=\'team-metric-trend\' instead.'
     ),
   teams: z
     .array(z.string())
@@ -2325,7 +2406,7 @@ export const renderChartInputShape = {
     .int()
     .optional()
     .describe(
-      `Last season, inclusive, for chart='team-metric-trend'. Defaults to the current season (${CURRENT_SEASON}).`
+      "Last season, inclusive, for chart='team-metric-trend'. Defaults to the current season."
     ),
   annotations: z
     .array(
@@ -2539,20 +2620,29 @@ async function getSeasonOutlookToolImpl(args: GetSeasonOutlookArgs): Promise<str
   const classification = args.classification ?? 'fbs'
   const classificationFilter = classification === 'all' ? undefined : classification
 
-  // Resolve the season from the data rather than CURRENT_SEASON: that constant
-  // trails the calendar in the offseason, and the season it trails to is a
-  // COMPLETED one whose rows are final records wearing projection column names.
+  // Resolve the PROJECTION season from the data rather than the app-wide
+  // "current season" resolver: that resolver answers "what season is being
+  // played", which trails the calendar in the offseason, and the season it
+  // trails to is a COMPLETED one whose rows are final records wearing
+  // projection column names (R11 -- see queryLatestProjectionSeason's doc
+  // comment in season-outlook.ts). This tool deliberately does NOT call
+  // getCurrentSeasonForRoute() for this primary path.
   let season = args.season
   let seasonSource: 'requested' | 'latest_projection' | 'fallback' = 'requested'
   const resolverCaveats: string[] = []
 
   if (season == null) {
-    const latest = await queryLatestOutlookSeason()
+    const latest = await queryLatestProjectionSeason()
     if (latest.rows.length > 0) {
       season = latest.rows[0].season
       seasonSource = 'latest_projection'
     } else {
-      season = CURRENT_SEASON + 1
+      // Only the emergency fallback (the view came back empty/erroring) uses
+      // the app-wide resolver, and only as a last resort -- one season ahead
+      // of "what season is being played" is this tool's best guess at "what
+      // season would be projected next" when its own data source is silent.
+      const resolved = await getCurrentSeasonForRoute()
+      season = resolved.season + 1
       seasonSource = 'fallback'
       resolverCaveats.push(
         `The newest projected season could not be read from the view, so this fell back to ` +
@@ -2780,9 +2870,10 @@ export const getSeasonOutlookInputShape = {
     .int()
     .optional()
     .describe(
-      'Season year, e.g. 2026. Defaults to the NEWEST season present in api.season_outlook, ' +
-        `which is normally the upcoming season and NOT the app's current-season constant ` +
-        `(${CURRENT_SEASON}). Pass a season only if the user named one -- the resolved season ` +
+      'Season year, e.g. 2026. Defaults to the NEWEST PROJECTION season present in ' +
+        "api.season_outlook, which is normally the upcoming season and NOT this app's separate " +
+        "\"current season\" (the season actually being played, which other tools default to). " +
+        'Pass a season only if the user named one -- the resolved season ' +
         'comes back as "season" with "season_source" saying where it came from. Older seasons ' +
         'are present but already played, so their "projections" are final records.'
     ),
@@ -3223,6 +3314,10 @@ async function getPassingChartingToolImpl(args: GetPassingChartingArgs): Promise
     )
   }
 
+  const resolved = await getCurrentSeasonForRoute()
+  const season = args.season ?? resolved.season
+  const state = seasonStateFor(season, resolved)
+
   const result = await queryPassingChartingPlayers({
     season: args.season,
     team: args.team,
@@ -3230,26 +3325,34 @@ async function getPassingChartingToolImpl(args: GetPassingChartingArgs): Promise
     minCharted: args.min_charted,
     sort: args.sort,
     limit: args.limit,
+    state,
   })
   if (result.error) return result.error
 
-  const floor = resolvePlayerMinCharted(args.min_charted)
+  const floor = resolvePlayerMinCharted(args.min_charted, state)
   if (result.rows.length === 0) {
+    const throughWeekClause = state.through_week != null ? ` (through week ${state.through_week})` : ''
     return (
-      `No passers with at least ${floor} charted attempts found for those filters. 2025 has 820 ` +
+      `No passers with at least ${floor} charted attempts found in season ${season}` +
+      `${throughWeekClause} for those filters. 2025 has 820 ` +
       'player-seasons but only ~407 with anything charted, so a team filter can legitimately ' +
       'come back empty. Lower min_charted to widen it -- but say what the floor was.'
     )
   }
 
-  return dump({
-    ...wrap('api.passing_charting_player_season', result.rows),
-    min_charted_attempts: floor,
-    coverage_note:
-      'average_depth_of_target and average_yards_after_catch are averaged over CHARTED plays ' +
-      '(air_yards_attempts_available / yards_after_catch_attempts_available), not over attempts. ' +
-      'Quote *_coverage_pct alongside any figure from this tool.',
-  })
+  return dump(
+    withAsOf(
+      {
+        ...wrap('api.passing_charting_player_season', result.rows),
+        min_charted_attempts: floor,
+        coverage_note:
+          'average_depth_of_target and average_yards_after_catch are averaged over CHARTED plays ' +
+          '(air_yards_attempts_available / yards_after_catch_attempts_available), not over attempts. ' +
+          'Quote *_coverage_pct alongside any figure from this tool.',
+      },
+      state
+    )
+  )
 }
 
 export const getPassingChartingDescription =
@@ -3268,19 +3371,22 @@ export const getPassingChartingDescription =
   `Results are floored at ${DEFAULT_MIN_CHARTED} charted attempts by default, applied to whichever ` +
   'denominator matches your sort (aDOT and air-yards sorts floor on air_yards_attempts_available; ' +
   'a yac_per_completion sort floors on yards_after_catch_attempts_available), so the floor always ' +
-  'binds the sample being ranked. The floor is echoed back as min_charted_attempts. State the ' +
+  'binds the sample being ranked. The default floor scales down early in a live season (at least ' +
+  '10, otherwise the default scaled by weeks played / 12, rounded up) -- an explicit `min_charted` ' +
+  'always wins. The floor ENFORCED is echoed back as min_charted_attempts. State the ' +
   'coverage or the floor when you present a ranking -- ' +
   'without it you are ranking on who got charted, not on who throws deepest. NULL means ' +
   'not-yet-charted, never zero: never render a NULL metric as 0. Rows with parse_status=partial ' +
   'upstream may be re-charted, so treat 2025 figures as provisional. ' +
-  'Returns JSON {"_source", "count", "rows", "min_charted_attempts", "coverage_note"}.'
+  'Returns JSON {"_source", "count", "rows", "min_charted_attempts", "coverage_note", "as_of": ' +
+  '{"season", "through_week", "source"}}.'
 
 export const getPassingChartingInputShape = {
   season: z
     .number()
     .int()
     .optional()
-    .describe(`Season year. Defaults to ${CURRENT_SEASON}. Charting exists from ${CHARTING_MIN_SEASON} on; earlier seasons return a coverage-boundary message.`),
+    .describe(`Season year. Defaults to the current season. Charting exists from ${CHARTING_MIN_SEASON} on; earlier seasons return a coverage-boundary message.`),
   team: z.string().optional().describe("Exact school name, e.g. 'Oklahoma'. Case-sensitive."),
   conference: z.string().optional().describe("Exact conference name, e.g. 'SEC', 'Big Ten'."),
   min_charted: z
@@ -3288,7 +3394,7 @@ export const getPassingChartingInputShape = {
     .int()
     .min(1)
     .optional()
-    .describe(`Minimum charted attempts (floors air_yards_attempts_available). Default ${DEFAULT_MIN_CHARTED}. Lower it to widen a thin team, but say so when you do.`),
+    .describe(`Minimum charted attempts (floors air_yards_attempts_available). Default ${DEFAULT_MIN_CHARTED}, scaled down early in a live season (at least 10, otherwise the default scaled by weeks played / 12, rounded up); an explicit value here always wins. Lower it to widen a thin team, but say so when you do.`),
   sort: z
     .enum(['adot', 'air_yards', 'yac_per_completion', 'attempts'])
     .optional()
@@ -3316,32 +3422,44 @@ async function getTargetProfileToolImpl(args: GetTargetProfileArgs): Promise<str
     )
   }
 
+  const resolved = await getCurrentSeasonForRoute()
+  const season = args.season ?? resolved.season
+  const state = seasonStateFor(season, resolved)
+
   const result = await queryTargetProfiles({
     season: args.season,
     team: args.team,
     minCharted: args.min_charted,
     sort: args.sort,
     limit: args.limit,
+    state,
   })
   if (result.error) return result.error
 
-  const floor = resolveTargetMinCharted(args.min_charted)
+  const floor = resolveTargetMinCharted(args.min_charted, state)
   if (result.rows.length === 0) {
+    const throughWeekClause = state.through_week != null ? ` (through week ${state.through_week})` : ''
     return (
-      `No receivers with at least ${floor} charted targets found for those filters. Charting is ` +
+      `No receivers with at least ${floor} charted targets found in season ${season}` +
+      `${throughWeekClause} for those filters. Charting is ` +
       'partial in 2025, so a team filter can legitimately come back empty. Lower min_charted to ' +
       'widen it -- but say what the floor was.'
     )
   }
 
-  return dump({
-    ...wrap('api.passing_charting_target_season', result.rows),
-    min_charted_targets: floor,
-    coverage_note:
-      'target_share_charted is a share of the team CHARTED attempts, NOT a true target share. ' +
-      'aDOT and YAC averages are over charted plays only. Quote *_coverage_pct alongside any ' +
-      'figure, and partial_share when it is non-zero.',
-  })
+  return dump(
+    withAsOf(
+      {
+        ...wrap('api.passing_charting_target_season', result.rows),
+        min_charted_targets: floor,
+        coverage_note:
+          'target_share_charted is a share of the team CHARTED attempts, NOT a true target share. ' +
+          'aDOT and YAC averages are over charted plays only. Quote *_coverage_pct alongside any ' +
+          'figure, and partial_share when it is non-zero.',
+      },
+      state
+    )
+  )
 }
 
 export const getTargetProfileDescription =
@@ -3366,22 +3484,25 @@ export const getTargetProfileDescription =
   'targets_charted for targets/target_share, air_yards_charted_plays for adot/air_yards, ' +
   'yards_after_catch_charted_plays for yac. Those diverge a lot -- a receiver can have 155 ' +
   'charted targets but only 52 with air yards parsed -- so the floor tracks the ranked metric ' +
-  'rather than volume. Echoed as min_charted_targets. ' +
-  'Returns JSON {"_source", "count", "rows", "min_charted_targets", "coverage_note"}.'
+  'rather than volume. The default floor scales down early in a live season (at least 10, ' +
+  'otherwise the default scaled by weeks played / 12, rounded up) -- an explicit `min_charted` ' +
+  'always wins. Echoed as min_charted_targets. ' +
+  'Returns JSON {"_source", "count", "rows", "min_charted_targets", "coverage_note", "as_of": ' +
+  '{"season", "through_week", "source"}}.'
 
 export const getTargetProfileInputShape = {
   season: z
     .number()
     .int()
     .optional()
-    .describe(`Season year. Defaults to ${CURRENT_SEASON}. Charting exists from ${CHARTING_MIN_SEASON} on.`),
+    .describe(`Season year. Defaults to the current season. Charting exists from ${CHARTING_MIN_SEASON} on.`),
   team: z.string().optional().describe("Exact school name, e.g. 'Ohio State'. Case-sensitive."),
   min_charted: z
     .number()
     .int()
     .min(1)
     .optional()
-    .describe(`Minimum charted targets. Default ${DEFAULT_TARGET_MIN_CHARTED}. A receiver with 3 charted targets has an aDOT and it means nothing.`),
+    .describe(`Minimum charted targets. Default ${DEFAULT_TARGET_MIN_CHARTED}, scaled down early in a live season (at least 10, otherwise the default scaled by weeks played / 12, rounded up); an explicit value here always wins. A receiver with 3 charted targets has an aDOT and it means nothing.`),
   sort: z
     .enum(['targets', 'adot', 'air_yards', 'target_share', 'yac'])
     .optional()
@@ -3505,6 +3626,10 @@ async function getRushingChartingToolImpl(args: GetRushingChartingArgs): Promise
     )
   }
 
+  const resolved = await getCurrentSeasonForRoute()
+  const season = args.season ?? resolved.season
+  const state = seasonStateFor(season, resolved)
+
   const result = await queryRushingChartingPlayers({
     season: args.season,
     team: args.team,
@@ -3513,12 +3638,12 @@ async function getRushingChartingToolImpl(args: GetRushingChartingArgs): Promise
     minAttempts: args.min_attempts,
     sort: args.sort,
     limit: args.limit,
+    state,
   })
   if (result.error) return result.error
 
-  const floor = resolveMinAttempts(args.min_attempts)
+  const floor = resolveMinAttempts(args.min_attempts, state)
   const position = resolvePosition(args.position)
-  const season = args.season ?? CURRENT_SEASON
 
   if (result.rows.length === 0) {
     const positionPhrase = position === 'ALL' ? 'rushers' : `${position} rushers`
@@ -3527,29 +3652,36 @@ async function getRushingChartingToolImpl(args: GetRushingChartingArgs): Promise
     if (args.conference) scopeParts.push(`conference '${args.conference}'`)
     const scopeClause = scopeParts.length > 0 ? ` for ${scopeParts.join(' and ')}` : ''
     const lowerClause = floor > 1 ? ' Lower min_attempts to widen it -- but say what the floor was.' : ''
+    const throughWeekClause = state.through_week != null ? ` (through week ${state.through_week})` : ''
     return (
-      `No ${positionPhrase} with at least ${floor} carries found${scopeClause} in season ${season}. ` +
+      `No ${positionPhrase} with at least ${floor} carries found${scopeClause} in season ${season}` +
+      `${throughWeekClause}. ` +
       `No rusher in this slice has reached ${floor} carries yet -- or team, conference, and position ` +
       "are exact, case-sensitive matches (e.g. 'Ohio State', 'Miami (OH)', 'SEC'), so check those " +
       `before lowering the floor.${lowerClause}`
     )
   }
 
-  return dump({
-    ...wrap('api.rushing_charting_player_season', result.rows),
-    min_attempts: floor,
-    position,
-    coverage_note:
-      'Rate metrics (yards_per_carry, success_rate, ppa, stuff_rate, power_success, explosiveness, ' +
-      'line_yards, second_level_yards, open_field_yards) are all computed from every carry, not a ' +
-      'partial charted subset -- that is data COVERAGE, distinct from each metric\'s own denominator: ' +
-      'explosiveness is EPA per SUCCESSFUL carry and power_success is the short-yardage conversion ' +
-      'rate, so min_attempts is a sample-size floor, not a coverage floor. direction_coverage_pct ' +
-      '(direction_available_attempts / direction_eligible_attempts) is the ONLY partial figure here; ' +
-      'quote it alongside any claim about run direction. NULL means not charted, never 0. Player ' +
-      "attempts do NOT sum to a team's offense_attempts (CFBD keeps team-only and multi-carrier " +
-      'carries off player rows), so never compute a share of team carries from these rows.',
-  })
+  return dump(
+    withAsOf(
+      {
+        ...wrap('api.rushing_charting_player_season', result.rows),
+        min_attempts: floor,
+        position,
+        coverage_note:
+          'Rate metrics (yards_per_carry, success_rate, ppa, stuff_rate, power_success, explosiveness, ' +
+          'line_yards, second_level_yards, open_field_yards) are all computed from every carry, not a ' +
+          'partial charted subset -- that is data COVERAGE, distinct from each metric\'s own denominator: ' +
+          'explosiveness is EPA per SUCCESSFUL carry and power_success is the short-yardage conversion ' +
+          'rate, so min_attempts is a sample-size floor, not a coverage floor. direction_coverage_pct ' +
+          '(direction_available_attempts / direction_eligible_attempts) is the ONLY partial figure here; ' +
+          'quote it alongside any claim about run direction. NULL means not charted, never 0. Player ' +
+          "attempts do NOT sum to a team's offense_attempts (CFBD keeps team-only and multi-carrier " +
+          'carries off player rows), so never compute a share of team carries from these rows.',
+      },
+      state
+    )
+  )
 }
 
 export const getRushingChartingDescription =
@@ -3564,7 +3696,9 @@ export const getRushingChartingDescription =
   'successful carry and power_success is the short-yardage conversion rate) -- so min_attempts is a ' +
   'SAMPLE-SIZE floor, not a coverage floor: it exists to cut noisy small samples, not to compensate ' +
   'for an uncharted ' +
-  `subset. Results are floored at ${DEFAULT_MIN_ATTEMPTS} carries by default; the floor ENFORCED is ` +
+  `subset. Results are floored at ${DEFAULT_MIN_ATTEMPTS} carries by default, scaled down early in ` +
+  'a live season (at least 10, otherwise the default scaled by weeks played / 12, rounded up) -- ' +
+  'an explicit `min_attempts` always wins. The floor ENFORCED is ' +
   'echoed back as min_attempts, never the requested value. ' +
   "Defaults to position='RB' -- QB attempts include SACKS, which would silently misstate a rushing " +
   "leaderboard if mixed in. Pass position='ALL' to drop the filter, or any of the view's other " +
@@ -3584,14 +3718,15 @@ export const getRushingChartingDescription =
   'Sort keys, all DESCENDING except stuff_rate (ASCENDING -- lower stuff rate is better): ppa ' +
   '(default), success_rate, explosiveness, ypc, stuff_rate, power_success, yards, attempts, ' +
   'line_yards, second_level_yards, open_field_yards. ' +
-  'Returns JSON {"_source", "count", "rows", "min_attempts", "position", "coverage_note"}.'
+  'Returns JSON {"_source", "count", "rows", "min_attempts", "position", "coverage_note", "as_of": ' +
+  '{"season", "through_week", "source"}}.'
 
 export const getRushingChartingInputShape = {
   season: z
     .number()
     .int()
     .optional()
-    .describe(`Season year. Defaults to ${CURRENT_SEASON}. Rushing charting exists from ${CHARTING_MIN_SEASON} on; earlier seasons return a coverage-boundary message.`),
+    .describe(`Season year. Defaults to the current season. Rushing charting exists from ${CHARTING_MIN_SEASON} on; earlier seasons return a coverage-boundary message.`),
   team: z.string().optional().describe("Exact school name, e.g. 'Ohio State'. Case-sensitive."),
   conference: z.string().optional().describe("Exact conference name, e.g. 'Big Ten'."),
   position: z
@@ -3623,7 +3758,7 @@ export const getRushingChartingInputShape = {
     .int()
     .min(1)
     .optional()
-    .describe(`Minimum carries (floors attempts, applied regardless of sort). Default ${DEFAULT_MIN_ATTEMPTS}.`),
+    .describe(`Minimum carries (floors attempts, applied regardless of sort). Default ${DEFAULT_MIN_ATTEMPTS}, scaled down early in a live season (at least 10, otherwise the default scaled by weeks played / 12, rounded up); an explicit value here always wins.`),
   limit: z.number().int().min(1).max(DEFAULT_ROW_CAP).optional().describe('Max rows (default 25, server-capped at 100).'),
 } as const
 

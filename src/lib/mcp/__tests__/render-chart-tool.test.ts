@@ -11,10 +11,28 @@
  * (this tool) and the consumer (the route) from ever silently drifting apart
  * in production.
  */
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { verifyChartSignature } from '@/lib/charts/server/signing'
 import type { ChartId } from '@/lib/charts/server/svg'
 import { renderChartTool } from '../tools'
+
+// Season-rollover U2: render_chart now resolves its default season via
+// getCurrentSeasonForRoute() instead of the CURRENT_SEASON constant. Pin it
+// to a fixed state so "defaults to the current season" assertions below stay
+// deterministic rather than depending on the resolver's real-Supabase-call
+// failing over to its fallback in this test environment.
+vi.mock('@/lib/queries/season', async importOriginal => {
+  const actual = await importOriginal<typeof import('@/lib/queries/season')>()
+  return {
+    ...actual,
+    getCurrentSeasonForRoute: vi.fn().mockResolvedValue({
+      season: 2025,
+      through_week: 16,
+      is_live: false,
+      source: 'games',
+    }),
+  }
+})
 
 const ORIGINAL_SECRET = process.env.CHART_SIGNING_SECRET
 const ORIGINAL_BASE = process.env.CHART_BASE_URL
