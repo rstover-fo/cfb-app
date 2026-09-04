@@ -225,7 +225,11 @@ export async function queryRushingChartingPlayers(
   const { data, error } = await query
     .order(SORT_COLUMNS[sort], { ascending: SORT_DIRECTION[sort], nullsFirst: false })
     // Deterministic tiebreak so equal metrics do not reorder between calls.
+    // The grain is (season, player_id, team): a player with two team stints
+    // in one season has two rows, so player_id alone leaves them tied at the
+    // limit boundary.
     .order('player_id', { ascending: true })
+    .order('team', { ascending: true })
     .limit(clamp(positive(filter.limit), DEFAULT_LIMIT))
 
   if (error) return { rows: [], error: fail('api.rushing_charting_player_season', error) }

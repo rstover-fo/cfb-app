@@ -51,6 +51,10 @@ describe('queryRushingChartingPlayers defaults', () => {
     expect(chain.eq).toHaveBeenCalledWith('season', CURRENT_SEASON)
     expect(chain.order.mock.calls[0]).toEqual(['ppa', { ascending: false, nullsFirst: false }])
     expect(chain.order.mock.calls[1]).toEqual(['player_id', { ascending: true }])
+    // (season, player_id, team) grain: a two-stint player has two rows, so team
+    // is the final key that keeps the limit boundary deterministic.
+    expect(chain.order.mock.calls[2]).toEqual(['team', { ascending: true }])
+    expect(chain.order.mock.calls.length).toBe(3)
     expect(chain.limit).toHaveBeenCalledWith(25)
   })
 
