@@ -1,5 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
-import { fail, clamp, type McpResult } from './mcp'
+import { fail, clamp, positive, type McpResult } from './mcp'
 import { CURRENT_SEASON } from './constants'
 
 // ---------------------------------------------------------------------------
@@ -158,20 +158,6 @@ export interface RushingChartingFilter {
   minAttempts?: number
   sort?: RushingChartingSort
   limit?: number
-}
-
-/**
- * Drop a non-positive control so `clamp`/`??` fall back to the default.
- *
- * Same rationale as passing-charting.ts's `positive()`: `clamp` only caps
- * the upper bound, so a negative limit would otherwise reach PostgREST and
- * surface a database error for a caller mistake, and a floor of 0 would
- * admit rows with a handful of carries into a ranking that exists to
- * exclude them. The tool schemas enforce .min(1); this protects direct
- * callers of the query layer.
- */
-function positive(value: number | undefined): number | undefined {
-  return value != null && value > 0 ? value : undefined
 }
 
 /**

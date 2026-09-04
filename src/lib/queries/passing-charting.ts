@@ -1,5 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
-import { fail, clamp, type McpResult } from './mcp'
+import { fail, clamp, positive, type McpResult } from './mcp'
 import { CURRENT_SEASON } from './constants'
 
 // ---------------------------------------------------------------------------
@@ -177,20 +177,6 @@ export interface PassingChartingFilter {
   minCharted?: number
   sort?: PassingChartingSort
   limit?: number
-}
-
-/**
- * Drop a non-positive control so `clamp`/`??` fall back to the default.
- *
- * `clamp` only caps the upper bound, so a negative limit reaches PostgREST
- * and surfaces a database error for what is really a caller mistake, and
- * `limit: 0` returns zero rows that read as "nothing matched" rather than
- * "invalid request". A floor of 0 is worse than useless here: it admits rows
- * with nothing charted into a ranking whose entire purpose is to exclude
- * them. The tool schemas enforce .min(1); this protects direct callers.
- */
-function positive(value: number | undefined): number | undefined {
-  return value != null && value > 0 ? value : undefined
 }
 
 /**
