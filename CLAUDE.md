@@ -73,6 +73,13 @@ src/
 
 All season/conference constants live in `src/lib/queries/constants.ts` and `src/lib/queries/shared.ts`. Import from there -- do not define local copies.
 
+The current season is resolved from the warehouse, not from a constant: `getCurrentSeasonCached()`
+(React Server Components) or `getCurrentSeasonForRoute()` (MCP route handler, ten-minute cache) in
+`src/lib/queries/season.ts` return `{season, through_week, is_live, source}` -- the newest season
+with at least one completed game. `CURRENT_SEASON` in `constants.ts` is only the fallback when that
+query fails; never bump it to "fix" a stale season. `CFB_SEASON` (env) pins the season on every
+surface, app and bot alike. `get_season_outlook`'s `projection_season` is a separate concept.
+
 ## Database
 
 This app reads from two Supabase Postgres schemas (both populated by cfb-database):
