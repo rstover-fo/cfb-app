@@ -1,5 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
-import { fail, clamp, type McpResult } from './mcp'
+import { fail, clamp, positive, ratio3dp, type McpResult } from './mcp'
 import { CURRENT_SEASON } from './constants'
 
 // ---------------------------------------------------------------------------
@@ -180,20 +180,6 @@ export interface PassingChartingFilter {
 }
 
 /**
- * Drop a non-positive control so `clamp`/`??` fall back to the default.
- *
- * `clamp` only caps the upper bound, so a negative limit reaches PostgREST
- * and surfaces a database error for what is really a caller mistake, and
- * `limit: 0` returns zero rows that read as "nothing matched" rather than
- * "invalid request". A floor of 0 is worse than useless here: it admits rows
- * with nothing charted into a ranking whose entire purpose is to exclude
- * them. The tool schemas enforce .min(1); this protects direct callers.
- */
-function positive(value: number | undefined): number | undefined {
-  return value != null && value > 0 ? value : undefined
-}
-
-/**
  * The floor these queries will actually apply, given a requested value.
  *
  * Exported so the tool layer echoes the floor that was ENFORCED rather than
@@ -213,23 +199,13 @@ export function resolveTargetMinCharted(requested?: number): number {
   return positive(requested) ?? DEFAULT_TARGET_MIN_CHARTED
 }
 
-/**
- * Coverage as a fraction of total attempts, to 3dp.
- *
- * Returns null when either side is missing or attempts is 0 -- an unknown
- * coverage must not render as 0.0, which would read as "nothing charted"
- * rather than "we cannot say".
- */
-function coverage(charted: number | null | undefined, attempts: number | null | undefined): number | null {
-  if (charted == null || attempts == null || attempts === 0) return null
-  return Math.round((charted / attempts) * 1000) / 1000
-}
-
 function withPlayerCoverage(row: PassingChartingPlayerRow): PassingChartingPlayerRow {
   return {
     ...row,
-    air_yards_coverage_pct: coverage(row.air_yards_attempts_available, row.attempts),
-    yards_after_catch_coverage_pct: coverage(row.yards_after_catch_attempts_available, row.attempts),
+    // Coverage as a fraction of total attempts, to 3dp; null when unknowable
+    // (see ratio3dp's doc comment in mcp.ts).
+    air_yards_coverage_pct: ratio3dp(row.air_yards_attempts_available, row.attempts),
+    yards_after_catch_coverage_pct: ratio3dp(row.yards_after_catch_attempts_available, row.attempts),
   }
 }
 
@@ -341,8 +317,8 @@ function withTargetCoverage(row: TargetProfileRow): TargetProfileRow {
     average_yards_after_catch: round3(row.average_yards_after_catch),
     target_share_charted: round3(row.target_share_charted),
     partial_share: round3(row.partial_share),
-    air_yards_coverage_pct: coverage(row.air_yards_charted_plays, row.targets_charted),
-    yards_after_catch_coverage_pct: coverage(row.yards_after_catch_charted_plays, row.targets_charted),
+    air_yards_coverage_pct: ratio3dp(row.air_yards_charted_plays, row.targets_charted),
+    yards_after_catch_coverage_pct: ratio3dp(row.yards_after_catch_charted_plays, row.targets_charted),
   }
 }
 

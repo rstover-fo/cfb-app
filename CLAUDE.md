@@ -80,7 +80,7 @@ This app reads from two Supabase Postgres schemas (both populated by cfb-databas
 | Schema | Contains | Examples |
 |--------|----------|---------|
 | `public` (default, no `.schema()` call) | Legacy convenience views + RPCs | `teams_with_logos`, `games`, `team_season_trajectory`, `roster`, `records` |
-| `api` (`.schema('api')`) | Contracted PostgREST views -- the primary/preferred surface for new queries | `game_box_score`, `game_player_leaders`, `game_line_scores`, `game_drives`, `game_plays`, `game_win_probability`, `team_detail`, `matchup`, `poll_rankings` |
+| `api` (`.schema('api')`) | Contracted PostgREST views -- the primary/preferred surface for new queries | `game_box_score`, `game_player_leaders`, `game_line_scores`, `game_drives`, `game_plays`, `game_win_probability`, `team_detail`, `matchup`, `poll_rankings`, `rushing_charting_player_season` |
 | `bot` (Discord bot only) | Bot-owned durable state -- owned by THIS repo (`bot/supabase/migrations/`), not part of cfb-database's SCHEMA_CONTRACT; the Next.js app never reads it | `user_profiles`, `app_settings`, `memory_atoms` |
 
 Direct access to the internal, dlt-loaded `core`/`core_staging` schemas is **banned**: every
@@ -97,7 +97,18 @@ traversal -- that flattening happens once, in the view definition, not in this a
 
 ### Key Tables/Views
 
-`teams_with_logos`, `games`, `team_epa_season`, `team_style_profile`, `defensive_havoc`, `team_tempo_metrics`, `records`, `team_special_teams_sos`, `roster` (`public`); `game_box_score`, `game_player_leaders`, `game_line_scores`, `game_drives`, `game_plays`, `game_win_probability`, `team_detail`, `matchup`, `poll_rankings`, `season_outlook`, `model_backtest`, `expected_points`, `core_ratings` (`api`)
+`teams_with_logos`, `games`, `team_epa_season`, `team_style_profile`, `defensive_havoc`, `team_tempo_metrics`, `records`, `team_special_teams_sos`, `roster` (`public`); `game_box_score`, `game_player_leaders`, `game_line_scores`, `game_drives`, `game_plays`, `game_win_probability`, `team_detail`, `matchup`, `poll_rankings`, `season_outlook`, `model_backtest`, `expected_points`, `core_ratings`, `rushing_charting_player_season`, `rushing_charting_team_season`, `rushing_charting_direction_season` (`api`)
+
+`api.rushing_charting_*` (CFBD rushing charting, 2025+ only) is the opposite of passing charting:
+the rate metrics (`ppa`, `success_rate`, `stuff_rate`, `explosiveness`, line/second-level/open-field
+yards) are computed over EVERY carry -- full data coverage, not a partial charted subset, though
+`explosiveness` (EPA per successful carry) and `power_success` (short-yardage conversion rate) keep
+their own narrower denominators -- so they need a sample-size floor (50 carries by default), not
+a coverage caveat. Direction splits are the partial piece (`direction_available_attempts` /
+`direction_eligible_attempts`, ~40% resolved in 2025). `defense_*` on the team view is that team's
+own run defense. Player `attempts` never sum to team `offense_attempts` (CFBD keeps team-only and
+multi-carrier carries off player rows). Served by `src/lib/queries/rushing-charting.ts` and the
+`get_rushing_charting` MCP tool (player grain); team and direction grains go through `run_sql`.
 
 `api.core_ratings` (CFBD CORE, opponent/situation-adjusted team ratings) is 2016+ only --
 NULL/absent for earlier seasons means not-rated, never 0 -- and `defense` is LOWER-better

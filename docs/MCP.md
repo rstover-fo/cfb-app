@@ -102,7 +102,7 @@ bearer token as `MCP_AUTH_TOKEN`). See `bot/README.md` for the full setup.
 
 ## Tool catalog
 
-All twenty-five tools are read-only, non-destructive, idempotent, and return a compact JSON string
+All twenty-nine tools are read-only, non-destructive, idempotent, and return a compact JSON string
 (never throw). Every successful result includes a `_source` field naming the exact `api.*`
 view or `public` RPC the data came from, plus a `count` and a `rows` array -- or a plain
 `"No ... found"` string when a query matches nothing. Rows are capped at 100 per call
@@ -126,11 +126,12 @@ row caps) are ported faithfully from the Python reference server -- see
 rationale behind each one, and the per-tool `description`/argument docs registered in
 `src/lib/mcp/tools.ts` for the exact wording exposed to MCP clients.
 
-The table above documents the original 8 tools ported from the Python reference server. 17
+The table above documents the original 8 tools ported from the Python reference server. 21
 further app-native tools (predictions, Elo, matchup edges, playcalling profiles, adjusted EPA,
 live scoreboard, model accuracy, player leaders, player comparison, conference comparison, coach
-history, `run_sql`, penalty profile, penalty log, `render_chart`, season outlook, and expected
-points) have been added since -- see `src/lib/mcp/tools.ts` for the full current set.
+history, `run_sql`, penalty profile, penalty log, `render_chart`, season outlook, expected
+points, passing charting, target profile, coach tenure, and `get_rushing_charting`) have been
+added since -- see `src/lib/mcp/tools.ts` for the full current set.
 
 `get_season_outlook` is the first tool whose payload carries honesty metadata structurally rather
 than only in its description. It attaches an `accuracy` block read live from `api.model_backtest`

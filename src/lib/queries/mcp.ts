@@ -45,6 +45,37 @@ export function clamp(limit: number | undefined, fallback: number): number {
   return Math.min(limit ?? fallback, DEFAULT_ROW_CAP)
 }
 
+/**
+ * Drop a non-positive control so `clamp`/`??` fall back to the default.
+ *
+ * `clamp` only caps the upper bound, so a negative limit reaches PostgREST
+ * and surfaces a database error for what is really a caller mistake, and
+ * `limit: 0` returns zero rows that read as "nothing matched" rather than
+ * "invalid request". For a leaderboard floor, 0 is worse than useless: it
+ * admits rows the floor exists to exclude. The tool schemas enforce .min(1);
+ * this protects direct callers of the query layer. Shared by the charting
+ * modules (passing-charting.ts, rushing-charting.ts).
+ */
+export function positive(value: number | undefined): number | undefined {
+  return value != null && value > 0 ? value : undefined
+}
+
+/**
+ * Null-safe ratio, to 3dp: numerator / denominator, or null when either side
+ * is missing or the denominator is 0 -- an unknown ratio must not render as
+ * 0.0, which would read as a known, resolved zero rather than "we cannot
+ * say" (and a 0 denominator would otherwise divide by zero). Shared by the
+ * charting modules' coverage fractions (passing-charting.ts's `coverage`,
+ * rushing-charting.ts's `directionCoverage`).
+ */
+export function ratio3dp(
+  numerator: number | null | undefined,
+  denominator: number | null | undefined
+): number | null {
+  if (numerator == null || denominator == null || denominator === 0) return null
+  return Math.round((numerator / denominator) * 1000) / 1000
+}
+
 // quoteFilterValue moved to shared.ts so predictions.ts can reuse it.
 
 // ---------------------------------------------------------------------------
