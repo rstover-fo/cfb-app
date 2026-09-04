@@ -23,6 +23,7 @@ import {
   DEFAULT_MIN_ATTEMPTS,
   type RushingChartingSort,
 } from '../rushing-charting'
+import { CURRENT_SEASON } from '../constants'
 import { createSupabaseMock, ok, dbError, type SupabaseMockConfig } from './helpers'
 
 function mockClient(config: SupabaseMockConfig) {
@@ -47,9 +48,17 @@ describe('queryRushingChartingPlayers defaults', () => {
 
     expect(chain.gte).toHaveBeenCalledWith('attempts', DEFAULT_MIN_ATTEMPTS)
     expect(chain.eq).toHaveBeenCalledWith('position', 'RB')
+    expect(chain.eq).toHaveBeenCalledWith('season', CURRENT_SEASON)
     expect(chain.order.mock.calls[0]).toEqual(['ppa', { ascending: false, nullsFirst: false }])
     expect(chain.order.mock.calls[1]).toEqual(['player_id', { ascending: true }])
     expect(chain.limit).toHaveBeenCalledWith(25)
+  })
+
+  it('applies the given season instead of the CURRENT_SEASON default', async () => {
+    const mock = mockClient({ apiTables: { rushing_charting_player_season: ok([]) } })
+    await queryRushingChartingPlayers({ season: 2023 })
+    const chain = apiChain(mock)
+    expect(chain.eq).toHaveBeenCalledWith('season', 2023)
   })
 
   it('orders stuff_rate ascending (lower is better) with nullsFirst:false', async () => {
@@ -149,6 +158,7 @@ describe('queryRushingChartingPlayers direction coverage and nulls', () => {
           { direction_available_attempts: null, direction_eligible_attempts: 50 },
           { direction_available_attempts: 10, direction_eligible_attempts: 0 },
           { direction_available_attempts: 10, direction_eligible_attempts: null },
+          { direction_available_attempts: 0, direction_eligible_attempts: 50 },
         ]),
       },
     })
@@ -157,6 +167,9 @@ describe('queryRushingChartingPlayers direction coverage and nulls', () => {
     expect(rows[1].direction_coverage_pct).toBeNull()
     expect(rows[2].direction_coverage_pct).toBeNull()
     expect(rows[3].direction_coverage_pct).toBeNull()
+    // A genuine zero (0 of 50 resolved) must come back as 0, not null -- only
+    // a missing side or a zero denominator collapses to null.
+    expect(rows[4].direction_coverage_pct).toBe(0)
   })
 
   it('leaves a NULL ppa on input as null on output (never coerced to 0)', async () => {

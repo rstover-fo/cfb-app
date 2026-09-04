@@ -1,5 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
-import { fail, clamp, positive, type McpResult } from './mcp'
+import { fail, clamp, positive, ratio3dp, type McpResult } from './mcp'
 import { CURRENT_SEASON } from './constants'
 
 // ---------------------------------------------------------------------------
@@ -186,26 +186,12 @@ export function resolvePosition(requested?: string): string {
   return upper && upper.length > 0 ? upper : 'RB'
 }
 
-/**
- * Direction coverage as a fraction of eligible carries, to 3dp.
- *
- * Returns null when either side is missing or eligible is 0 -- an unknown
- * coverage must not render as 0.0, which would read as "no direction
- * resolved" rather than "we cannot say" (and a 0-eligible denominator would
- * otherwise divide by zero).
- */
-function directionCoverage(
-  available: number | null | undefined,
-  eligible: number | null | undefined
-): number | null {
-  if (available == null || eligible == null || eligible === 0) return null
-  return Math.round((available / eligible) * 1000) / 1000
-}
-
 function withDirectionCoverage(row: RushingChartingPlayerRow): RushingChartingPlayerRow {
   return {
     ...row,
-    direction_coverage_pct: directionCoverage(row.direction_available_attempts, row.direction_eligible_attempts),
+    // Direction coverage as a fraction of eligible carries, to 3dp; null when
+    // unknowable (see ratio3dp's doc comment in mcp.ts).
+    direction_coverage_pct: ratio3dp(row.direction_available_attempts, row.direction_eligible_attempts),
   }
 }
 

@@ -3520,10 +3520,16 @@ async function getRushingChartingToolImpl(args: GetRushingChartingArgs): Promise
 
   if (result.rows.length === 0) {
     const positionPhrase = position === 'ALL' ? 'rushers' : `${position} rushers`
+    const scopeParts: string[] = []
+    if (args.team) scopeParts.push(`team '${args.team}'`)
+    if (args.conference) scopeParts.push(`conference '${args.conference}'`)
+    const scopeClause = scopeParts.length > 0 ? ` for ${scopeParts.join(' and ')}` : ''
+    const lowerClause = floor > 1 ? ' Lower min_attempts to widen it -- but say what the floor was.' : ''
     return (
-      `No ${positionPhrase} with at least ${floor} carries found for season ${season} with those ` +
-      `filters. Either no rusher in this slice has reached ${floor} carries yet, or the filter is ` +
-      'too narrow. Lower min_attempts to widen it -- but say what the floor was.'
+      `No ${positionPhrase} with at least ${floor} carries found${scopeClause} in season ${season}. ` +
+      `No rusher in this slice has reached ${floor} carries yet -- or team, conference, and position ` +
+      "are exact, case-sensitive matches (e.g. 'Ohio State', 'Miami (OH)', 'SEC'), so check those " +
+      `before lowering the floor.${lowerClause}`
     )
   }
 

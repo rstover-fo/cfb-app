@@ -130,6 +130,27 @@ describe('get_rushing_charting', () => {
     expect(out).not.toMatch(/charted/)
   })
 
+  it("says 'No rushers' (not 'No ALL rushers') when position is 'all', and never uses \"charted\"", async () => {
+    mockQuery.mockResolvedValue({ rows: [], error: null })
+    const out = await getRushingChartingTool({ position: 'all', min_attempts: 40 })
+    expect(out).toMatch(/No rushers/)
+    expect(out).not.toMatch(/ALL rushers/)
+    expect(out).not.toMatch(/charted/)
+  })
+
+  it('echoes the applied team and states the exact-match rule', async () => {
+    mockQuery.mockResolvedValue({ rows: [], error: null })
+    const out = await getRushingChartingTool({ team: 'Ohio St' })
+    expect(out).toContain('Ohio St')
+    expect(out).toMatch(/exact/i)
+  })
+
+  it('omits the "Lower min_attempts" clause when the floor is already 1', async () => {
+    mockQuery.mockResolvedValue({ rows: [], error: null })
+    const out = await getRushingChartingTool({ min_attempts: 1 })
+    expect(out).not.toMatch(/Lower min_attempts/)
+  })
+
   it('passes a query-layer error string through unchanged (never throws)', async () => {
     mockQuery.mockResolvedValue({ rows: [], error: 'Error: api.rushing_charting_player_season request failed: boom' })
     await expect(getRushingChartingTool({})).resolves.toBe(

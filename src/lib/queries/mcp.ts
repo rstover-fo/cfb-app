@@ -60,6 +60,22 @@ export function positive(value: number | undefined): number | undefined {
   return value != null && value > 0 ? value : undefined
 }
 
+/**
+ * Null-safe ratio, to 3dp: numerator / denominator, or null when either side
+ * is missing or the denominator is 0 -- an unknown ratio must not render as
+ * 0.0, which would read as a known, resolved zero rather than "we cannot
+ * say" (and a 0 denominator would otherwise divide by zero). Shared by the
+ * charting modules' coverage fractions (passing-charting.ts's `coverage`,
+ * rushing-charting.ts's `directionCoverage`).
+ */
+export function ratio3dp(
+  numerator: number | null | undefined,
+  denominator: number | null | undefined
+): number | null {
+  if (numerator == null || denominator == null || denominator === 0) return null
+  return Math.round((numerator / denominator) * 1000) / 1000
+}
+
 // quoteFilterValue moved to shared.ts so predictions.ts can reuse it.
 
 // ---------------------------------------------------------------------------
