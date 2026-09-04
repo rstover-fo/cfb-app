@@ -193,8 +193,10 @@ Plan: `docs/plans/2026-09-03-1910-feat-rushing-charting-tool-plan.md`. Reply:
 `docs/RUSHING_CHARTING_HANDOFF.md`.
 
 *Watch:* rushing is the opposite of passing. Rate metrics (`ppa`, `success_rate`, `stuff_rate`,
-`explosiveness`, yardage tiers) are over EVERY carry (`rushing_yards_available = attempts` on every
-2025 and 2026 player row), so they need a sample-size floor, not a coverage caveat. Direction is the
+`explosiveness`, yardage tiers) are computed over EVERY carry (`rushing_yards_available = attempts`
+on every 2025 and 2026 player row) -- full data coverage, not a partial charted subset, though
+`explosiveness` (EPA per successful carry) and `power_success` (short-yardage conversion rate) keep
+their own narrower denominators -- so they need a sample-size floor, not a coverage caveat. Direction is the
 partial piece (~40% of eligible carries resolved in 2025, ~99% in 2026). The invalidation tuple, per
 season from `api.rushing_charting_player_season`: `COUNT(*)`, `SUM(attempts)`,
 `SUM(direction_available_attempts)`, `SUM(direction_eligible_attempts)`. No answer cache exists in

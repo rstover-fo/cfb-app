@@ -101,7 +101,9 @@ traversal -- that flattening happens once, in the view definition, not in this a
 
 `api.rushing_charting_*` (CFBD rushing charting, 2025+ only) is the opposite of passing charting:
 the rate metrics (`ppa`, `success_rate`, `stuff_rate`, `explosiveness`, line/second-level/open-field
-yards) are computed over EVERY carry, so they need a sample-size floor (50 carries by default), not
+yards) are computed over EVERY carry -- full data coverage, not a partial charted subset, though
+`explosiveness` (EPA per successful carry) and `power_success` (short-yardage conversion rate) keep
+their own narrower denominators -- so they need a sample-size floor (50 carries by default), not
 a coverage caveat. Direction splits are the partial piece (`direction_available_attempts` /
 `direction_eligible_attempts`, ~40% resolved in 2025). `defense_*` on the team view is that team's
 own run defense. Player `attempts` never sum to team `offense_attempts` (CFBD keeps team-only and

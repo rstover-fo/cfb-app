@@ -30,8 +30,10 @@ Response: `{"_source", "count", "rows", "min_attempts", "position", "coverage_no
 null-preserving). `rushing_yards_available` ships per row even though it equals `attempts` on every
 current row, so a future divergence is visible.
 
-The description states, in order: rate metrics are over every carry (floor for sample size, not
-coverage); default RB filter and why (QB `attempts` include sacks); direction about 40% resolved in
+The description states, in order: rate metrics are computed over every carry -- full data coverage,
+not a partial charted subset, though `explosiveness` (EPA per successful carry) and `power_success`
+(short-yardage conversion rate) keep their own narrower denominators -- floor for sample size, not
+coverage; default RB filter and why (QB `attempts` include sacks); direction about 40% resolved in
 2025 and near-complete same-day in 2026; NULL never 0; player totals do not reconcile to team totals;
 2025 moves only via explicit re-pull.
 

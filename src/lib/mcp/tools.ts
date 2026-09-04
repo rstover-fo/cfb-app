@@ -1451,7 +1451,9 @@ export const runSqlDescription =
   '- api.rushing_charting_player_season: RUSHER charting, 2025+ ONLY (season, player_id, team): position,\n' +
   '  attempts, total_rushing_yards, yards_per_carry, success_rate, ppa (per rush), total_ppa, stuff_rate,\n' +
   '  power_success, explosiveness, line_yards / second_level_yards / open_field_yards (per-carry) + *_total.\n' +
-  '  UNLIKE passing, the rate metrics are over EVERY carry (rushing_yards_available = attempts in 2025),\n' +
+  '  UNLIKE passing, the rate metrics are computed over EVERY carry (rushing_yards_available = attempts\n' +
+  '  in 2025) -- full coverage, not a partial charted subset, though explosiveness (EPA per successful\n' +
+  '  carry) and power_success (short-yardage conversion rate) keep their own narrower denominators --\n' +
   '  so they need a sample floor, not a coverage caveat: always WHERE attempts >= 50 (or say the floor).\n' +
   '  Direction is the partial part: direction_eligible_attempts vs direction_available_attempts (~40%\n' +
   '  resolved in 2025, ~99% in 2026). Filter position = \'RB\' unless asked -- QB rows count sacks as\n' +
@@ -3539,8 +3541,10 @@ async function getRushingChartingToolImpl(args: GetRushingChartingArgs): Promise
     position,
     coverage_note:
       'Rate metrics (yards_per_carry, success_rate, ppa, stuff_rate, power_success, explosiveness, ' +
-      'line_yards, second_level_yards, open_field_yards) are averaged over every carry, not a partial ' +
-      'sample -- min_attempts is a sample-size floor, not a coverage floor. direction_coverage_pct ' +
+      'line_yards, second_level_yards, open_field_yards) are all computed from every carry, not a ' +
+      'partial charted subset -- that is data COVERAGE, distinct from each metric\'s own denominator: ' +
+      'explosiveness is EPA per SUCCESSFUL carry and power_success is the short-yardage conversion ' +
+      'rate, so min_attempts is a sample-size floor, not a coverage floor. direction_coverage_pct ' +
       '(direction_available_attempts / direction_eligible_attempts) is the ONLY partial figure here; ' +
       'quote it alongside any claim about run direction. NULL means not charted, never 0. Player ' +
       "attempts do NOT sum to a team's offense_attempts (CFBD keeps team-only and multi-carrier " +
@@ -3554,9 +3558,12 @@ export const getRushingChartingDescription =
   'coverage, from CFBD rush-charting. Use for "who has the best yards per carry", "which running ' +
   'back has the lowest stuff rate", "how much of this back\'s yardage comes before/after the line". Backed by ' +
   'api.rushing_charting_player_season (one row per season/player/team). ' +
-  'Unlike passing charting, every rate metric here is averaged over every carry -- ' +
-  'rushing_yards_available equals attempts on every row -- so min_attempts is a SAMPLE-SIZE floor, ' +
-  'not a coverage floor: it exists to cut noisy small samples, not to compensate for an uncharted ' +
+  'Unlike passing charting, every rate metric here is computed from every carry -- ' +
+  'rushing_yards_available equals attempts on every row, confirming full data coverage with no ' +
+  'charted subset (that is separate from each metric\'s own denominator: explosiveness is EPA per ' +
+  'successful carry and power_success is the short-yardage conversion rate) -- so min_attempts is a ' +
+  'SAMPLE-SIZE floor, not a coverage floor: it exists to cut noisy small samples, not to compensate ' +
+  'for an uncharted ' +
   `subset. Results are floored at ${DEFAULT_MIN_ATTEMPTS} carries by default; the floor ENFORCED is ` +
   'echoed back as min_attempts, never the requested value. ' +
   "Defaults to position='RB' -- QB attempts include SACKS, which would silently misstate a rushing " +
