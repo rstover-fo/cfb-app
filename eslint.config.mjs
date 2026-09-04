@@ -12,6 +12,9 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Claude Code / desktop-app worktrees are checked out inside the repo
+    // (.git/info/exclude hides them from git) and must not be linted twice.
+    ".claude/worktrees/**",
     // The Discord bot is a self-contained workspace with its own tsconfig and
     // node runtime -- the Next app's lint rules don't govern it.
     "bot/**",
