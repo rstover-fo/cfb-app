@@ -1,6 +1,10 @@
 // Pure constants with no server dependencies - safe for client components
 
-// Current season constant (fallback if query fails)
+// Fallback season constant, used only when the season resolver in
+// src/lib/queries/season.ts (resolveCurrentSeason / getCurrentSeasonCached /
+// getCurrentSeasonForRoute) cannot reach the warehouse. Every other caller
+// should resolve the current season from that module, not read this
+// directly -- it does not track season rollover on its own.
 export const CURRENT_SEASON = 2025
 
 // Week boundary constants for regular/postseason split
