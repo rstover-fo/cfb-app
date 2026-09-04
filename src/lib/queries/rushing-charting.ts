@@ -159,7 +159,8 @@ export interface RushingChartingFilter {
   sort?: RushingChartingSort
   limit?: number
   /** The caller's resolved season state, for the season default and the floor scaling rule (R12). */
-  state?: SeasonState
+  /** Resolved season state; the season defaults from it and live-season floors scale by it. */
+  state: SeasonState
 }
 
 /**
@@ -217,7 +218,7 @@ export async function queryRushingChartingPlayers(
   const sort = filter.sort ?? 'ppa'
   const minAttempts = resolveMinAttempts(filter.minAttempts, filter.state)
   const position = resolvePosition(filter.position)
-  const season = filter.season ?? filter.state?.season
+  const season = filter.season ?? filter.state.season
 
   let query = supabase
     .schema('api')
@@ -228,7 +229,7 @@ export async function queryRushingChartingPlayers(
     // coaches.ts's FBS filter).
     .gte('attempts', minAttempts)
 
-  if (season !== undefined) query = query.eq('season', season)
+  query = query.eq('season', season)
   if (filter.team) query = query.eq('team', filter.team)
   if (filter.conference) query = query.eq('conference', filter.conference)
   if (position !== 'ALL') query = query.eq('position', position)

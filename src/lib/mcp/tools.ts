@@ -1290,7 +1290,8 @@ async function getConferenceComparisonToolImpl(args: GetConferenceComparisonArgs
   // no computed aggregates yet (early in the year, before enough games have
   // been played) is a valid, non-error state -- retry one season back before
   // giving up.
-  let season = args.season ?? resolved.season
+  const requestedSeason = args.season ?? resolved.season
+  let season = requestedSeason
   let rows = await getConferenceComparison(season)
 
   if (rows.length === 0) {
@@ -1300,7 +1301,7 @@ async function getConferenceComparisonToolImpl(args: GetConferenceComparisonArgs
 
   if (rows.length === 0) {
     return (
-      `No conference comparison data found for season=${args.season ?? resolved.season} or the prior ` +
+      `No conference comparison data found for season=${requestedSeason} or the prior ` +
       'season.'
     )
   }

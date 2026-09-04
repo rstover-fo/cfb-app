@@ -178,7 +178,8 @@ export interface PassingChartingFilter {
   sort?: PassingChartingSort
   limit?: number
   /** The caller's resolved season state, for the season default and the floor scaling rule (R13). */
-  state?: SeasonState
+  /** Resolved season state; the season defaults from it and live-season floors scale by it. */
+  state: SeasonState
 }
 
 /**
@@ -226,7 +227,7 @@ export async function queryPassingChartingPlayers(
   const supabase = await createClient()
   const sort = filter.sort ?? 'adot'
   const minCharted = resolvePlayerMinCharted(filter.minCharted, filter.state)
-  const season = filter.season ?? filter.state?.season
+  const season = filter.season ?? filter.state.season
 
   let query = supabase
     .schema('api')
@@ -237,7 +238,7 @@ export async function queryPassingChartingPlayers(
     // PLAYER_FLOOR_COLUMNS.
     .gte(PLAYER_FLOOR_COLUMNS[sort], minCharted)
 
-  if (season !== undefined) query = query.eq('season', season)
+  query = query.eq('season', season)
   if (filter.team) query = query.eq('team', filter.team)
   if (filter.conference) query = query.eq('conference', filter.conference)
 
@@ -306,7 +307,8 @@ export interface TargetProfileFilter {
   sort?: TargetProfileSort
   limit?: number
   /** The caller's resolved season state, for the season default and the floor scaling rule (R13). */
-  state?: SeasonState
+  /** Resolved season state; the season defaults from it and live-season floors scale by it. */
+  state: SeasonState
 }
 
 /**
@@ -348,7 +350,7 @@ export async function queryTargetProfiles(
   // Receivers see far fewer plays than the passer throwing to all of them, so
   // the passer floor would empty the board; scale it down rather than reuse it.
   const minCharted = resolveTargetMinCharted(filter.minCharted, filter.state)
-  const season = filter.season ?? filter.state?.season
+  const season = filter.season ?? filter.state.season
 
   let query = supabase
     .schema('api')
@@ -356,7 +358,7 @@ export async function queryTargetProfiles(
     .select(TARGET_COLUMNS)
     .gte(TARGET_FLOOR_COLUMNS[sort], minCharted)
 
-  if (season !== undefined) query = query.eq('season', season)
+  query = query.eq('season', season)
   if (filter.team) query = query.eq('team', filter.team)
 
   const { data, error } = await query

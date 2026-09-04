@@ -68,16 +68,20 @@ describe('queryRushingChartingPlayers defaults', () => {
     expect(chain.eq).toHaveBeenCalledWith('season', 2023)
   })
 
-  it('omits the season filter entirely when neither season nor state is given', async () => {
-    const mock = mockClient({ apiTables: { rushing_charting_player_season: ok([]) } })
-    await queryRushingChartingPlayers({})
-    const chain = apiChain(mock)
-    expect(chain.eq).not.toHaveBeenCalledWith('season', expect.anything())
+  it('always scopes to a season: the state season by default, an explicit season when given', async () => {
+    const byState = mockClient({ apiTables: { rushing_charting_player_season: ok([]) } })
+    await queryRushingChartingPlayers({ state: COMPLETED_2025 })
+    expect(apiChain(byState).eq).toHaveBeenCalledWith('season', COMPLETED_2025.season)
+
+    const explicit = mockClient({ apiTables: { rushing_charting_player_season: ok([]) } })
+    await queryRushingChartingPlayers({ state: COMPLETED_2025, season: 2023 })
+    expect(apiChain(explicit).eq).toHaveBeenCalledWith('season', 2023)
+    expect(apiChain(explicit).eq).not.toHaveBeenCalledWith('season', COMPLETED_2025.season)
   })
 
   it('orders stuff_rate ascending (lower is better) with nullsFirst:false', async () => {
     const mock = mockClient({ apiTables: { rushing_charting_player_season: ok([]) } })
-    await queryRushingChartingPlayers({ sort: 'stuff_rate' })
+    await queryRushingChartingPlayers({ state: COMPLETED_2025, sort: 'stuff_rate' })
     const chain = apiChain(mock)
     expect(chain.order.mock.calls[0]).toEqual(['stuff_rate', { ascending: true, nullsFirst: false }])
   })
@@ -96,7 +100,7 @@ describe('queryRushingChartingPlayers defaults', () => {
 
   it.each(DESCENDING_SORTS)('orders %s by %s descending', async (sort, column) => {
     const mock = mockClient({ apiTables: { rushing_charting_player_season: ok([]) } })
-    await queryRushingChartingPlayers({ sort })
+    await queryRushingChartingPlayers({ state: COMPLETED_2025, sort })
     const chain = apiChain(mock)
     expect(chain.order.mock.calls[0]).toEqual([column, { ascending: false, nullsFirst: false }])
   })
@@ -106,7 +110,7 @@ describe('queryRushingChartingPlayers position filter', () => {
   it("skips the position filter for 'all' and 'ALL'", async () => {
     for (const position of ['all', 'ALL']) {
       const mock = mockClient({ apiTables: { rushing_charting_player_season: ok([]) } })
-      await queryRushingChartingPlayers({ position })
+      await queryRushingChartingPlayers({ state: COMPLETED_2025, position })
       const chain = apiChain(mock)
       expect(chain.eq).not.toHaveBeenCalledWith('position', expect.anything())
     }
@@ -114,7 +118,7 @@ describe('queryRushingChartingPlayers position filter', () => {
 
   it("applies position 'QB' for input 'qb'", async () => {
     const mock = mockClient({ apiTables: { rushing_charting_player_season: ok([]) } })
-    await queryRushingChartingPlayers({ position: 'qb' })
+    await queryRushingChartingPlayers({ state: COMPLETED_2025, position: 'qb' })
     const chain = apiChain(mock)
     expect(chain.eq).toHaveBeenCalledWith('position', 'QB')
   })
@@ -123,7 +127,7 @@ describe('queryRushingChartingPlayers position filter', () => {
 describe('queryRushingChartingPlayers other filters', () => {
   it('passes team and conference through as .eq(), and omits calls for unset filters', async () => {
     const mock = mockClient({ apiTables: { rushing_charting_player_season: ok([]) } })
-    await queryRushingChartingPlayers({ team: 'Ohio State', conference: 'Big Ten' })
+    await queryRushingChartingPlayers({ state: COMPLETED_2025, team: 'Ohio State', conference: 'Big Ten' })
     const chain = apiChain(mock)
     expect(chain.eq).toHaveBeenCalledWith('team', 'Ohio State')
     expect(chain.eq).toHaveBeenCalledWith('conference', 'Big Ten')
@@ -131,7 +135,7 @@ describe('queryRushingChartingPlayers other filters', () => {
 
   it('adds no team/conference .eq() calls when omitted', async () => {
     const mock = mockClient({ apiTables: { rushing_charting_player_season: ok([]) } })
-    await queryRushingChartingPlayers({})
+    await queryRushingChartingPlayers({ state: COMPLETED_2025 })
     const chain = apiChain(mock)
     expect(chain.eq).not.toHaveBeenCalledWith('team', expect.anything())
     expect(chain.eq).not.toHaveBeenCalledWith('conference', expect.anything())
@@ -139,7 +143,7 @@ describe('queryRushingChartingPlayers other filters', () => {
 
   it('falls back to the default floor and limit on non-positive values', async () => {
     const mock = mockClient({ apiTables: { rushing_charting_player_season: ok([]) } })
-    await queryRushingChartingPlayers({ minAttempts: 0, limit: -5 })
+    await queryRushingChartingPlayers({ state: COMPLETED_2025, minAttempts: 0, limit: -5 })
     const chain = apiChain(mock)
     expect(chain.gte).toHaveBeenCalledWith('attempts', DEFAULT_MIN_ATTEMPTS)
     expect(chain.limit).toHaveBeenCalledWith(25)
@@ -189,7 +193,7 @@ describe('queryRushingChartingPlayers direction coverage and nulls', () => {
         ]),
       },
     })
-    const { rows } = await queryRushingChartingPlayers({})
+    const { rows } = await queryRushingChartingPlayers({ state: COMPLETED_2025 })
     expect(rows[0].direction_coverage_pct).toBeCloseTo(0.222, 3)
     expect(rows[1].direction_coverage_pct).toBeNull()
     expect(rows[2].direction_coverage_pct).toBeNull()
@@ -205,7 +209,7 @@ describe('queryRushingChartingPlayers direction coverage and nulls', () => {
         rushing_charting_player_season: ok([{ player_id: '123', ppa: null }]),
       },
     })
-    const { rows } = await queryRushingChartingPlayers({})
+    const { rows } = await queryRushingChartingPlayers({ state: COMPLETED_2025 })
     expect(rows[0].ppa).toBeNull()
   })
 })
@@ -213,7 +217,7 @@ describe('queryRushingChartingPlayers direction coverage and nulls', () => {
 describe('queryRushingChartingPlayers error handling', () => {
   it('returns a friendly error string (never throws) on a PostgREST error', async () => {
     mockClient({ apiTables: { rushing_charting_player_season: dbError('boom') } })
-    const result = await queryRushingChartingPlayers({})
+    const result = await queryRushingChartingPlayers({ state: COMPLETED_2025 })
     expect(result.rows).toEqual([])
     expect(result.error).toMatch(/^Error: api\.rushing_charting_player_season/)
   })
