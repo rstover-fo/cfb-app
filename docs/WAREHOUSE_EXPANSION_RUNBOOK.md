@@ -178,6 +178,39 @@ the columns for new capability first; migrating `/players` and `/players/[id]` o
   `FBS_CONFERENCES` list at `src/lib/queries/shared.ts:27-41`.
 - **Advanced team stats** and **as-of weekly ratings** — straightforward consume-cycles.
 
+### Stage 5 — rushing charting (shipped 2026-09-03)
+
+cfb-database shipped `api.rushing_charting_player_season` (050), `api.rushing_charting_team_season`
+(051), `api.rushing_charting_direction_season` (052), and a `rushing_charting jsonb` column on
+`public.get_player_detail` (migration 059). Work order:
+`cfb-database/docs/handoffs/2026-09-03-rushing-charting-bot-enablement.md`.
+
+cfb-app ships `get_rushing_charting` (player grain, RB by default, 50-carry floor on `attempts`)
+plus `src/lib/queries/rushing-charting.ts`, three `run_sql` schema-card entries, and the
+`search_players` description naming the `rushing_charting` block. Team and direction grains stay
+on `run_sql`; a `get_rushing_direction` team tool is deferred until 2026 has several weeks of data.
+Plan: `docs/plans/2026-09-03-1910-feat-rushing-charting-tool-plan.md`. Reply:
+`docs/RUSHING_CHARTING_HANDOFF.md`.
+
+*Watch:* rushing is the opposite of passing. Rate metrics (`ppa`, `success_rate`, `stuff_rate`,
+`explosiveness`, yardage tiers) are over EVERY carry (`rushing_yards_available = attempts` on every
+2025 and 2026 player row), so they need a sample-size floor, not a coverage caveat. Direction is the
+partial piece (~40% of eligible carries resolved in 2025, ~99% in 2026). The invalidation tuple, per
+season from `api.rushing_charting_player_season`: `COUNT(*)`, `SUM(attempts)`,
+`SUM(direction_available_attempts)`, `SUM(direction_eligible_attempts)`. No answer cache exists in
+the bot today, so nothing consumes it as a watermark; never watermark on dlt load ids. The tuple's
+consumer today is the "about 40% in 2025" figure in `getRushingChartingDescription` and the three
+schema-card entries: when 2025's `direction_available_attempts` moves (first expected at the
+~2026-09-07 `--sources passing,rushing` re-pull), re-derive the figure and update both in the same
+PR. Second watch: before `CURRENT_SEASON` bumps to 2026, re-derive `DEFAULT_MIN_ATTEMPTS` from that
+season's live `attempts` distribution (2026 Week 0 max was 25) so the no-argument call does not
+return an empty board for weeks.
+
+*Done when:* the bot answers "who gets stuffed least among SEC backs" with the floor stated and no
+QB on the board; a 2025 direction answer says "of N charted carries" using
+`direction_available_attempts`; a 2025 PPA answer carries no charting hedge. **MCP/agent surface
+only** — no public UI.
+
 ---
 
 ## Notes on running it
