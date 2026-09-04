@@ -80,11 +80,25 @@ describe('renderChartTool', () => {
     expect(result).toEqual({ ok: true, status: 200 })
   })
 
-  it('defaults season to CURRENT_SEASON when omitted', async () => {
+  it('defaults season to the resolved current season when omitted', async () => {
     const parsed = JSON.parse(await renderChartTool({ chart: 'team-playcalling', team: 'Oklahoma' }))
 
     const url = new URL(parsed.url)
     expect(url.searchParams.get('season')).toBe(String(2025))
+    // usedSeason (2025) matches the resolver's answer, so as_of is the
+    // resolved state verbatim (minus is_live, which as_of deliberately omits).
+    expect(parsed.as_of).toEqual({ season: 2025, through_week: 16, source: 'games' })
+  })
+
+  it('stamps a degraded as_of when an explicit season differs from the resolved current one', async () => {
+    const parsed = JSON.parse(
+      await renderChartTool({ chart: 'team-playcalling', team: 'Oklahoma', season: 2026 })
+    )
+
+    // usedSeason (2026) does not match the resolver's answer (2025), so
+    // seasonStateFor degrades to through_week: null rather than claiming
+    // knowledge of how far a season it never resolved has progressed.
+    expect(parsed.as_of).toEqual({ season: 2026, through_week: null, source: 'games' })
   })
 
   it('defaults mode to light when omitted', async () => {
@@ -154,6 +168,11 @@ async function mintTrend(args: Parameters<typeof renderChartTool>[0]): Promise<U
   return new URL(parsed.url)
 }
 
+/** Sibling of mintTrend that returns the tool's full parsed JSON envelope, for as_of assertions. */
+async function mintTrendJSON(args: Parameters<typeof renderChartTool>[0]): Promise<Record<string, unknown>> {
+  return JSON.parse(await renderChartTool(args))
+}
+
 describe('renderChartTool -- team-metric-trend', () => {
   const base = { chart: 'team-metric-trend', metric: 'sp_defense', teams: ['Oklahoma', 'Clemson'] } as const
 
@@ -203,6 +222,21 @@ describe('renderChartTool -- team-metric-trend', () => {
     const url = await mintTrend(base)
     expect(url.searchParams.get('to')).toBe('2025')
     expect(url.searchParams.get('from')).toBe('2016')
+  })
+
+  // The trend chart has no single `season` param -- it draws a range -- so
+  // usedSeason falls back to `to` (the last season drawn) instead. An
+  // explicit `to` ahead of the resolved current season is exactly the
+  // degraded case seasonStateFor exists for: through_week is unknowable for
+  // a season the resolver never vouched for.
+  it('stamps as_of from an explicit `to`, not the resolved current season', async () => {
+    const parsed = await mintTrendJSON({ ...base, from: 2015, to: 2024 })
+    expect(parsed.as_of).toEqual({ season: 2024, through_week: null, source: 'games' })
+  })
+
+  it('stamps as_of from the resolved current season when `to` is omitted', async () => {
+    const parsed = await mintTrendJSON(base)
+    expect(parsed.as_of).toEqual({ season: 2025, through_week: 16, source: 'games' })
   })
 
   it('accepts a single team named with `team` instead of `teams`', async () => {

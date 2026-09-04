@@ -32,7 +32,6 @@ vi.mock('../config.js', () => ({
     discordGuildId: 'g',
     mcpUrl: 'https://example.com/api/mcp',
     mcpAuthToken: 'secret-token',
-    defaultSeason: 2025,
   })),
 }))
 

@@ -56,7 +56,6 @@ describe('loadConfig', () => {
   it('coerces a numeric CFB_SEASON override', () => {
     const config = loadConfig({ ...VALID_ENV, CFB_SEASON: '2022' })
     expect(config.cfbSeasonOverride).toBe(2022)
-    expect(config.defaultSeason).toBe(2022)
   })
 
   it('treats an empty-string CFB_SEASON as unset', () => {
@@ -350,5 +349,65 @@ describe('refreshSeasonState / getSeasonState / getDefaultSeason (R15/R16)', () 
 
     expect(state.source).toBe('calendar')
     expect(warnSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it('treats a non-2xx response as a failed fetch', async () => {
+    loadConfig(VALID_ENV)
+    const fetchImpl = fakeFetch({ season: 2026, through_week: 2, source: 'games' }, false)
+
+    const state = await refreshSeasonState(fetchImpl)
+
+    expect(state.source).toBe('calendar')
+    expect(warnSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps the previous good season across a non-2xx response', async () => {
+    loadConfig(VALID_ENV)
+    await refreshSeasonState(fakeFetch({ season: 2026, through_week: 2, source: 'games' }))
+    expect(getDefaultSeason()).toBe(2026)
+
+    const state = await refreshSeasonState(fakeFetch({ season: 2027, through_week: 1, source: 'games' }, false))
+
+    expect(state.season).toBe(2026)
+    expect(getDefaultSeason()).toBe(2026)
+  })
+
+  it('keeps the previous good season when the app reports a fallback', async () => {
+    loadConfig(VALID_ENV)
+    await refreshSeasonState(fakeFetch({ season: 2026, through_week: 2, source: 'games' }))
+    expect(getDefaultSeason()).toBe(2026)
+
+    const state = await refreshSeasonState(fakeFetch({ season: 2020, through_week: null, source: 'fallback' }))
+
+    expect(state.season).toBe(2026)
+    expect(state.source).toBe('games')
+    expect(getDefaultSeason()).toBe(2026)
+    expect(warnSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it('accepts a fallback body on first resolution', async () => {
+    loadConfig(VALID_ENV)
+    const state = await refreshSeasonState(fakeFetch({ season: 2020, through_week: null, source: 'fallback' }))
+
+    expect(state.season).toBe(2020)
+    expect(state.source).toBe('fallback')
+    expect(getDefaultSeason()).toBe(2020)
+    expect(warnSpy).not.toHaveBeenCalled()
+  })
+})
+
+describe('getSeasonState honors CFB_SEASON before the first refresh', () => {
+  it('honours CFB_SEASON before the first refresh', () => {
+    loadConfig({ ...VALID_ENV, CFB_SEASON: '2025' })
+
+    expect(getDefaultSeason()).toBe(2025)
+    expect(getSeasonState().source).toBe('override')
+  })
+
+  it('falls back to the calendar guess pre-refresh when no override is set', () => {
+    loadConfig(VALID_ENV)
+
+    expect(getSeasonState().source).toBe('calendar')
+    expect(getDefaultSeason()).toBe(deriveDefaultSeason())
   })
 })

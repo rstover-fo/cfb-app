@@ -222,7 +222,8 @@ when it exists, three small `public.games` queries, then the `CURRENT_SEASON` co
 last-resort fallback. Pages dedupe per request; the MCP route and the Discord bot cache for ten
 minutes. Every season-defaulted tool response carries `as_of {season, through_week, source}`,
 and the three charting floors scale by weeks played during a live season
-(`max(10, ceil(default × through_week / 12))`).
+(`min(default, max(10, ceil(default × through_week / 12)))` -- `is_live` can stay true past week 12
+while bowls or a cancelled game remain incomplete, so the scaled floor is capped at the default).
 
 cfb-database is asked to ship `api.season_state` per `docs/SEASON_STATE_WORKORDER.md` so the
 definition lives with the data. Nothing is blocked on it.

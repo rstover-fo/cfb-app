@@ -63,6 +63,11 @@ export const MIN_SCALED_FLOOR = 10
  * alongside `getCurrentSeasonCached`. */
 export const SEASON_CACHE_TTL_MS = 600_000
 
+/** Cache lifetime for a `source: 'fallback'` result specifically -- see
+ * getCurrentSeasonForRoute's doc comment for why this is much shorter than
+ * SEASON_CACHE_TTL_MS. */
+export const FALLBACK_CACHE_TTL_MS = 30_000
+
 const MIN_VALID_SEASON = 2000
 const MAX_VALID_SEASON = 2100
 
@@ -248,13 +253,23 @@ let routeCache: { value: SeasonState; expiresAt: number } | undefined
  * 600s TTL keeps a season rollover from taking up to 10 minutes to
  * propagate while still sparing most requests their own warehouse round
  * trip.
+ *
+ * A `source: 'fallback'` result gets the much shorter FALLBACK_CACHE_TTL_MS
+ * instead: caching one transient warehouse failure for the full 600s would
+ * pin the CURRENT_SEASON constant on every caller of this route -- both eve
+ * prompts, every MCP tool, GET /api/season, and then the bot's own 600s
+ * cache on top of that -- for ten minutes. 30s isn't zero, though: during a
+ * sustained outage, not caching the fallback at all would make every one of
+ * those calls pay up to two 10s Supabase fetch timeouts (season_state, then
+ * games) rather than one.
  */
 export async function getCurrentSeasonForRoute(): Promise<SeasonState> {
   const now = Date.now()
   if (routeCache && routeCache.expiresAt > now) return routeCache.value
 
   const value = await resolveCurrentSeason()
-  routeCache = { value, expiresAt: now + SEASON_CACHE_TTL_MS }
+  const ttl = value.source === 'fallback' ? FALLBACK_CACHE_TTL_MS : SEASON_CACHE_TTL_MS
+  routeCache = { value, expiresAt: now + ttl }
   return value
 }
 
@@ -267,9 +282,14 @@ export function resetSeasonCache(): void {
  * Scale a leaderboard/eligibility floor down early in a LIVE season (R12/
  * R13). Callers who want their own explicit floor simply never call this;
  * a completed season, or a live season whose through_week could not be
- * resolved, returns `defaultFloor` unchanged.
+ * resolved, returns `defaultFloor` unchanged. The scaled floor is also
+ * clamped at `defaultFloor` on the high end: `is_live` means "at least one
+ * incomplete game remains for this season," which can still be true at
+ * through_week 13-16 (bowls pending, or a cancelled game that never
+ * completes) -- so the raw ratio can exceed 1, and the result must never
+ * scale a floor UP past what a completed season would use.
  */
 export function scaleFloor(defaultFloor: number, state: SeasonState): number {
   if (!state.is_live || state.through_week == null) return defaultFloor
-  return Math.max(MIN_SCALED_FLOOR, Math.ceil((defaultFloor * state.through_week) / 12))
+  return Math.min(defaultFloor, Math.max(MIN_SCALED_FLOOR, Math.ceil((defaultFloor * state.through_week) / 12)))
 }

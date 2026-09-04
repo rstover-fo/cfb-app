@@ -3373,8 +3373,9 @@ export const getPassingChartingDescription =
   'denominator matches your sort (aDOT and air-yards sorts floor on air_yards_attempts_available; ' +
   'a yac_per_completion sort floors on yards_after_catch_attempts_available), so the floor always ' +
   'binds the sample being ranked. The default floor scales down early in a live season (at least ' +
-  '10, otherwise the default scaled by weeks played / 12, rounded up) -- an explicit `min_charted` ' +
-  'always wins. The floor ENFORCED is echoed back as min_charted_attempts. State the ' +
+  '10 and never more than the default; otherwise the default scaled by weeks played / 12, rounded ' +
+  'up) -- an explicit `min_charted` always wins. The floor ENFORCED is echoed back as ' +
+  'min_charted_attempts. State the ' +
   'coverage or the floor when you present a ranking -- ' +
   'without it you are ranking on who got charted, not on who throws deepest. NULL means ' +
   'not-yet-charted, never zero: never render a NULL metric as 0. Rows with parse_status=partial ' +
@@ -3395,7 +3396,7 @@ export const getPassingChartingInputShape = {
     .int()
     .min(1)
     .optional()
-    .describe(`Minimum charted attempts (floors air_yards_attempts_available). Default ${DEFAULT_MIN_CHARTED}, scaled down early in a live season (at least 10, otherwise the default scaled by weeks played / 12, rounded up); an explicit value here always wins. Lower it to widen a thin team, but say so when you do.`),
+    .describe(`Minimum charted attempts (floors air_yards_attempts_available). Default ${DEFAULT_MIN_CHARTED}, scaled down early in a live season (at least 10 and never more than the default; otherwise the default scaled by weeks played / 12, rounded up); an explicit value here always wins. Lower it to widen a thin team, but say so when you do.`),
   sort: z
     .enum(['adot', 'air_yards', 'yac_per_completion', 'attempts'])
     .optional()
@@ -3485,9 +3486,9 @@ export const getTargetProfileDescription =
   'targets_charted for targets/target_share, air_yards_charted_plays for adot/air_yards, ' +
   'yards_after_catch_charted_plays for yac. Those diverge a lot -- a receiver can have 155 ' +
   'charted targets but only 52 with air yards parsed -- so the floor tracks the ranked metric ' +
-  'rather than volume. The default floor scales down early in a live season (at least 10, ' +
-  'otherwise the default scaled by weeks played / 12, rounded up) -- an explicit `min_charted` ' +
-  'always wins. Echoed as min_charted_targets. ' +
+  'rather than volume. The default floor scales down early in a live season (at least 10 and ' +
+  'never more than the default; otherwise the default scaled by weeks played / 12, rounded up) -- ' +
+  'an explicit `min_charted` always wins. Echoed as min_charted_targets. ' +
   'Returns JSON {"_source", "count", "rows", "min_charted_targets", "coverage_note", "as_of": ' +
   '{"season", "through_week", "source"}}.'
 
@@ -3503,7 +3504,7 @@ export const getTargetProfileInputShape = {
     .int()
     .min(1)
     .optional()
-    .describe(`Minimum charted targets. Default ${DEFAULT_TARGET_MIN_CHARTED}, scaled down early in a live season (at least 10, otherwise the default scaled by weeks played / 12, rounded up); an explicit value here always wins. A receiver with 3 charted targets has an aDOT and it means nothing.`),
+    .describe(`Minimum charted targets. Default ${DEFAULT_TARGET_MIN_CHARTED}, scaled down early in a live season (at least 10 and never more than the default; otherwise the default scaled by weeks played / 12, rounded up); an explicit value here always wins. A receiver with 3 charted targets has an aDOT and it means nothing.`),
   sort: z
     .enum(['targets', 'adot', 'air_yards', 'target_share', 'yac'])
     .optional()
@@ -3698,8 +3699,8 @@ export const getRushingChartingDescription =
   'SAMPLE-SIZE floor, not a coverage floor: it exists to cut noisy small samples, not to compensate ' +
   'for an uncharted ' +
   `subset. Results are floored at ${DEFAULT_MIN_ATTEMPTS} carries by default, scaled down early in ` +
-  'a live season (at least 10, otherwise the default scaled by weeks played / 12, rounded up) -- ' +
-  'an explicit `min_attempts` always wins. The floor ENFORCED is ' +
+  'a live season (at least 10 and never more than the default; otherwise the default scaled by ' +
+  'weeks played / 12, rounded up) -- an explicit `min_attempts` always wins. The floor ENFORCED is ' +
   'echoed back as min_attempts, never the requested value. ' +
   "Defaults to position='RB' -- QB attempts include SACKS, which would silently misstate a rushing " +
   "leaderboard if mixed in. Pass position='ALL' to drop the filter, or any of the view's other " +
@@ -3759,7 +3760,7 @@ export const getRushingChartingInputShape = {
     .int()
     .min(1)
     .optional()
-    .describe(`Minimum carries (floors attempts, applied regardless of sort). Default ${DEFAULT_MIN_ATTEMPTS}, scaled down early in a live season (at least 10, otherwise the default scaled by weeks played / 12, rounded up); an explicit value here always wins.`),
+    .describe(`Minimum carries (floors attempts, applied regardless of sort). Default ${DEFAULT_MIN_ATTEMPTS}, scaled down early in a live season (at least 10 and never more than the default; otherwise the default scaled by weeks played / 12, rounded up); an explicit value here always wins.`),
   limit: z.number().int().min(1).max(DEFAULT_ROW_CAP).optional().describe('Max rows (default 25, server-capped at 100).'),
 } as const
 

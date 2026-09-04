@@ -22,10 +22,17 @@ export async function GET(): Promise<Response> {
   const state = await getCurrentSeasonForRoute()
   return Response.json(state, {
     headers: {
-      // Matches SEASON_CACHE_TTL_MS's own 600s TTL for stale-while-revalidate;
-      // max-age=60 keeps a burst of callers within a minute of each other from
-      // each paying their own resolveCurrentSeason() round trip.
-      'Cache-Control': 'public, max-age=60, stale-while-revalidate=600',
+      // A fallback state (warehouse unreachable) can be a year stale -- letting
+      // a shared cache hold onto it for up to 660s past origin recovery is
+      // worse than the extra round trips, so it gets no-store instead of the
+      // public header below.
+      'Cache-Control':
+        state.source === 'fallback'
+          ? 'no-store'
+          : // Matches SEASON_CACHE_TTL_MS's own 600s TTL for stale-while-revalidate;
+            // max-age=60 keeps a burst of callers within a minute of each other from
+            // each paying their own resolveCurrentSeason() round trip.
+            'public, max-age=60, stale-while-revalidate=600',
     },
   })
 }

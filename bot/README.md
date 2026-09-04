@@ -114,7 +114,7 @@ All defaults and validation live in `src/config.ts`.
 | `USER_DAILY_LIMIT` | No | `10` | Max LLM-backed questions a single user can ask per day |
 | `DAILY_BUDGET_USD` | No | `10` | Global daily spend ceiling in USD for the LLM path |
 | `WEB_SEARCH_MAX_USES` | No | `3` | Max Anthropic-native `web_search` calls per conversational request ($0.01/search, drawn from the daily budget); `0` disables the tool and its prompt rules entirely |
-| `CFB_SEASON` | No | August-pivot rule | Overrides the season commands default to when none is specified (current year from August on, else the prior year) |
+| `CFB_SEASON` | No | GET `/api/season` | Overrides the season commands default to when none is specified. Without it, the bot polls the app's `/api/season` every 10 minutes and only falls back to the August-pivot calendar rule (current year from August on, else the prior year) if that fetch has never succeeded |
 
 ## Run locally
 
@@ -266,6 +266,8 @@ Run through this in the private test server before promoting a change to the rea
 - **Refresh `src/data/teams.json`** each offseason -- FBS membership and school names change
   with conference realignment and new entrants. `query_team` / `get_leaderboard` can confirm or
   correct an exact spelling if a school looks missing or misspelled.
-- **`DEFAULT_SEASON`** rolls over automatically via the August-pivot rule in `src/config.ts`
-  (`deriveDefaultSeason`) -- no action needed most years. Set `CFB_SEASON` to override it
-  manually if the pivot ever needs to happen early or late.
+- **The default season** rolls over automatically -- the bot's default season comes from the
+  app's `GET /api/season` (refreshed every 10 minutes), which resolves it from the warehouse, not
+  a hardcoded year. `CFB_SEASON` overrides it if you ever need to force a specific season. The
+  August-pivot rule in `src/config.ts` (`deriveDefaultSeason`) is only the last-resort fallback,
+  used when that fetch has never succeeded (e.g. at boot, before the first refresh).

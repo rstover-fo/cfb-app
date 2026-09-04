@@ -177,7 +177,6 @@ export interface PassingChartingFilter {
   minCharted?: number
   sort?: PassingChartingSort
   limit?: number
-  /** The caller's resolved season state, for the season default and the floor scaling rule (R13). */
   /** Resolved season state; the season defaults from it and live-season floors scale by it. */
   state: SeasonState
 }
@@ -306,7 +305,6 @@ export interface TargetProfileFilter {
   minCharted?: number
   sort?: TargetProfileSort
   limit?: number
-  /** The caller's resolved season state, for the season default and the floor scaling rule (R13). */
   /** Resolved season state; the season defaults from it and live-season floors scale by it. */
   state: SeasonState
 }

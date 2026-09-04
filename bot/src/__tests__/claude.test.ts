@@ -26,7 +26,6 @@ const VALID_CONFIG = {
   modelDefault: 'claude-sonnet-5',
   modelAdvisor: 'claude-opus-4-8',
   modelRouter: 'claude-haiku-4-5',
-  defaultSeason: 2025,
 }
 
 interface MockSeasonState {
@@ -399,6 +398,24 @@ describe('askClaude request shape', () => {
     const prompt = betaCreateMock.mock.calls[0]?.[0].system[0].text as string
     expect(prompt).toContain('current season is 2027.')
     expect(prompt).not.toContain('through Week')
+  })
+
+  it('appends the best-guess caveat when the season source is fallback or calendar, not for games/override', async () => {
+    getSeasonStateMock.mockReturnValueOnce({ season: 2028, through_week: null, source: 'fallback', fetchedAt: Date.now() })
+    betaCreateMock.mockResolvedValueOnce(apiResponse('answer'))
+    await askClaude('anything')
+    const fallbackPrompt = betaCreateMock.mock.calls[0]?.[0].system[0].text as string
+    expect(fallbackPrompt).toContain('best-guess fallback')
+
+    getSeasonStateMock.mockReturnValueOnce({ season: 2029, through_week: 1, source: 'games', fetchedAt: Date.now() })
+    betaCreateMock.mockResolvedValueOnce(apiResponse('answer'))
+    await askClaude('anything else')
+    const gamesPrompt = betaCreateMock.mock.calls[1]?.[0].system[0].text as string
+    expect(gamesPrompt).not.toContain('best-guess fallback')
+
+    // The cache key includes source, so two calls with the same season/week
+    // but different source must not collide and serve the wrong caveat.
+    expect(fallbackPrompt).not.toBe(gamesPrompt)
   })
 
   it('sends one MCP-connector beta call on the default model for a simple question', async () => {

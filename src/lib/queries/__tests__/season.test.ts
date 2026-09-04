@@ -136,6 +136,35 @@ describe('resolveCurrentSeason: CFB_SEASON override', () => {
     }
   })
 
+  it('a row from api.season_state wins for the overridden season too, and games is never queried', async () => {
+    process.env.CFB_SEASON = '2025'
+    const mock = mockClient({
+      apiTables: { season_state: ok([{ season: 2025, through_week: 9, is_complete: false }]) },
+    })
+
+    const { resolveCurrentSeason } = await freshSeasonModule()
+    const result = await resolveCurrentSeason()
+
+    expect(result).toEqual({ season: 2025, through_week: 9, is_live: true, source: 'override' })
+    expect(mock.from).not.toHaveBeenCalled()
+  })
+
+  it('degrades through_week/is_live to null/false (not the CURRENT_SEASON fallback) when both queries fail', async () => {
+    process.env.CFB_SEASON = '2025'
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    mockClient({
+      apiTables: { season_state: dbError('connection reset') },
+      tables: { games: dbError('connection reset') },
+    })
+
+    const { resolveCurrentSeason } = await freshSeasonModule()
+    const result = await resolveCurrentSeason()
+
+    // R3: the override season itself is never in question, even on total failure.
+    expect(result).toEqual({ season: 2025, through_week: null, is_live: false, source: 'override' })
+    expect(warnSpy).toHaveBeenCalledTimes(1)
+  })
+
   it('readSeasonOverride validates directly: integer 2000-2100 only', () => {
     expect(readSeasonOverride({ CFB_SEASON: '2025' })).toBe(2025)
     expect(readSeasonOverride({ CFB_SEASON: 'abc' })).toBeUndefined()
@@ -216,6 +245,17 @@ describe('scaleFloor', () => {
   it('returns the default floor when through_week is unknowable, even if live', () => {
     expect(scaleFloor(50, { season: 2026, through_week: null, is_live: true, source: 'games' })).toBe(50)
   })
+
+  it('never exceeds the default floor late in a live season', () => {
+    // is_live only means "at least one incomplete game remains" -- a season
+    // can still be live at through_week 13-16 (bowls pending, or a
+    // cancelled game that never completes), where the raw ratio would
+    // otherwise scale the floor UP past the default.
+    expect(scaleFloor(50, live(13))).toBe(50)
+    expect(scaleFloor(50, live(14))).toBe(50)
+    expect(scaleFloor(50, live(16))).toBe(50)
+    expect(scaleFloor(10, live(16))).toBe(10)
+  })
 })
 
 describe('getCurrentSeasonForRoute: TTL cache', () => {
@@ -273,5 +313,42 @@ describe('getCurrentSeasonForRoute: TTL cache', () => {
     await getCurrentSeasonForRoute()
 
     expect(mock.from).toHaveBeenCalledTimes(6)
+  })
+
+  it('caches a fallback result for FALLBACK_CACHE_TTL_MS, not the full SEASON_CACHE_TTL_MS', async () => {
+    vi.useFakeTimers()
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const mock = mockClient({
+      // season_state keeps failing (a real error, not a missing relation)
+      // across every resolution attempt.
+      apiTables: { season_state: dbError('connection reset') },
+      tables: {
+        // Call 1 (newestCompletedSeason, first resolution) fails too -> a
+        // total failure, same shape as the 'total failure' describe above.
+        // Calls 2-4 (newestCompletedSeason + the two gamesWeekInfo queries
+        // of the second resolution) succeed.
+        games: [
+          dbError('connection reset'),
+          ok([{ season: 2026 }]), ok([{ week: 1 }]), ok([{ week: 2 }]),
+        ],
+      },
+    })
+
+    const { getCurrentSeasonForRoute, FALLBACK_CACHE_TTL_MS } = await freshSeasonModule()
+
+    const first = await getCurrentSeasonForRoute()
+    expect(first.source).toBe('fallback')
+    expect(mock.from).toHaveBeenCalledTimes(1)
+
+    // Still within the fallback TTL -- must reuse the cached value rather
+    // than retrying the warehouse.
+    await getCurrentSeasonForRoute()
+    expect(mock.from).toHaveBeenCalledTimes(1)
+
+    vi.advanceTimersByTime(FALLBACK_CACHE_TTL_MS + 1)
+    const second = await getCurrentSeasonForRoute()
+
+    expect(second.source).toBe('games')
+    expect(mock.from).toHaveBeenCalledTimes(4)
   })
 })

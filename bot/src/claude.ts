@@ -15,7 +15,7 @@
  */
 import type Anthropic from '@anthropic-ai/sdk'
 import { getAnthropicClient } from './anthropic-client.js'
-import { loadConfig, getSeasonState } from './config.js'
+import { loadConfig, getSeasonState, type BotSeasonSource } from './config.js'
 import { routeQuestion, type QuestionTier } from './router.js'
 import { getLoreEnabled } from './settings.js'
 
@@ -88,9 +88,9 @@ export class ClaudeUnavailableError extends Error {
 // key stays valid across calls.
 const cachedBasePrompts = new Map<string, string>()
 
-/** Cache key for cachedBasePrompts -- see the comment above for why season/through_week are part of it. */
-function basePromptCacheKey(loreEnabled: boolean, season: number, throughWeek: number | null): string {
-  return `${loreEnabled}:${season}:${throughWeek ?? 'x'}`
+/** Cache key for cachedBasePrompts -- see the comment above for why season/through_week/source are part of it. */
+function basePromptCacheKey(loreEnabled: boolean, season: number, throughWeek: number | null, source: BotSeasonSource): string {
+  return `${loreEnabled}:${season}:${throughWeek ?? 'x'}:${source}`
 }
 
 // Included only while /lore is on. Fenced to the one running gag; the
@@ -122,8 +122,8 @@ const WEB_SEARCH_BLOCK = [
 ].join('\n')
 
 function getBaseSystemPrompt(loreEnabled: boolean): string {
-  const { season, through_week: throughWeek } = getSeasonState()
-  const cacheKey = basePromptCacheKey(loreEnabled, season, throughWeek)
+  const { season, through_week: throughWeek, source } = getSeasonState()
+  const cacheKey = basePromptCacheKey(loreEnabled, season, throughWeek, source)
   const cached = cachedBasePrompts.get(cacheKey)
   if (cached) return cached
   // Fixed for the process lifetime (config is memoized), so this stays
@@ -131,6 +131,12 @@ function getBaseSystemPrompt(loreEnabled: boolean): string {
   const webSearchEnabled = loadConfig().webSearchMaxUses > 0
   const seasonLine =
     throughWeek == null ? `The current season is ${season}.` : `The current season is ${season}, through Week ${throughWeek}.`
+  // 'fallback'/'calendar' both mean the season couldn't be confirmed from the
+  // warehouse just now (the app's own GET /api/season lookup failed, or --
+  // 'calendar' -- that fetch has never even succeeded) -- see cfb-app's
+  // src/lib/agent/prompts.ts seasonRulesBlock, which the /chat eve prompt
+  // caveats the same way for the same reason.
+  const seasonIsBestGuess = source === 'fallback' || source === 'calendar'
   const prompt = [
     // Personality block: server-specific voice. Tune freely -- but the Rules
     // section below is the bot's integrity layer and stays as-is (the eval
@@ -204,6 +210,13 @@ function getBaseSystemPrompt(loreEnabled: boolean): string {
     '  /myteam) -- never by secondhand claims. Never claim you have no memory; the honest answers',
     '  are "yes, automatically" or "you turned it off".',
     `- ${seasonLine} That is the season stats questions refer to.`,
+    ...(seasonIsBestGuess
+      ? [
+          '- The season above is a best-guess fallback -- it could not be confirmed from the warehouse',
+          '  just now. If a user asks which season you are using, say so plainly rather than',
+          '  presenting it as confirmed.',
+        ]
+      : []),
     // R16: the tools themselves default `season` to the current one (this
     // same season/through_week state, resolved server-side) -- so the model
     // should let that default do the work rather than hardcoding a season on

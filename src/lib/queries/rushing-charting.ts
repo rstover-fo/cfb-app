@@ -158,7 +158,6 @@ export interface RushingChartingFilter {
   minAttempts?: number
   sort?: RushingChartingSort
   limit?: number
-  /** The caller's resolved season state, for the season default and the floor scaling rule (R12). */
   /** Resolved season state; the season defaults from it and live-season floors scale by it. */
   state: SeasonState
 }

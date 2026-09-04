@@ -15,6 +15,7 @@ vi.mock('@/lib/queries/season', () => ({
   })),
 }))
 
+import { getCurrentSeasonForRoute } from '@/lib/queries/season'
 import { GET } from './route'
 
 describe('GET /api/season', () => {
@@ -32,5 +33,18 @@ describe('GET /api/season', () => {
   it('sets a public cache header with a 60s max-age and 600s stale-while-revalidate', async () => {
     const response = await GET()
     expect(response.headers.get('Cache-Control')).toBe('public, max-age=60, stale-while-revalidate=600')
+  })
+
+  it('sets no-store for a fallback state so a shared cache cannot pin a stale season', async () => {
+    vi.mocked(getCurrentSeasonForRoute).mockResolvedValueOnce({
+      season: 2025,
+      through_week: null,
+      is_live: false,
+      source: 'fallback',
+    })
+    const response = await GET()
+    const body = await response.json()
+    expect(response.headers.get('Cache-Control')).toBe('no-store')
+    expect(body.source).toBe('fallback')
   })
 })

@@ -175,8 +175,6 @@ export interface BotConfig {
   webSearchMaxUses: number
   /** Raw CFB_SEASON override, if set. */
   cfbSeasonOverride?: number
-  /** CFB_SEASON override if set, else the August-pivot default for `now`. */
-  defaultSeason: number
 }
 
 /**
@@ -237,7 +235,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): BotConfig {
     dailyBudgetUsd: data.DAILY_BUDGET_USD ?? DAILY_BUDGET_USD_FALLBACK,
     webSearchMaxUses: data.WEB_SEARCH_MAX_USES ?? WEB_SEARCH_MAX_USES_FALLBACK,
     cfbSeasonOverride: data.CFB_SEASON,
-    defaultSeason: deriveDefaultSeason(data.CFB_SEASON),
   }
   return cached
 }
@@ -300,7 +297,12 @@ function parseSeasonResponse(body: unknown): { season: number; through_week: num
  * On any failure (network error, timeout, non-2xx, bad shape) the previous
  * good state is kept as-is; only the very first resolution has no "previous
  * good state" to fall back to, so that one degrades to the calendar rule
- * instead. Logs at most one warning per failure streak so an extended outage
+ * instead. A 200 body whose `source` is `'fallback'` (the app's own warehouse
+ * lookup failed and it served its stale CURRENT_SEASON constant) is treated
+ * the same way: if we already have a prior good state, keep it rather than
+ * adopting a possibly-stale fallback; only on the very first resolution --
+ * with nothing better to compare against -- is the fallback body accepted
+ * as-is. Logs at most one warning per failure streak so an extended outage
  * doesn't spam the log every 600s with the same message.
  */
 export async function refreshSeasonState(fetchImpl: typeof fetch = fetch): Promise<SeasonState> {
@@ -322,6 +324,11 @@ export async function refreshSeasonState(fetchImpl: typeof fetch = fetch): Promi
     if (!response.ok) throw new Error(`GET ${url} -> HTTP ${response.status}`)
     const parsed = parseSeasonResponse(await response.json())
     if (!parsed) throw new Error(`GET ${url} returned an unexpected shape`)
+    // A fallback body only degrades a state we've already resolved -- with no
+    // prior good state to prefer, the fallback is the best guess available.
+    if (parsed.source === 'fallback' && hasResolvedSeasonState) {
+      throw new Error(`GET ${url} returned a fallback season`)
+    }
 
     seasonState = {
       season: parsed.season,
@@ -350,8 +357,29 @@ export async function refreshSeasonState(fetchImpl: typeof fetch = fetch): Promi
   return seasonState
 }
 
-/** Synchronous read of the module-level season-state cache -- see refreshSeasonState. */
+/**
+ * Synchronous read of the module-level season-state cache -- see
+ * refreshSeasonState. Before the first refresh completes, a set CFB_SEASON
+ * override is honored immediately rather than waiting for refreshSeasonState
+ * to run (evals and any command handled before the first 600s-interval tick
+ * would otherwise ignore the override entirely). loadConfig() is memoized and
+ * cheap, but a bad/missing env must never make this synchronous read throw --
+ * that failure still surfaces at boot via index.ts's own loadConfig() call --
+ * so an invalid env here just falls through to the calendar guess, same as
+ * before this override check existed.
+ */
 export function getSeasonState(): SeasonState {
+  if (!hasResolvedSeasonState) {
+    let config: BotConfig | undefined
+    try {
+      config = loadConfig()
+    } catch {
+      // Invalid env -- fall through to the calendar-guess seasonState below.
+    }
+    if (config?.cfbSeasonOverride !== undefined) {
+      return { season: config.cfbSeasonOverride, through_week: null, source: 'override', fetchedAt: 0 }
+    }
+  }
   return seasonState
 }
 
