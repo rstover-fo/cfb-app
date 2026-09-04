@@ -1,5 +1,13 @@
-import { describe, it, expect, beforeEach } from 'vitest'
-import { loadConfig, deriveDefaultSeason, isAllowedGuild, resetConfigForTests } from '../config.js'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
+import {
+  loadConfig,
+  deriveDefaultSeason,
+  isAllowedGuild,
+  resetConfigForTests,
+  refreshSeasonState,
+  getSeasonState,
+  getDefaultSeason,
+} from '../config.js'
 
 const VALID_ENV = {
   DISCORD_TOKEN: 'token',
@@ -254,5 +262,93 @@ describe('deriveDefaultSeason', () => {
   it('pivots exactly at the August 1 boundary', () => {
     expect(deriveDefaultSeason(undefined, new Date('2025-07-31T23:59:59Z'))).toBe(2024)
     expect(deriveDefaultSeason(undefined, new Date('2025-08-01T00:00:01Z'))).toBe(2025)
+  })
+})
+
+/** Builds a fetchImpl-shaped fake for refreshSeasonState -- only .ok/.json() are ever read. */
+function fakeFetch(body: unknown, ok = true): typeof fetch {
+  return vi.fn(async () => ({ ok, status: ok ? 200 : 500, json: async () => body })) as unknown as typeof fetch
+}
+
+describe('refreshSeasonState / getSeasonState / getDefaultSeason (R15/R16)', () => {
+  let warnSpy: ReturnType<typeof vi.spyOn>
+
+  beforeEach(() => {
+    resetConfigForTests()
+    warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+  })
+
+  afterEach(() => {
+    // vi.spyOn on an already-mocked console.warn returns the SAME mock
+    // (call counts carried over) rather than a fresh one -- restore it so
+    // each test's toHaveBeenCalledTimes assertion starts from zero.
+    warnSpy.mockRestore()
+  })
+
+  it('populates getSeasonState/getDefaultSeason from a successful /api/season fetch', async () => {
+    loadConfig(VALID_ENV)
+    const fetchImpl = fakeFetch({ season: 2026, through_week: 2, is_live: true, source: 'games' })
+
+    await refreshSeasonState(fetchImpl)
+
+    expect(fetchImpl).toHaveBeenCalledWith('https://example.com/api/season', expect.anything())
+    expect(getDefaultSeason()).toBe(2026)
+    expect(getSeasonState().through_week).toBe(2)
+    expect(getSeasonState().source).toBe('games')
+  })
+
+  it('short-circuits on CFB_SEASON without calling fetch', async () => {
+    loadConfig({ ...VALID_ENV, CFB_SEASON: '2025' })
+    const fetchImpl = fakeFetch({ season: 9999, through_week: 1, source: 'games' })
+
+    await refreshSeasonState(fetchImpl)
+
+    expect(fetchImpl).not.toHaveBeenCalled()
+    expect(getDefaultSeason()).toBe(2025)
+    expect(getSeasonState().source).toBe('override')
+  })
+
+  it('falls back to the calendar rule (with one warning) when the fetch throws and no prior state exists', async () => {
+    loadConfig(VALID_ENV)
+    const fetchImpl = vi.fn(async () => {
+      throw new Error('network down')
+    }) as unknown as typeof fetch
+
+    const state = await refreshSeasonState(fetchImpl)
+
+    expect(state.source).toBe('calendar')
+    expect(state.season).toBe(deriveDefaultSeason())
+    expect(getDefaultSeason()).toBe(deriveDefaultSeason())
+    expect(warnSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps the previous good value when a later refresh fails, and warns only once', async () => {
+    loadConfig(VALID_ENV)
+    await refreshSeasonState(fakeFetch({ season: 2026, through_week: 2, source: 'games' }))
+    expect(getDefaultSeason()).toBe(2026)
+
+    const failingFetch = vi.fn(async () => {
+      throw new Error('timeout')
+    }) as unknown as typeof fetch
+
+    const state = await refreshSeasonState(failingFetch)
+    expect(state.season).toBe(2026)
+    expect(state.through_week).toBe(2)
+    expect(getDefaultSeason()).toBe(2026)
+
+    // A second consecutive failure must not warn again -- only the first
+    // failure in a streak logs, per config.ts's hasWarnedSeasonFetchFailure.
+    await refreshSeasonState(failingFetch)
+    expect(warnSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it('rejects an unexpected fetch response shape and falls back like any other failure', async () => {
+    loadConfig(VALID_ENV)
+    const fetchImpl = fakeFetch({ nonsense: true })
+
+    const state = await refreshSeasonState(fetchImpl)
+
+    expect(state.source).toBe('calendar')
+    expect(warnSpy).toHaveBeenCalledTimes(1)
   })
 })

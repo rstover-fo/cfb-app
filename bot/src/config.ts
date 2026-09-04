@@ -1,11 +1,25 @@
 /**
- * Zod-validated environment configuration for the bot, plus the DEFAULT_SEASON
- * derivation (CFB_SEASON override, else an August-pivot rule).
+ * Zod-validated environment configuration for the bot, plus the season-state
+ * resolution the rest of the bot reads its default season from (R15/R16).
  *
  * Parsing is lazy (loadConfig() reads process.env on first call, then memoizes)
  * so tests can set env vars before calling it and get a fresh parse via
  * resetConfigForTests(). Fails fast with a single readable error listing every
  * missing/invalid var, rather than surfacing one at a time.
+ *
+ * Season resolution (R15/R16): the bot has no MCP client of its own -- it
+ * only reaches the MCP server through Anthropic's server-side mcp_servers
+ * connector (see claude.ts), so it cannot call the get_data_freshness MCP
+ * tool at prompt-build time. Instead it fetches GET /api/season from the
+ * same origin as MCP_URL (the Next.js app hosting both), on a 600s refresh
+ * interval driven by index.ts. getDefaultSeason() stays SYNCHRONOUS with the
+ * same signature it always had -- eight command files call it synchronously
+ * mid-interaction-handling, where an await would mean either blocking the
+ * Discord 3s ack or threading async through every call site -- so it reads a
+ * module-level cache (seasonState) that refreshSeasonState() populates
+ * out-of-band. CFB_SEASON remains an override that short-circuits the fetch
+ * entirely (R16); deriveDefaultSeason's calendar rule is now only the
+ * last-resort fallback when the fetch fails and no prior state exists.
  */
 import { z } from 'zod'
 
@@ -166,9 +180,11 @@ export interface BotConfig {
 }
 
 /**
- * CFB_SEASON override if given, else: August (month 8) onward implies the
- * season that just kicked off (current year); before August implies the
- * season that's still winding down from last fall (prior year).
+ * Last-resort fallback only -- used by refreshSeasonState when GET
+ * /api/season can't be reached and there's no previously-fetched state to
+ * fall back to. CFB_SEASON override if given, else: August (month 8) onward
+ * implies the season that just kicked off (current year); before August
+ * implies the season that's still winding down from last fall (prior year).
  */
 export function deriveDefaultSeason(cfbSeasonOverride?: number, now: Date = new Date()): number {
   if (cfbSeasonOverride !== undefined) return cfbSeasonOverride
@@ -226,9 +242,129 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): BotConfig {
   return cached
 }
 
+/** Where a resolved season came from, in resolution-order priority (R15/R16). */
+export type BotSeasonSource = 'override' | 'season_state' | 'games' | 'fallback' | 'calendar'
+
+/** The bot's module-level view of "what season is it", refreshed out-of-band by refreshSeasonState. */
+export interface SeasonState {
+  season: number
+  /** Highest week with a completed game in `season`, per the app's resolver. Null when unresolvable. */
+  through_week: number | null
+  source: BotSeasonSource
+  /** Date.now() of the last successful resolution (override set, or a good fetch/fallback). */
+  fetchedAt: number
+}
+
+/** Timeout for the GET /api/season round trip -- a hung request must never block boot or the refresh interval. */
+const SEASON_FETCH_TIMEOUT_MS = 5_000
+
+/**
+ * Module-level season cache getDefaultSeason()/getSeasonState() read
+ * synchronously. Starts out as the calendar-rule fallback (the same shape
+ * refreshSeasonState() falls back to on a first-attempt failure) so a
+ * command invoked before the first refreshSeasonState() call still gets a
+ * sane season instead of throwing.
+ */
+let seasonState: SeasonState = {
+  season: deriveDefaultSeason(),
+  through_week: null,
+  source: 'calendar',
+  fetchedAt: 0,
+}
+
+/** True once seasonState holds something other than the initial calendar guess -- gates whether a later fetch failure keeps the old value or re-derives the calendar fallback. */
+let hasResolvedSeasonState = false
+
+/** Warn at most once per failure streak (not once per 600s-interval tick) -- reset on the next success. */
+let hasWarnedSeasonFetchFailure = false
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value)
+}
+
+/** Validates the GET /api/season response shape (mirrors cfb-app's SeasonState) before trusting it. */
+function parseSeasonResponse(body: unknown): { season: number; through_week: number | null; source: string } | null {
+  if (typeof body !== 'object' || body === null) return null
+  const record = body as Record<string, unknown>
+  if (!isFiniteNumber(record.season)) return null
+  if (record.through_week !== null && !isFiniteNumber(record.through_week)) return null
+  if (typeof record.source !== 'string') return null
+  return { season: record.season, through_week: record.through_week, source: record.source }
+}
+
+/**
+ * R15/R16: refreshes the module-level season cache. `CFB_SEASON` short-
+ * circuits the fetch entirely -- the override always wins and is treated as
+ * resolved with no round trip. Otherwise fetches GET /api/season from the
+ * same origin as MCP_URL (the Next.js app hosts both), with a 5s timeout.
+ * On any failure (network error, timeout, non-2xx, bad shape) the previous
+ * good state is kept as-is; only the very first resolution has no "previous
+ * good state" to fall back to, so that one degrades to the calendar rule
+ * instead. Logs at most one warning per failure streak so an extended outage
+ * doesn't spam the log every 600s with the same message.
+ */
+export async function refreshSeasonState(fetchImpl: typeof fetch = fetch): Promise<SeasonState> {
+  const config = loadConfig()
+
+  if (config.cfbSeasonOverride !== undefined) {
+    seasonState = { season: config.cfbSeasonOverride, through_week: null, source: 'override', fetchedAt: Date.now() }
+    hasResolvedSeasonState = true
+    hasWarnedSeasonFetchFailure = false
+    return seasonState
+  }
+
+  const url = `${new URL(config.mcpUrl).origin}/api/season`
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), SEASON_FETCH_TIMEOUT_MS)
+
+  try {
+    const response = await fetchImpl(url, { signal: controller.signal })
+    if (!response.ok) throw new Error(`GET ${url} -> HTTP ${response.status}`)
+    const parsed = parseSeasonResponse(await response.json())
+    if (!parsed) throw new Error(`GET ${url} returned an unexpected shape`)
+
+    seasonState = {
+      season: parsed.season,
+      through_week: parsed.through_week,
+      source: parsed.source as BotSeasonSource,
+      fetchedAt: Date.now(),
+    }
+    hasResolvedSeasonState = true
+    hasWarnedSeasonFetchFailure = false
+  } catch (err) {
+    if (!hasWarnedSeasonFetchFailure) {
+      console.warn(
+        `[config] season refresh from ${url} failed, ${hasResolvedSeasonState ? 'keeping previous season state' : 'falling back to the calendar rule'}:`,
+        err instanceof Error ? err.message : err
+      )
+      hasWarnedSeasonFetchFailure = true
+    }
+    if (!hasResolvedSeasonState) {
+      seasonState = { season: deriveDefaultSeason(), through_week: null, source: 'calendar', fetchedAt: Date.now() }
+      hasResolvedSeasonState = true
+    }
+  } finally {
+    clearTimeout(timeoutId)
+  }
+
+  return seasonState
+}
+
+/** Synchronous read of the module-level season-state cache -- see refreshSeasonState. */
+export function getSeasonState(): SeasonState {
+  return seasonState
+}
+
 /** The season commands should default to when the caller doesn't specify one. */
 export function getDefaultSeason(): number {
-  return loadConfig().defaultSeason
+  return getSeasonState().season
+}
+
+/** Test-only: resets the season-state cache back to its pre-refresh calendar guess. */
+export function resetSeasonStateForTests(): void {
+  seasonState = { season: deriveDefaultSeason(), through_week: null, source: 'calendar', fetchedAt: 0 }
+  hasResolvedSeasonState = false
+  hasWarnedSeasonFetchFailure = false
 }
 
 /**
@@ -242,7 +378,8 @@ export function isAllowedGuild(guildId: string | null | undefined): boolean {
   return loadConfig().allowedGuildIds.includes(guildId)
 }
 
-/** Test-only: clears the memoized config so the next loadConfig() re-parses env. */
+/** Test-only: clears the memoized config so the next loadConfig() re-parses env. Also resets the season-state cache (see resetSeasonStateForTests) so config and season tests never leak into each other. */
 export function resetConfigForTests(): void {
   cached = null
+  resetSeasonStateForTests()
 }

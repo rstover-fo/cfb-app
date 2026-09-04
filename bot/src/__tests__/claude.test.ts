@@ -29,9 +29,20 @@ const VALID_CONFIG = {
   defaultSeason: 2025,
 }
 
+interface MockSeasonState {
+  season: number
+  through_week: number | null
+  source: 'override' | 'season_state' | 'games' | 'fallback' | 'calendar'
+  fetchedAt: number
+}
+
+const { getSeasonStateMock } = vi.hoisted(() => ({
+  getSeasonStateMock: vi.fn<() => MockSeasonState>(() => ({ season: 2025, through_week: null, source: 'calendar', fetchedAt: 0 })),
+}))
+
 vi.mock('../config.js', () => ({
   loadConfig: loadConfigMock,
-  getDefaultSeason: vi.fn(() => 2025),
+  getSeasonState: getSeasonStateMock,
 }))
 
 // Lore toggle on by default in tests; settings.ts touches the filesystem, so
@@ -360,6 +371,34 @@ describe('askClaude request shape', () => {
     await askClaude('anything else')
     const withLoreAgain = betaCreateMock.mock.calls[2]?.[0].system[0].text as string
     expect(withLoreAgain).toBe(withLore)
+  })
+
+  it('renders the season and through_week from getSeasonState, and rebuilds the prompt on a season change', async () => {
+    getSeasonStateMock.mockReturnValueOnce({ season: 2026, through_week: 2, source: 'games', fetchedAt: Date.now() })
+    betaCreateMock.mockResolvedValueOnce(apiResponse('answer'))
+    await askClaude('anything')
+    const firstPrompt = betaCreateMock.mock.calls[0]?.[0].system[0].text as string
+    expect(firstPrompt).toContain('current season is 2026, through Week 2')
+
+    // R15: a season change (picked up by config.ts's refreshSeasonState on its
+    // own interval) must rebuild the cached prompt rather than serving the
+    // stale season forever -- the cache key includes season/through_week
+    // precisely so this doesn't require an explicit resetClaudeForTests().
+    getSeasonStateMock.mockReturnValueOnce({ season: 2026, through_week: 3, source: 'games', fetchedAt: Date.now() })
+    betaCreateMock.mockResolvedValueOnce(apiResponse('answer'))
+    await askClaude('anything else')
+    const secondPrompt = betaCreateMock.mock.calls[1]?.[0].system[0].text as string
+    expect(secondPrompt).toContain('current season is 2026, through Week 3')
+    expect(secondPrompt).not.toBe(firstPrompt)
+  })
+
+  it('omits the through-week clause when through_week is null', async () => {
+    getSeasonStateMock.mockReturnValueOnce({ season: 2027, through_week: null, source: 'fallback', fetchedAt: Date.now() })
+    betaCreateMock.mockResolvedValueOnce(apiResponse('answer'))
+    await askClaude('anything')
+    const prompt = betaCreateMock.mock.calls[0]?.[0].system[0].text as string
+    expect(prompt).toContain('current season is 2027.')
+    expect(prompt).not.toContain('through Week')
   })
 
   it('sends one MCP-connector beta call on the default model for a simple question', async () => {
