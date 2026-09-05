@@ -13,14 +13,32 @@ vi.mock('@/lib/queries/season-outlook', async importOriginal => {
   const actual = await importOriginal<typeof import('@/lib/queries/season-outlook')>()
   return {
     ...actual,
-    queryLatestOutlookSeason: vi.fn(),
+    queryLatestProjectionSeason: vi.fn(),
     querySeasonOutlook: vi.fn(),
     resolveModelBacktest: vi.fn(),
   }
 })
 
+// R11: get_season_outlook does NOT use the shared resolver for its primary
+// path -- only its emergency fallback (queryLatestProjectionSeason's view came
+// back empty) calls getCurrentSeasonForRoute(), one season ahead. Pin it so
+// that fallback test stays deterministic rather than depending on the
+// resolver's real-Supabase-call failing over in this test environment.
+vi.mock('@/lib/queries/season', async importOriginal => {
+  const actual = await importOriginal<typeof import('@/lib/queries/season')>()
+  return {
+    ...actual,
+    getCurrentSeasonForRoute: vi.fn().mockResolvedValue({
+      season: 2025,
+      through_week: 16,
+      is_live: false,
+      source: 'games',
+    }),
+  }
+})
+
 import {
-  queryLatestOutlookSeason,
+  queryLatestProjectionSeason,
   querySeasonOutlook,
   resolveModelBacktest,
 } from '@/lib/queries/season-outlook'
@@ -92,7 +110,7 @@ function okRows(rows: SeasonOutlookRow[]) {
 
 beforeEach(() => {
   vi.clearAllMocks()
-  vi.mocked(queryLatestOutlookSeason).mockResolvedValue({ rows: [{ season: 2026 }], error: null })
+  vi.mocked(queryLatestProjectionSeason).mockResolvedValue({ rows: [{ season: 2026 }], error: null })
   vi.mocked(resolveModelBacktest).mockResolvedValue({ rows: [backtestRow()], error: null, windowFallback: false })
 })
 
@@ -144,7 +162,7 @@ describe('getSeasonOutlookTool', () => {
 
     const parsed = JSON.parse(await getSeasonOutlookTool({ conference: 'SEC' }))
 
-    expect(queryLatestOutlookSeason).toHaveBeenCalled()
+    expect(queryLatestProjectionSeason).toHaveBeenCalled()
     expect(parsed.season).toBe(2026)
     expect(parsed.season_source).toBe('latest_projection')
     expect(querySeasonOutlook).toHaveBeenCalledWith(
@@ -157,13 +175,13 @@ describe('getSeasonOutlookTool', () => {
 
     const parsed = JSON.parse(await getSeasonOutlookTool({ conference: 'SEC', season: 2025 }))
 
-    expect(queryLatestOutlookSeason).not.toHaveBeenCalled()
+    expect(queryLatestProjectionSeason).not.toHaveBeenCalled()
     expect(parsed.season).toBe(2025)
     expect(parsed.season_source).toBe('requested')
   })
 
   it('falls back past CURRENT_SEASON and says so when the resolver finds nothing', async () => {
-    vi.mocked(queryLatestOutlookSeason).mockResolvedValue({ rows: [], error: null })
+    vi.mocked(queryLatestProjectionSeason).mockResolvedValue({ rows: [], error: null })
     vi.mocked(querySeasonOutlook).mockResolvedValue(okRows([row()]))
 
     const parsed = JSON.parse(await getSeasonOutlookTool({ conference: 'SEC' }))

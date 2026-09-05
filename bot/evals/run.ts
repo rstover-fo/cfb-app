@@ -20,7 +20,7 @@ import { fileURLToPath } from 'node:url'
 import type Anthropic from '@anthropic-ai/sdk'
 import { askClaude, type UsageSummary } from '../src/claude.js'
 import { getAnthropicClient } from '../src/anthropic-client.js'
-import { loadConfig } from '../src/config.js'
+import { loadConfig, refreshSeasonState } from '../src/config.js'
 import { loadEnvFileIfPresent } from '../src/env.js'
 import { costUsd } from '../src/limits.js'
 import { GoldenSetSchema, DEFAULT_MAX_CHARS, type GoldenEntry, type GoldenSet } from './schema.js'
@@ -263,6 +263,12 @@ async function main(): Promise<void> {
   }
 
   const config = loadConfig()
+  // Without this, askClaude()'s prompt-building reads config.ts's module-level
+  // seasonState before it's ever been populated by a real fetch -- getSeasonState()
+  // now honors a set CFB_SEASON override synchronously (see config.ts), but with no
+  // override this call is what resolves the real season from GET /api/season instead
+  // of leaving every eval run on the calendar-guess fallback.
+  await refreshSeasonState()
   const client = getAnthropicClient()
   const judgeFn = makeJudgeFn(client, config.modelRouter)
 

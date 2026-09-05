@@ -28,6 +28,23 @@ vi.mock('@/lib/queries/coaches', () => ({
   getCoachingHistory: vi.fn(),
 }))
 
+// Season-rollover U2: getPlayerLeadersTool/getConferenceComparisonTool now
+// resolve their season default via getCurrentSeasonForRoute() instead of the
+// CURRENT_SEASON constant. Pin it to a fixed, non-live state so these tests
+// keep their existing "defaults to 2025" expectations; scaleFloor/etc stay real.
+vi.mock('@/lib/queries/season', async importOriginal => {
+  const actual = await importOriginal<typeof import('@/lib/queries/season')>()
+  return {
+    ...actual,
+    getCurrentSeasonForRoute: vi.fn().mockResolvedValue({
+      season: 2025,
+      through_week: 16,
+      is_live: false,
+      source: 'games',
+    }),
+  }
+})
+
 import { getWepaLeaders, getUsageLeaders, getPlayerComparison } from '@/lib/queries/players'
 import { getConferenceComparison } from '@/lib/queries/conferences'
 import { getCoachingHistory } from '@/lib/queries/coaches'
@@ -49,7 +66,12 @@ describe('getPlayerLeadersTool', () => {
 
     const parsed = JSON.parse(await getPlayerLeadersTool({ type: 'wepa' }))
 
-    expect(parsed).toEqual({ _source: 'api.player_wepa_leaders', count: 1, rows })
+    expect(parsed).toEqual({
+      _source: 'api.player_wepa_leaders',
+      count: 1,
+      rows,
+      as_of: { season: 2025, through_week: 16, source: 'games' },
+    })
     expect(getWepaLeaders).toHaveBeenCalledWith(2025, undefined, 25)
     expect(getUsageLeaders).not.toHaveBeenCalled()
   })
@@ -76,7 +98,12 @@ describe('getPlayerLeadersTool', () => {
 
     const parsed = JSON.parse(await getPlayerLeadersTool({ type: 'usage', category: 'rushing' }))
 
-    expect(parsed).toEqual({ _source: 'api.player_usage_leaders', count: 1, rows })
+    expect(parsed).toEqual({
+      _source: 'api.player_usage_leaders',
+      count: 1,
+      rows,
+      as_of: { season: 2025, through_week: 16, source: 'games' },
+    })
     expect(getUsageLeaders).toHaveBeenCalledWith(2025, 25)
     expect(getWepaLeaders).not.toHaveBeenCalled()
   })
@@ -160,7 +187,13 @@ describe('getConferenceComparisonTool', () => {
 
     const parsed = JSON.parse(await getConferenceComparisonTool({}))
 
-    expect(parsed).toEqual({ season: 2025, _source: 'api.conference_comparison', count: 1, rows })
+    expect(parsed).toEqual({
+      season: 2025,
+      _source: 'api.conference_comparison',
+      count: 1,
+      rows,
+      as_of: { season: 2025, through_week: 16, source: 'games' },
+    })
     expect(getConferenceComparison).toHaveBeenCalledWith(2025)
     expect(getConferenceComparison).toHaveBeenCalledTimes(1)
   })
@@ -184,6 +217,9 @@ describe('getConferenceComparisonTool', () => {
     expect(getConferenceComparison).toHaveBeenNthCalledWith(2, 2024)
     expect(parsed.season).toBe(2024)
     expect(parsed.rows).toEqual([{ conference: 'SEC', season: 2024 }])
+    // The fallback landed on a DIFFERENT season than the resolver's answer
+    // (2025), so through_week is unknown for it rather than borrowed from 2025.
+    expect(parsed.as_of).toEqual({ season: 2024, through_week: null, source: 'games' })
   })
 
   it('returns a friendly "No conference comparison data found" string when both seasons are empty', async () => {

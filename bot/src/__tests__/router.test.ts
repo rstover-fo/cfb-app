@@ -27,7 +27,6 @@ vi.mock('../config.js', () => ({
     modelDefault: 'claude-sonnet-5',
     modelAdvisor: 'claude-opus-4-8',
     modelRouter: 'claude-haiku-4-5',
-    defaultSeason: 2025,
   })),
   getDefaultSeason: vi.fn(() => 2025),
 }))

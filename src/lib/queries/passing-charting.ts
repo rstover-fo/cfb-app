@@ -1,6 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { fail, clamp, positive, ratio3dp, type McpResult } from './mcp'
-import { CURRENT_SEASON } from './constants'
+import { scaleFloor, type SeasonState } from './season'
 
 // ---------------------------------------------------------------------------
 // Query layer for the passing-charting MCP tools (get_passing_charting,
@@ -177,10 +177,13 @@ export interface PassingChartingFilter {
   minCharted?: number
   sort?: PassingChartingSort
   limit?: number
+  /** Resolved season state; the season defaults from it and live-season floors scale by it. */
+  state: SeasonState
 }
 
 /**
- * The floor these queries will actually apply, given a requested value.
+ * The floor these queries will actually apply, given a requested value and
+ * (optionally) the caller's resolved season state.
  *
  * Exported so the tool layer echoes the floor that was ENFORCED rather than
  * the one that was asked for. Those diverge whenever a value is normalized
@@ -189,14 +192,22 @@ export interface PassingChartingFilter {
  * worse than one that omits it, because a reader has no way to notice.
  * Deriving both from this function makes the two impossible to drift apart,
  * rather than keeping them in sync by hand.
+ *
+ * An explicit positive `requested` always wins. Otherwise, when `state` is
+ * given, the default floor scales down early in a live season (scaleFloor,
+ * season.ts) -- a caller with no state gets the unscaled default.
  */
-export function resolvePlayerMinCharted(requested?: number): number {
-  return positive(requested) ?? DEFAULT_MIN_CHARTED
+export function resolvePlayerMinCharted(requested?: number, state?: SeasonState): number {
+  const explicit = positive(requested)
+  if (explicit != null) return explicit
+  return state ? scaleFloor(DEFAULT_MIN_CHARTED, state) : DEFAULT_MIN_CHARTED
 }
 
 /** Receiver-side equivalent; see resolvePlayerMinCharted. */
-export function resolveTargetMinCharted(requested?: number): number {
-  return positive(requested) ?? DEFAULT_TARGET_MIN_CHARTED
+export function resolveTargetMinCharted(requested?: number, state?: SeasonState): number {
+  const explicit = positive(requested)
+  if (explicit != null) return explicit
+  return state ? scaleFloor(DEFAULT_TARGET_MIN_CHARTED, state) : DEFAULT_TARGET_MIN_CHARTED
 }
 
 function withPlayerCoverage(row: PassingChartingPlayerRow): PassingChartingPlayerRow {
@@ -214,18 +225,19 @@ export async function queryPassingChartingPlayers(
 ): Promise<McpResult<PassingChartingPlayerRow>> {
   const supabase = await createClient()
   const sort = filter.sort ?? 'adot'
-  const minCharted = resolvePlayerMinCharted(filter.minCharted)
+  const minCharted = resolvePlayerMinCharted(filter.minCharted, filter.state)
+  const season = filter.season ?? filter.state.season
 
   let query = supabase
     .schema('api')
     .from('passing_charting_player_season')
     .select(PLAYER_COLUMNS)
-    .eq('season', filter.season ?? CURRENT_SEASON)
     // Server-side, before .limit(): the floor must shrink the candidate set,
     // not just the returned page. The column is sort-dependent -- see
     // PLAYER_FLOOR_COLUMNS.
     .gte(PLAYER_FLOOR_COLUMNS[sort], minCharted)
 
+  query = query.eq('season', season)
   if (filter.team) query = query.eq('team', filter.team)
   if (filter.conference) query = query.eq('conference', filter.conference)
 
@@ -293,6 +305,8 @@ export interface TargetProfileFilter {
   minCharted?: number
   sort?: TargetProfileSort
   limit?: number
+  /** Resolved season state; the season defaults from it and live-season floors scale by it. */
+  state: SeasonState
 }
 
 /**
@@ -333,15 +347,16 @@ export async function queryTargetProfiles(
   const sort = filter.sort ?? 'targets'
   // Receivers see far fewer plays than the passer throwing to all of them, so
   // the passer floor would empty the board; scale it down rather than reuse it.
-  const minCharted = resolveTargetMinCharted(filter.minCharted)
+  const minCharted = resolveTargetMinCharted(filter.minCharted, filter.state)
+  const season = filter.season ?? filter.state.season
 
   let query = supabase
     .schema('api')
     .from('passing_charting_target_season')
     .select(TARGET_COLUMNS)
-    .eq('season', filter.season ?? CURRENT_SEASON)
     .gte(TARGET_FLOOR_COLUMNS[sort], minCharted)
 
+  query = query.eq('season', season)
   if (filter.team) query = query.eq('team', filter.team)
 
   const { data, error } = await query

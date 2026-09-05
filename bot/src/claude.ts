@@ -15,7 +15,7 @@
  */
 import type Anthropic from '@anthropic-ai/sdk'
 import { getAnthropicClient } from './anthropic-client.js'
-import { loadConfig, getDefaultSeason } from './config.js'
+import { loadConfig, getSeasonState, type BotSeasonSource } from './config.js'
 import { routeQuestion, type QuestionTier } from './router.js'
 import { getLoreEnabled } from './settings.js'
 
@@ -76,14 +76,22 @@ export class ClaudeUnavailableError extends Error {
   }
 }
 
-// The system prompt is frozen per process (DEFAULT_SEASON is baked in on
-// first use and memoized) so the cache_control prefix stays byte-stable
-// across calls. Built lazily rather than at module load so merely importing
-// this module (e.g. via the command registry in tests) never touches env.
-// Two byte-stable variants (lore on/off) so the /lore toggle is honored by
-// prompt construction itself, not by an unenforceable in-prompt promise.
-// Each variant caches independently on Anthropic's side.
-const cachedBasePrompts = new Map<boolean, string>()
+// The system prompt bakes in the current season/through_week (R15) so it's
+// built lazily and memoized per (loreEnabled, season, through_week) rather
+// than at module load -- merely importing this module (e.g. via the command
+// registry in tests) never touches env, and each distinct combination stays
+// byte-stable, which Anthropic's prompt caching needs. The key is keyed on
+// season state too (not just loreEnabled) so a season rollover -- picked up
+// by config.ts's refreshSeasonState on its own interval -- rebuilds the
+// prompt instead of serving a stale cached season forever; each key's own
+// prompt text still never changes once built, so Anthropic's cache for that
+// key stays valid across calls.
+const cachedBasePrompts = new Map<string, string>()
+
+/** Cache key for cachedBasePrompts -- see the comment above for why season/through_week/source are part of it. */
+function basePromptCacheKey(loreEnabled: boolean, season: number, throughWeek: number | null, source: BotSeasonSource): string {
+  return `${loreEnabled}:${season}:${throughWeek ?? 'x'}:${source}`
+}
 
 // Included only while /lore is on. Fenced to the one running gag; the
 // stop mechanism is the persisted toggle, which removes this block entirely.
@@ -114,11 +122,21 @@ const WEB_SEARCH_BLOCK = [
 ].join('\n')
 
 function getBaseSystemPrompt(loreEnabled: boolean): string {
-  const cached = cachedBasePrompts.get(loreEnabled)
+  const { season, through_week: throughWeek, source } = getSeasonState()
+  const cacheKey = basePromptCacheKey(loreEnabled, season, throughWeek, source)
+  const cached = cachedBasePrompts.get(cacheKey)
   if (cached) return cached
-  // Fixed for the process lifetime (config is memoized), so the loreEnabled
-  // cache key stays sufficient and each variant stays byte-stable.
+  // Fixed for the process lifetime (config is memoized), so this stays
+  // sufficient regardless of the cache key.
   const webSearchEnabled = loadConfig().webSearchMaxUses > 0
+  const seasonLine =
+    throughWeek == null ? `The current season is ${season}.` : `The current season is ${season}, through Week ${throughWeek}.`
+  // 'fallback'/'calendar' both mean the season couldn't be confirmed from the
+  // warehouse just now (the app's own GET /api/season lookup failed, or --
+  // 'calendar' -- that fetch has never even succeeded) -- see cfb-app's
+  // src/lib/agent/prompts.ts seasonRulesBlock, which the /chat eve prompt
+  // caveats the same way for the same reason.
+  const seasonIsBestGuess = source === 'fallback' || source === 'calendar'
   const prompt = [
     // Personality block: server-specific voice. Tune freely -- but the Rules
     // section below is the bot's integrity layer and stays as-is (the eval
@@ -191,11 +209,40 @@ function getBaseSystemPrompt(loreEnabled: boolean): string {
     "  words, so another user's profile is shaped by their own conversations (and their own",
     '  /myteam) -- never by secondhand claims. Never claim you have no memory; the honest answers',
     '  are "yes, automatically" or "you turned it off".',
-    `- The current season is ${getDefaultSeason()}. That is the season stats questions refer to.`,
+    `- ${seasonLine} That is the season stats questions refer to.`,
+    ...(seasonIsBestGuess
+      ? [
+          '- The season above is a best-guess fallback -- it could not be confirmed from the warehouse',
+          '  just now. If a user asks which season you are using, say so plainly rather than',
+          '  presenting it as confirmed.',
+        ]
+      : []),
+    // R16: the tools themselves default `season` to the current one (this
+    // same season/through_week state, resolved server-side) -- so the model
+    // should let that default do the work rather than hardcoding a season on
+    // every call, which would silently go stale the moment the season rolls.
+    // Two carve-outs: query_games applies NO season filter when `season` is
+    // omitted (it is a general schedule lookup, not a season-defaulted tool),
+    // and a CFB_SEASON override on this bot is NOT shared with the app, so
+    // under an override the model must pass the pinned season itself or the
+    // tools would answer for a different year than the prompt states.
+    ...(source === 'override'
+      ? [
+          `- This bot is pinned to season ${season} by its own CFB_SEASON setting, which the cfb MCP tools`,
+          `  do NOT share. Pass \`season: ${season}\` explicitly on every tool call that accepts a season,`,
+          '  unless the user explicitly named a different one.',
+        ]
+      : [
+          '- The cfb MCP tools default their `season` parameter to the current season on their own. Omit',
+          "  `season` on a tool call unless the user explicitly named a different one -- don't pass the",
+          '  current season yourself just to be explicit about it. EXCEPTION: query_games applies NO',
+          `  season filter when \`season\` is omitted, so pass \`season: ${season}\` explicitly there (and`,
+          '  on any other tool whose description does not say it defaults to the current season).',
+        ]),
     '- For questions about upcoming or future games ("will X beat Y", "when do we play Z"):',
-    `  check the CURRENT season (${getDefaultSeason()}) schedule first with query_games -- mid-season,`,
+    `  check the CURRENT season (${season}) schedule first with query_games -- mid-season,`,
     '  the game they mean is usually in the remaining slate (future games appear with null scores).',
-    `  If it is not there, also check NEXT season (${getDefaultSeason() + 1}) -- its schedule is often`,
+    `  If it is not there, also check NEXT season (${season + 1}) -- its schedule is often`,
     '  loaded before any games are played. Only after checking both may you say a game is not',
     '  scheduled. An unplayed game has no SCORE, but it usually does have a model prediction:',
     '  get_game_prediction and get_matchup_edges both cover scheduled future games, so quoting one',
@@ -271,7 +318,7 @@ function getBaseSystemPrompt(loreEnabled: boolean): string {
     '  rule above, just applied to rendering. This is not a reason to avoid render_chart -- call it',
     '  whenever it CAN show what was asked; the ban is only on faking one when it cannot.',
   ].join('\n')
-  cachedBasePrompts.set(loreEnabled, prompt)
+  cachedBasePrompts.set(cacheKey, prompt)
   return prompt
 }
 

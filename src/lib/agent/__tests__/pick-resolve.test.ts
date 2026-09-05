@@ -3,8 +3,16 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 const { queryGamesToolMock } = vi.hoisted(() => ({ queryGamesToolMock: vi.fn() }))
 vi.mock('@/lib/mcp/tools', () => ({ queryGamesTool: queryGamesToolMock }))
 
+// The resolver's season now comes from getCurrentSeasonForRoute (not the
+// compiled CURRENT_SEASON constant) -- see pick-resolve.ts's module header.
+// Fixed to a value that deliberately differs from CURRENT_SEASON so
+// assertions below prove the mock's season, not the constant, gets stamped.
+const { getCurrentSeasonForRouteMock } = vi.hoisted(() => ({ getCurrentSeasonForRouteMock: vi.fn() }))
+vi.mock('@/lib/queries/season', () => ({ getCurrentSeasonForRoute: getCurrentSeasonForRouteMock }))
+
 import { normalizeTeam, resolvePickCandidates } from '../pick-resolve'
-import { CURRENT_SEASON } from '@/lib/queries/constants'
+
+const SEASON = 2026
 
 function gamesEnvelope(rows: unknown[]) {
   return JSON.stringify({ _source: 'api.game_detail', count: rows.length, rows })
@@ -12,9 +20,9 @@ function gamesEnvelope(rows: unknown[]) {
 
 const OU_TEXAS = {
   game_id: 401,
-  season: CURRENT_SEASON,
+  season: SEASON,
   week: 6,
-  start_date: `${CURRENT_SEASON}-10-10T17:00:00Z`,
+  start_date: `${SEASON}-10-10T17:00:00Z`,
   completed: false,
   home_team: 'Texas',
   away_team: 'Oklahoma',
@@ -24,6 +32,7 @@ const OU_TEXAS = {
 beforeEach(() => {
   vi.clearAllMocks()
   vi.spyOn(console, 'error').mockImplementation(() => {})
+  getCurrentSeasonForRouteMock.mockResolvedValue({ season: SEASON, through_week: 2, is_live: true, source: 'games' })
 })
 
 describe('normalizeTeam', () => {
@@ -52,7 +61,7 @@ describe('resolvePickCandidates: game picks', () => {
       { type: 'game_winner', team: 'OU', opponent: 'texas', quote: 'we beat Texas' },
     ])
 
-    expect(queryGamesToolMock).toHaveBeenCalledWith({ season: CURRENT_SEASON, team: 'Oklahoma', limit: 100 })
+    expect(queryGamesToolMock).toHaveBeenCalledWith({ season: SEASON, team: 'Oklahoma', limit: 100 })
     expect(resolved).toHaveLength(1)
     expect(resolved[0]).toMatchObject({
       userId: 'u1',
@@ -63,7 +72,7 @@ describe('resolvePickCandidates: game picks', () => {
       week: 6,
       pickHome: false,
       direction: 'win',
-      season: CURRENT_SEASON,
+      season: SEASON,
     })
   })
 
@@ -82,12 +91,12 @@ describe('resolvePickCandidates: game picks', () => {
       ...OU_TEXAS,
       game_id: 400,
       week: 5,
-      start_date: `${CURRENT_SEASON}-10-03T17:00:00Z`,
+      start_date: `${SEASON}-10-03T17:00:00Z`,
       home_team: 'Oklahoma',
       away_team: 'Kansas',
       home_spread: -21,
     }
-    const played = { ...OU_TEXAS, game_id: 399, week: 1, start_date: `${CURRENT_SEASON}-09-01T17:00:00Z`, completed: true }
+    const played = { ...OU_TEXAS, game_id: 399, week: 1, start_date: `${SEASON}-09-01T17:00:00Z`, completed: true }
     queryGamesToolMock.mockResolvedValue(gamesEnvelope([OU_TEXAS, earlier, played]))
 
     const resolved = await resolvePickCandidates('u1', [{ type: 'ats', team: 'sooners', quote: 'we cover' }])
@@ -136,7 +145,7 @@ describe('resolvePickCandidates: game picks', () => {
   })
 
   it('seasonRef next bumps the season', async () => {
-    const nextSeason = CURRENT_SEASON + 1
+    const nextSeason = SEASON + 1
     queryGamesToolMock.mockResolvedValue(gamesEnvelope([{ ...OU_TEXAS, season: nextSeason }]))
     await resolvePickCandidates('u1', [{ type: 'game_winner', team: 'OU', opponent: 'Texas', seasonRef: 'next', quote: 'x' }])
     expect(queryGamesToolMock).toHaveBeenCalledWith({ season: nextSeason, team: 'Oklahoma', limit: 100 })
@@ -149,7 +158,7 @@ describe('resolvePickCandidates: season totals', () => {
       { type: 'season_total', team: 'OU', direction: 'over', threshold: 10, quote: 'OU wins 10 this year' },
     ])
     expect(queryGamesToolMock).not.toHaveBeenCalled()
-    expect(resolved[0]).toMatchObject({ kind: 'season_total', team: 'Oklahoma', season: CURRENT_SEASON, direction: 'over', line: 9.5 })
+    expect(resolved[0]).toMatchObject({ kind: 'season_total', team: 'Oklahoma', season: SEASON, direction: 'over', line: 9.5 })
   })
 
   it('under keeps the half-point convention and spoken halves pass through', async () => {
@@ -164,5 +173,20 @@ describe('resolvePickCandidates: season totals', () => {
   it('drops a season total without a threshold', async () => {
     const resolved = await resolvePickCandidates('u1', [{ type: 'season_total', team: 'OU', quote: 'great season coming' }])
     expect(resolved).toEqual([])
+  })
+})
+
+describe('resolvePickCandidates: season resolution', () => {
+  it('stamps the resolver season, not the CURRENT_SEASON constant', async () => {
+    const { CURRENT_SEASON } = await import('@/lib/queries/constants')
+    expect(SEASON).not.toBe(CURRENT_SEASON)
+
+    const resolved = await resolvePickCandidates('u1', [
+      { type: 'season_total', team: 'OU', direction: 'over', threshold: 10, quote: 'OU wins 10 this year' },
+    ])
+
+    expect(getCurrentSeasonForRouteMock).toHaveBeenCalledTimes(1)
+    expect(resolved[0]!.season).toBe(SEASON)
+    expect(resolved[0]!.season).not.toBe(CURRENT_SEASON)
   })
 })
