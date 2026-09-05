@@ -221,9 +221,24 @@ function getBaseSystemPrompt(loreEnabled: boolean): string {
     // same season/through_week state, resolved server-side) -- so the model
     // should let that default do the work rather than hardcoding a season on
     // every call, which would silently go stale the moment the season rolls.
-    '- The cfb MCP tools default their `season` parameter to the current season on their own. Omit',
-    "  `season` on a tool call unless the user explicitly named a different one -- don't pass the",
-    '  current season yourself just to be explicit about it.',
+    // Two carve-outs: query_games applies NO season filter when `season` is
+    // omitted (it is a general schedule lookup, not a season-defaulted tool),
+    // and a CFB_SEASON override on this bot is NOT shared with the app, so
+    // under an override the model must pass the pinned season itself or the
+    // tools would answer for a different year than the prompt states.
+    ...(source === 'override'
+      ? [
+          `- This bot is pinned to season ${season} by its own CFB_SEASON setting, which the cfb MCP tools`,
+          `  do NOT share. Pass \`season: ${season}\` explicitly on every tool call that accepts a season,`,
+          '  unless the user explicitly named a different one.',
+        ]
+      : [
+          '- The cfb MCP tools default their `season` parameter to the current season on their own. Omit',
+          "  `season` on a tool call unless the user explicitly named a different one -- don't pass the",
+          '  current season yourself just to be explicit about it. EXCEPTION: query_games applies NO',
+          `  season filter when \`season\` is omitted, so pass \`season: ${season}\` explicitly there (and`,
+          '  on any other tool whose description does not say it defaults to the current season).',
+        ]),
     '- For questions about upcoming or future games ("will X beat Y", "when do we play Z"):',
     `  check the CURRENT season (${season}) schedule first with query_games -- mid-season,`,
     '  the game they mean is usually in the remaining slate (future games appear with null scores).',

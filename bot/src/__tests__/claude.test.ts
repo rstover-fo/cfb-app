@@ -391,6 +391,28 @@ describe('askClaude request shape', () => {
     expect(secondPrompt).not.toBe(firstPrompt)
   })
 
+  it('tells the model to pass the pinned season explicitly under a CFB_SEASON override, and to omit it otherwise except for query_games', async () => {
+    getSeasonStateMock.mockReturnValueOnce({ season: 2025, through_week: null, source: 'override', fetchedAt: Date.now() })
+    betaCreateMock.mockResolvedValueOnce(apiResponse('answer'))
+    await askClaude('anything')
+    const overridePrompt = flat(betaCreateMock.mock.calls[0]?.[0].system[0].text as string)
+    // The app's tools do not see the bot's CFB_SEASON, so omitting `season`
+    // would make them answer for a different year than the prompt states.
+    expect(overridePrompt).toContain('pinned to season 2025')
+    expect(overridePrompt).toContain('Pass `season: 2025` explicitly on every tool call')
+    expect(overridePrompt).not.toContain('Omit `season` on a tool call')
+
+    getSeasonStateMock.mockReturnValueOnce({ season: 2026, through_week: 2, source: 'games', fetchedAt: Date.now() })
+    betaCreateMock.mockResolvedValueOnce(apiResponse('answer'))
+    await askClaude('anything else')
+    const gamesPrompt = flat(betaCreateMock.mock.calls[1]?.[0].system[0].text as string)
+    expect(gamesPrompt).toContain('Omit `season` on a tool call')
+    // query_games has no season default: omitting `season` there returns games from every season.
+    expect(gamesPrompt).toContain('query_games applies NO season filter')
+    expect(gamesPrompt).toContain('pass `season: 2026` explicitly there')
+    expect(gamesPrompt).not.toContain('pinned to season')
+  })
+
   it('omits the through-week clause when through_week is null', async () => {
     getSeasonStateMock.mockReturnValueOnce({ season: 2027, through_week: null, source: 'fallback', fetchedAt: Date.now() })
     betaCreateMock.mockResolvedValueOnce(apiResponse('answer'))

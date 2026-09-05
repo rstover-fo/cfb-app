@@ -95,7 +95,7 @@ type SupabaseClient = Awaited<ReturnType<typeof createClient>>
 interface SeasonStateRow {
   season: number
   through_week: number | null
-  is_complete: boolean
+  is_live: boolean
 }
 
 /**
@@ -112,18 +112,27 @@ function isMissingRelationError(error: { message?: string; code?: string }): boo
 
 /**
  * Try api.season_state, scoped to `season` when given (the override path)
- * or the newest row otherwise (R6). Returns null for BOTH a missing
- * relation (silently -- the view just isn't shipped yet) and any other
- * query error (after one console.warn), so the caller can fall through to
- * the `games` query in either case without treating "not shipped" as a
- * failure worth logging.
+ * or the newest row WITH at least one completed game otherwise (R6). That
+ * `games_completed > 0` filter is the same R1 rule the `games` path applies:
+ * the view carries one row per season present in `games`, and cfb-database
+ * loads a full schedule months before kickoff, so without it a future
+ * schedule-only season would win the ORDER BY and every consumer would call
+ * a season with zero played games "current". `is_live` comes from the view
+ * itself rather than being derived from `is_complete`, so a schedule-only
+ * row (both false) can never read as live either.
+ *
+ * Returns null for BOTH a missing relation (silently -- the view just isn't
+ * shipped yet) and any other query error (after one console.warn), so the
+ * caller can fall through to the `games` query in either case without
+ * treating "not shipped" as a failure worth logging.
  */
 async function trySeasonState(
   supabase: SupabaseClient,
   season?: number
 ): Promise<SeasonStateRow | null> {
-  let query = supabase.schema('api').from('season_state').select('season, through_week, is_complete')
+  let query = supabase.schema('api').from('season_state').select('season, through_week, is_live')
   if (season !== undefined) query = query.eq('season', season)
+  else query = query.gt('games_completed', 0)
 
   const { data, error } = await query.order('season', { ascending: false }).limit(1)
 
@@ -199,7 +208,7 @@ async function resolveOverrideSeason(season: number): Promise<SeasonState> {
     const supabase = await createClient()
     const stateRow = await trySeasonState(supabase, season)
     if (stateRow) {
-      return { season, through_week: stateRow.through_week, is_live: !stateRow.is_complete, source: 'override' }
+      return { season, through_week: stateRow.through_week, is_live: stateRow.is_live, source: 'override' }
     }
     const { through_week, is_live } = await gamesWeekInfo(supabase, season)
     return { season, through_week, is_live, source: 'override' }
@@ -227,7 +236,7 @@ export async function resolveCurrentSeason(): Promise<SeasonState> {
       return {
         season: stateRow.season,
         through_week: stateRow.through_week,
-        is_live: !stateRow.is_complete,
+        is_live: stateRow.is_live,
         source: 'season_state',
       }
     }

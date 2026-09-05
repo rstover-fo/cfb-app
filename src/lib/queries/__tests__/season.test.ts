@@ -139,7 +139,7 @@ describe('resolveCurrentSeason: CFB_SEASON override', () => {
   it('a row from api.season_state wins for the overridden season too, and games is never queried', async () => {
     process.env.CFB_SEASON = '2025'
     const mock = mockClient({
-      apiTables: { season_state: ok([{ season: 2025, through_week: 9, is_complete: false }]) },
+      apiTables: { season_state: ok([{ season: 2025, through_week: 9, is_live: true }]) },
     })
 
     const { resolveCurrentSeason } = await freshSeasonModule()
@@ -177,9 +177,41 @@ describe('resolveCurrentSeason: CFB_SEASON override', () => {
 })
 
 describe('resolveCurrentSeason: api.season_state', () => {
+  it('asks the view for seasons with completed games only, so a schedule-only future season never wins', async () => {
+    // Mirrors the games-path rule (R1): cfb-database loads next season's full
+    // schedule months before kickoff, and the view has a row for it with
+    // games_completed = 0. ORDER BY season DESC alone would pick that row.
+    const mock = mockClient({
+      apiTables: { season_state: ok([{ season: 2026, through_week: 1, is_live: true }]) },
+    })
+
+    const { resolveCurrentSeason } = await freshSeasonModule()
+    await resolveCurrentSeason()
+
+    const apiFrom = vi.mocked(mock.schema).mock.results[0]?.value.from
+    const chain = apiFrom.mock.results[0]?.value
+    expect(chain.gt).toHaveBeenCalledWith('games_completed', 0)
+    expect(chain.eq).not.toHaveBeenCalled()
+  })
+
+  it('does not apply the completed-games filter on the override path (the season is fixed)', async () => {
+    process.env.CFB_SEASON = '2027'
+    const mock = mockClient({
+      apiTables: { season_state: ok([{ season: 2027, through_week: null, is_live: false }]) },
+    })
+
+    const { resolveCurrentSeason } = await freshSeasonModule()
+    const result = await resolveCurrentSeason()
+
+    const chain = vi.mocked(mock.schema).mock.results[0]?.value.from.mock.results[0]?.value
+    expect(chain.eq).toHaveBeenCalledWith('season', 2027)
+    expect(chain.gt).not.toHaveBeenCalled()
+    expect(result).toEqual({ season: 2027, through_week: null, is_live: false, source: 'override' })
+  })
+
   it('a row from api.season_state wins, and games is never queried', async () => {
     const mock = mockClient({
-      apiTables: { season_state: ok([{ season: 2026, through_week: 3, is_complete: false }]) },
+      apiTables: { season_state: ok([{ season: 2026, through_week: 3, is_live: true }]) },
     })
 
     const { resolveCurrentSeason } = await freshSeasonModule()
