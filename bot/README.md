@@ -3,8 +3,8 @@
 An always-on Discord gateway bot for a ~100-person college-football community, built on top of
 cfb-app's hosted MCP server. Deterministic slash commands (`/rankings`, `/team`, `/scores`, ...)
 call the MCP server directly and cost nothing to run. `/ask` and `@`-mentions run a Claude agent
-over the same MCP server via Anthropic's MCP connector, tiered between Sonnet 5 (default) and
-Opus 4.8 (advisor, for gnarly analytical questions), with a Haiku classifier routing between them.
+over the same MCP server via Anthropic's MCP connector, tiered between Sonnet 5.5 (default) and
+Opus 5.5 (advisor, for gnarly analytical questions), with a Haiku 5.5 classifier routing between them.
 
 ## Commands
 
@@ -17,7 +17,7 @@ Opus 4.8 (advisor, for gnarly analytical questions), with a Haiku classifier rou
 | `/edges` | `week?`, `limit?` (default 5, max 10) | Where the house prediction model diverges most from the market line via `get_matchup_edges` | Free |
 | `/leaders` | `metric` (Wins / PPG / Scoring Defense / EPA per Play / SP+ / wepa), `limit?` (default 10, max 100) | Team leaderboard by a chosen metric via `get_leaderboard` | Free |
 | `/player` | `name`, `team?` (autocomplete) | Search for a player and see season stats via `search_players` | Free |
-| `/ask` | `question` | Full conversational Q&A over all 19 MCP tools, tiered Sonnet 5 / Opus 4.8 | LLM |
+| `/ask` | `question` | Full conversational Q&A over all 19 MCP tools, tiered Sonnet 5.5 / Opus 5.5 | LLM |
 | `/myteam` | `team` (autocomplete) | Saves your favorite team so `/ask` and @-mentions can use it as context | Free |
 | `/memory` | `show` / `forget [number]` / `on` / `off` | See, delete, or disable the bot's long-term memory about you (see [Long-term memory](#long-term-memory)) | Free |
 | `/picks` | `me` / `user <who>` / `board` / `void <number>` | The public prediction ledger: records, receipts, leaderboard (see [Prediction ledger](#prediction-ledger)) | Free |
@@ -37,8 +37,8 @@ LLM cost. (2) **Conversational** -- `/ask` and `@`-mentions call `askClaude()` (
 which makes one `client.beta.messages.create` call with the Anthropic MCP connector
 (`mcp_servers` + `mcp_toolset`) pointed at the same `/api/mcp` endpoint -- the whole tool loop
 runs server-side on Anthropic's infrastructure, so there's no client-side tool loop to maintain.
-`src/router.ts` makes a cheap Haiku classification call first (simple vs. gnarly) to pick Sonnet 5
-or Opus 4.8; Sonnet's system prompt can end a reply with an `[ESCALATE]` sentinel as a backstop,
+`src/router.ts` makes a cheap Haiku 5.5 classification call first (simple vs. gnarly) to pick Sonnet 5.5
+or Opus 5.5; Sonnet's system prompt can end a reply with an `[ESCALATE]` sentinel as a backstop,
 which triggers one re-run on Opus. Per-channel short-term memory (`src/memory.ts`, 30-minute TTL)
 and per-user favorite-team profiles (`src/profiles.ts`, `/myteam`) are injected into the prompt
 per turn but never touch the cached system-prompt prefix. `src/limits.ts` gates every
@@ -101,9 +101,9 @@ All defaults and validation live in `src/config.ts`.
 | `MCP_URL` | Yes | -- | Base URL of cfb-app's hosted MCP server, e.g. `https://v0-production-data-application.vercel.app/api/mcp` |
 | `MCP_AUTH_TOKEN` | Yes | -- | Bearer token the MCP server expects -- must be the **same value** configured on Vercel for `/api/mcp` (see `docs/MCP.md`) |
 | `ANTHROPIC_API_KEY` | No | -- | Anthropic API key. Without it, deterministic slash commands still work; `/ask` and `@`-mentions reply with a friendly "unavailable" message |
-| `MODEL_DEFAULT` | No | `claude-sonnet-5` | Default conversational model (simple-tier questions) |
-| `MODEL_ADVISOR` | No | `claude-opus-4-8` | Advisor model for gnarly questions and `[ESCALATE]` re-runs |
-| `MODEL_ROUTER` | No | `claude-haiku-4-5` | Cheap classifier model for simple-vs-gnarly routing |
+| `MODEL_DEFAULT` | No | `claude-sonnet-5-5` | Default conversational model (simple-tier questions) |
+| `MODEL_ADVISOR` | No | `claude-opus-5-5` | Advisor model for gnarly questions and `[ESCALATE]` re-runs |
+| `MODEL_ROUTER` | No | `claude-haiku-5-5` | Cheap classifier model for simple-vs-gnarly routing |
 | `SUPABASE_URL` | No | -- | With `SUPABASE_SERVICE_ROLE_KEY`, switches storage to the Supabase `bot` schema (set both or neither -- see [Storage](#storage)) |
 | `SUPABASE_SERVICE_ROLE_KEY` | No | -- | Supabase service-role key (secret, server-side only) |
 | `PROFILES_PATH` | No | `data/profiles.json` | Where the JSON backend persists `/myteam` favorites (relative paths resolve against `process.cwd()`; ignored when Supabase is configured) |
@@ -225,10 +225,11 @@ request is made:
    not a flat per-call estimate. Native `web_search` calls add a flat $0.01 per search on top
    (capped per request by `WEB_SEARCH_MAX_USES`).
 
-Rough per-question cost: Sonnet 5 tier ~$0.06-0.20, Opus 4.8 advisor tier ~$0.10-0.35, Haiku
-router classification ~$0.001. Once the budget or a user's cap is hit, `/ask` and `@`-mentions
-reply with a message pointing at the still-free slash commands -- those are never affected by any
-of these guards.
+Rough per-question cost at the 5.5 list prices ($2/$10 Sonnet, $4/$20 Opus,
+$0.10/$0.50 Haiku per million input/output tokens): Sonnet 5.5 tier ~$0.04-0.13,
+Opus 5.5 advisor tier ~$0.08-0.28, Haiku router classification ~$0.0001. Once the
+budget or a user's cap is hit, `/ask` and `@`-mentions reply with a message pointing
+at the still-free slash commands -- those are never affected by any of these guards.
 
 ## Evals
 

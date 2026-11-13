@@ -11,5 +11,12 @@ export default defineAgent({
     'questions, multi-team meta questions, playoff-picture reasoning -- anything needing analysis ' +
     'deeper than a routine lookup. Pass the full question plus every relevant fact and number ' +
     'already gathered.',
-  model: anthropic('claude-opus-4-8'),
+  model: anthropic('claude-opus-5-5'),
+  // Opus 5.5 thinks adaptively and rejects thinking disabled. Its API default
+  // effort is medium. High keeps this advisor tier above the root agent's medium.
+  modelOptions: {
+    providerOptions: {
+      anthropic: { effort: 'high' },
+    },
+  },
 })

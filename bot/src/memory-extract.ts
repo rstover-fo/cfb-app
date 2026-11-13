@@ -144,9 +144,13 @@ export async function runExtraction({ userId, guildId, question, answer, onPicks
       `Answer: ${answer.slice(0, ANSWER_SLICE_CHARS)}`,
     ].join('\n')
 
+    // Same cheap Haiku shape as router.ts: thinking off, effort low, so the
+    // small max_tokens budget is the JSON answer.
     const response = await client.messages.create({
       model: config.modelRouter,
       max_tokens: EXTRACT_MAX_TOKENS,
+      thinking: { type: 'disabled' },
+      output_config: { effort: 'low' },
       system: EXTRACT_SYSTEM_PROMPT,
       messages: [{ role: 'user', content }],
     })

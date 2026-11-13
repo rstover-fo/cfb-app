@@ -635,6 +635,11 @@ async function runConnectorCall(
   webSearchBudget: WebSearchBudget
 ): Promise<Anthropic.Beta.Messages.BetaMessage> {
   const config = loadConfig()
+  // 5.5 models think adaptively. Effort is the depth control: medium on the
+  // default chat tier (Sonnet 5.5's API default is high), high when this call
+  // is the advisor model (Opus 5.5's API default is medium). Sonnet 5.5
+  // rejects thinking disabled; Opus 5.5 rejects it at every effort.
+  const effort = model === config.modelAdvisor ? 'high' : 'medium'
   const baseTools: Anthropic.Beta.Messages.BetaToolUnion[] = [{ type: 'mcp_toolset', mcp_server_name: 'cfb' }]
   const create = (
     tools: Anthropic.Beta.Messages.BetaToolUnion[],
@@ -646,6 +651,7 @@ async function runConnectorCall(
       model,
       max_tokens: MAX_TOKENS,
       thinking: { type: 'adaptive' },
+      output_config: { effort },
       betas: ['mcp-client-2025-11-20'],
       mcp_servers: [{ type: 'url', url: config.mcpUrl, name: 'cfb', authorization_token: config.mcpAuthToken }],
       tools,

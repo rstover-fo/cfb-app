@@ -159,6 +159,10 @@ export function makeJudgeFn(client: Anthropic, model: string): JudgeFn {
     const response = await client.messages.create({
       model,
       max_tokens: 200,
+      // Judge runs on the Haiku router model. Thinking off keeps the 200-token
+      // cap for the JSON verdict; low effort keeps the call cheap.
+      thinking: { type: 'disabled' },
+      output_config: { effort: 'low' },
       system: JUDGE_SYSTEM_PROMPT,
       messages: [{ role: 'user', content: prompt }],
     })
@@ -211,7 +215,7 @@ export async function runEntry(entry: GoldenEntry, judgeFn: JudgeFn): Promise<{ 
 
   if (entry.expect.judge) {
     const { verdict, usage } = await judgeFn(entry, answer.text)
-    spend += costUsd(usage, 'claude-haiku-4-5')
+    spend += costUsd(usage, 'claude-haiku-5-5')
     judge = verdict.pass ? 'pass' : 'fail'
     if (!verdict.pass) {
       console.log(`  [${entry.id}] judge failure: ${verdict.reason}`)

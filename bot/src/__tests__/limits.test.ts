@@ -48,7 +48,7 @@ describe('checkAllowance cooldown', () => {
   })
 
   it('refuses a second call within the cooldown window', () => {
-    recordUsage('user-1', usage(), 'claude-sonnet-5')
+    recordUsage('user-1', usage(), 'claude-sonnet-5-5')
     now += 5_000 // 5s later, cooldown is 20s
 
     const result = checkAllowance('user-1')
@@ -56,14 +56,14 @@ describe('checkAllowance cooldown', () => {
   })
 
   it('allows again once the cooldown has elapsed', () => {
-    recordUsage('user-1', usage(), 'claude-sonnet-5')
+    recordUsage('user-1', usage(), 'claude-sonnet-5-5')
     now += 20_000
 
     expect(checkAllowance('user-1')).toEqual({ ok: true })
   })
 
   it('logs a hashed-userId JSON line on cooldown refusal', () => {
-    recordUsage('user-1', usage(), 'claude-sonnet-5')
+    recordUsage('user-1', usage(), 'claude-sonnet-5-5')
     now += 1_000
 
     checkAllowance('user-1')
@@ -76,7 +76,7 @@ describe('checkAllowance cooldown', () => {
   })
 
   it('keeps cooldowns independent per user', () => {
-    recordUsage('user-1', usage(), 'claude-sonnet-5')
+    recordUsage('user-1', usage(), 'claude-sonnet-5-5')
     now += 1_000
     expect(checkAllowance('user-2')).toEqual({ ok: true })
   })
@@ -85,7 +85,7 @@ describe('checkAllowance cooldown', () => {
 describe('checkAllowance user_cap', () => {
   it('refuses once the daily count reaches the limit', () => {
     for (let i = 0; i < BASE_CONFIG.userDailyLimit; i++) {
-      recordUsage('user-1', usage(), 'claude-sonnet-5')
+      recordUsage('user-1', usage(), 'claude-sonnet-5-5')
       now += 25_000 // clear the cooldown between calls
     }
 
@@ -94,7 +94,7 @@ describe('checkAllowance user_cap', () => {
 
   it('allows a fresh user under the cap', () => {
     for (let i = 0; i < BASE_CONFIG.userDailyLimit - 1; i++) {
-      recordUsage('user-1', usage(), 'claude-sonnet-5')
+      recordUsage('user-1', usage(), 'claude-sonnet-5-5')
       now += 25_000
     }
     expect(checkAllowance('user-1')).toEqual({ ok: true })
@@ -104,14 +104,16 @@ describe('checkAllowance user_cap', () => {
 describe('checkAllowance budget', () => {
   it('refuses once global spend reaches the daily budget', () => {
     // Big usage on an expensive model to cross the $10 budget in one call.
-    recordUsage('user-1', usage({ input_tokens: 1_000_000, output_tokens: 200_000 }), 'claude-opus-4-8')
+    // 1M input ($4) + 300k output ($6) = $10 on Opus 5.5, the budget line.
+    recordUsage('user-1', usage({ input_tokens: 1_000_000, output_tokens: 300_000 }), 'claude-opus-5-5')
     now += 25_000
 
     expect(checkAllowance('user-1')).toEqual({ ok: false, reason: 'budget' })
   })
 
   it('budget refusal applies across different users (shared global budget)', () => {
-    recordUsage('user-1', usage({ input_tokens: 1_000_000, output_tokens: 200_000 }), 'claude-opus-4-8')
+    // 1M input ($4) + 300k output ($6) = $10 on Opus 5.5, the budget line.
+    recordUsage('user-1', usage({ input_tokens: 1_000_000, output_tokens: 300_000 }), 'claude-opus-5-5')
 
     expect(checkAllowance('user-2')).toEqual({ ok: false, reason: 'budget' })
   })
@@ -120,7 +122,7 @@ describe('checkAllowance budget', () => {
 describe('checkAllowance UTC-midnight reset', () => {
   it('resets a user daily count after UTC midnight', () => {
     for (let i = 0; i < BASE_CONFIG.userDailyLimit; i++) {
-      recordUsage('user-1', usage(), 'claude-sonnet-5')
+      recordUsage('user-1', usage(), 'claude-sonnet-5-5')
       now += 25_000
     }
     expect(checkAllowance('user-1')).toEqual({ ok: false, reason: 'user_cap' })
@@ -130,7 +132,8 @@ describe('checkAllowance UTC-midnight reset', () => {
   })
 
   it('resets the global budget after UTC midnight', () => {
-    recordUsage('user-1', usage({ input_tokens: 1_000_000, output_tokens: 200_000 }), 'claude-opus-4-8')
+    // 1M input ($4) + 300k output ($6) = $10 on Opus 5.5, the budget line.
+    recordUsage('user-1', usage({ input_tokens: 1_000_000, output_tokens: 300_000 }), 'claude-opus-5-5')
     expect(checkAllowance('user-2')).toEqual({ ok: false, reason: 'budget' })
 
     now = Date.UTC(2026, 0, 16, 0, 0, 1)
@@ -139,66 +142,71 @@ describe('checkAllowance UTC-midnight reset', () => {
 })
 
 describe('costUsd', () => {
-  it('prices sonnet input/output tokens at $3 / $15 per million', () => {
-    const cost = costUsd(usage({ input_tokens: 1_000_000, output_tokens: 1_000_000 }), 'claude-sonnet-5')
-    expect(cost).toBeCloseTo(3 + 15, 6)
+  it('prices sonnet input/output tokens at $2 / $10 per million', () => {
+    const cost = costUsd(usage({ input_tokens: 1_000_000, output_tokens: 1_000_000 }), 'claude-sonnet-5-5')
+    expect(cost).toBeCloseTo(2 + 10, 6)
   })
 
-  it('prices opus input/output tokens at $5 / $25 per million', () => {
-    const cost = costUsd(usage({ input_tokens: 1_000_000, output_tokens: 1_000_000 }), 'claude-opus-4-8')
-    expect(cost).toBeCloseTo(5 + 25, 6)
+  it('prices opus input/output tokens at $4 / $20 per million', () => {
+    const cost = costUsd(usage({ input_tokens: 1_000_000, output_tokens: 1_000_000 }), 'claude-opus-5-5')
+    expect(cost).toBeCloseTo(4 + 20, 6)
   })
 
-  it('prices haiku input/output tokens at $1 / $5 per million', () => {
-    const cost = costUsd(usage({ input_tokens: 1_000_000, output_tokens: 1_000_000 }), 'claude-haiku-4-5')
-    expect(cost).toBeCloseTo(1 + 5, 6)
+  it('prices haiku input/output tokens at $0.10 / $0.50 per million', () => {
+    const cost = costUsd(usage({ input_tokens: 1_000_000, output_tokens: 1_000_000 }), 'claude-haiku-5-5')
+    expect(cost).toBeCloseTo(0.1 + 0.5, 6)
   })
 
   it('prices an unknown model as opus (fail conservative)', () => {
     const cost = costUsd(usage({ input_tokens: 1_000_000, output_tokens: 1_000_000 }), 'claude-some-future-model')
-    expect(cost).toBeCloseTo(5 + 25, 6)
+    expect(cost).toBeCloseTo(4 + 20, 6)
   })
 
   it('matches a versioned/dated model string by prefix', () => {
-    const cost = costUsd(usage({ input_tokens: 1_000_000, output_tokens: 0 }), 'claude-sonnet-5-20261001')
-    expect(cost).toBeCloseTo(3, 6)
+    const cost = costUsd(usage({ input_tokens: 1_000_000, output_tokens: 0 }), 'claude-sonnet-5-5-20261001')
+    expect(cost).toBeCloseTo(2, 6)
+  })
+
+  it('prices a stale sonnet-5 env override at the previous rate, not the 5.5 rate', () => {
+    const cost = costUsd(usage({ input_tokens: 1_000_000, output_tokens: 1_000_000 }), 'claude-sonnet-5')
+    expect(cost).toBeCloseTo(3 + 15, 6)
   })
 
   it('prices cache_creation_input_tokens at 1.25x the input rate', () => {
-    const cost = costUsd(usage({ cache_creation_input_tokens: 1_000_000 }), 'claude-sonnet-5')
-    expect(cost).toBeCloseTo(3 * 1.25, 6)
+    const cost = costUsd(usage({ cache_creation_input_tokens: 1_000_000 }), 'claude-sonnet-5-5')
+    expect(cost).toBeCloseTo(2 * 1.25, 6)
   })
 
   it('prices cache_read_input_tokens at 0.1x the input rate', () => {
-    const cost = costUsd(usage({ cache_read_input_tokens: 1_000_000 }), 'claude-sonnet-5')
-    expect(cost).toBeCloseTo(3 * 0.1, 6)
+    const cost = costUsd(usage({ cache_read_input_tokens: 1_000_000 }), 'claude-sonnet-5-5')
+    expect(cost).toBeCloseTo(2 * 0.1, 6)
   })
 
   it('prices web_search_requests at a flat $0.01 per search, regardless of model', () => {
-    expect(costUsd(usage({ web_search_requests: 3 }), 'claude-sonnet-5')).toBeCloseTo(0.03, 6)
-    expect(costUsd(usage({ web_search_requests: 3 }), 'claude-opus-4-8')).toBeCloseTo(0.03, 6)
+    expect(costUsd(usage({ web_search_requests: 3 }), 'claude-sonnet-5-5')).toBeCloseTo(0.03, 6)
+    expect(costUsd(usage({ web_search_requests: 3 }), 'claude-opus-5-5')).toBeCloseTo(0.03, 6)
   })
 
   it('sums all five usage components', () => {
     const cost = costUsd(
       usage({ input_tokens: 500_000, output_tokens: 100_000, cache_creation_input_tokens: 200_000, cache_read_input_tokens: 1_000_000, web_search_requests: 2 }),
-      'claude-sonnet-5'
+      'claude-sonnet-5-5'
     )
-    const expected = 500_000 * (3 / 1e6) + 100_000 * (15 / 1e6) + 200_000 * (3 / 1e6) * 1.25 + 1_000_000 * (3 / 1e6) * 0.1 + 2 * 0.01
+    const expected = 500_000 * (2 / 1e6) + 100_000 * (10 / 1e6) + 200_000 * (2 / 1e6) * 1.25 + 1_000_000 * (2 / 1e6) * 0.1 + 2 * 0.01
     expect(cost).toBeCloseTo(expected, 6)
   })
 })
 
 describe('recordUsage accumulation', () => {
   it('accumulates cost across multiple calls toward the shared budget', () => {
-    recordUsage('user-1', usage({ input_tokens: 500_000, output_tokens: 0 }), 'claude-sonnet-5') // $1.50
+    recordUsage('user-1', usage({ input_tokens: 1_000_000, output_tokens: 0 }), 'claude-sonnet-5-5') // $2
     now += 25_000
-    recordUsage('user-1', usage({ input_tokens: 0, output_tokens: 500_000 }), 'claude-sonnet-5') // $7.50, total $9
+    recordUsage('user-1', usage({ input_tokens: 0, output_tokens: 700_000 }), 'claude-sonnet-5-5') // $7, total $9
     now += 25_000
 
     expect(checkAllowance('user-1')).toEqual({ ok: true }) // under $10
 
-    recordUsage('user-1', usage({ input_tokens: 500_000, output_tokens: 0 }), 'claude-sonnet-5') // +$1.50 = $10.50
+    recordUsage('user-1', usage({ input_tokens: 1_000_000, output_tokens: 0 }), 'claude-sonnet-5-5') // +$2 = $11
     now += 25_000
     expect(checkAllowance('user-1')).toEqual({ ok: false, reason: 'budget' })
   })
