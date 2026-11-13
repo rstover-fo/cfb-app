@@ -317,7 +317,7 @@ export function createGameRecapRow(overrides: Partial<GameRecapRow> = {}): GameR
     headline: 'Sooners Rally Late to Stun Houston',
     recap: 'Oklahoma trailed by 10 entering the fourth quarter before a late surge sealed the win.\n\nThe defense forced two turnovers in the final five minutes to close it out.',
     wp_available: true,
-    model: 'claude-sonnet-4',
+    model: 'claude-sonnet-5-5',
     generated_at: '2026-07-20T04:00:00Z',
     ...overrides,
   }

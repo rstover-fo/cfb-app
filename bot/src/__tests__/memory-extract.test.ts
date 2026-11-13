@@ -21,7 +21,7 @@ vi.mock('@anthropic-ai/sdk', () => ({
 vi.mock('../config.js', () => ({
   loadConfig: vi.fn(() => ({
     anthropicApiKey: 'sk-ant-test',
-    modelRouter: 'claude-haiku-4-5',
+    modelRouter: 'claude-haiku-5-5',
   })),
 }))
 
@@ -65,6 +65,11 @@ describe('runExtraction', () => {
     createMock.mockResolvedValue(jsonResponse({ atoms: [{ content: 'Hates Texas', kind: 'preference', replaces: null }] }))
 
     await runExtraction({ userId: 'u1', question: 'why is Texas bad?', answer: 'because...' })
+
+    const request = createMock.mock.calls[0]?.[0]
+    expect(request.model).toBe('claude-haiku-5-5')
+    expect(request.thinking).toEqual({ type: 'disabled' })
+    expect(request.output_config).toEqual({ effort: 'low' })
 
     const atoms = await listAtoms('u1')
     expect(atoms).toHaveLength(1)

@@ -77,9 +77,9 @@ describe('loadConfig', () => {
 
   it('defaults the three model IDs when unset', () => {
     const config = loadConfig(VALID_ENV)
-    expect(config.modelDefault).toBe('claude-sonnet-5')
-    expect(config.modelAdvisor).toBe('claude-opus-4-8')
-    expect(config.modelRouter).toBe('claude-haiku-4-5')
+    expect(config.modelDefault).toBe('claude-sonnet-5-5')
+    expect(config.modelAdvisor).toBe('claude-opus-5-5')
+    expect(config.modelRouter).toBe('claude-haiku-5-5')
   })
 
   it('honors MODEL_DEFAULT / MODEL_ADVISOR / MODEL_ROUTER overrides', () => {
@@ -96,8 +96,8 @@ describe('loadConfig', () => {
 
   it('treats empty-string model overrides as unset (falls back to defaults)', () => {
     const config = loadConfig({ ...VALID_ENV, MODEL_DEFAULT: '', MODEL_ROUTER: ' ' })
-    expect(config.modelDefault).toBe('claude-sonnet-5')
-    expect(config.modelRouter).toBe('claude-haiku-4-5')
+    expect(config.modelDefault).toBe('claude-sonnet-5-5')
+    expect(config.modelRouter).toBe('claude-haiku-5-5')
   })
 
   it('defaults profilesPath and the limits guards when unset', () => {

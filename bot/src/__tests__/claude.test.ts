@@ -23,9 +23,9 @@ const VALID_CONFIG = {
   mcpUrl: 'https://example.com/api/mcp',
   mcpAuthToken: 'secret-token',
   anthropicApiKey: 'sk-ant-test',
-  modelDefault: 'claude-sonnet-5',
-  modelAdvisor: 'claude-opus-4-8',
-  modelRouter: 'claude-haiku-4-5',
+  modelDefault: 'claude-sonnet-5-5',
+  modelAdvisor: 'claude-opus-5-5',
+  modelRouter: 'claude-haiku-5-5',
   defaultSeason: 2025,
 }
 
@@ -369,9 +369,10 @@ describe('askClaude request shape', () => {
 
     expect(betaCreateMock).toHaveBeenCalledTimes(1)
     const request = betaCreateMock.mock.calls[0]?.[0]
-    expect(request.model).toBe('claude-sonnet-5')
+    expect(request.model).toBe('claude-sonnet-5-5')
     expect(request.max_tokens).toBe(8000)
     expect(request.thinking).toEqual({ type: 'adaptive' })
+    expect(request.output_config).toEqual({ effort: 'medium' })
     expect(request.betas).toEqual(['mcp-client-2025-11-20'])
     expect(request.mcp_servers).toEqual([
       {
@@ -393,7 +394,7 @@ describe('askClaude request shape', () => {
       tier: 'simple',
       escalated: false,
       usage: { input_tokens: 100, output_tokens: 50, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, web_search_requests: 0 },
-      model: 'claude-sonnet-5',
+      model: 'claude-sonnet-5-5',
       charts: [],
     })
   })
@@ -405,11 +406,12 @@ describe('askClaude request shape', () => {
     const result = await askClaude('who wins X vs Y and why?')
 
     const request = betaCreateMock.mock.calls[0]?.[0]
-    expect(request.model).toBe('claude-opus-4-8')
+    expect(request.model).toBe('claude-opus-5-5')
+    expect(request.output_config).toEqual({ effort: 'high' })
     expect(request.system[0].text).not.toContain('[ESCALATE]')
     expect(result.tier).toBe('gnarly')
     expect(result.escalated).toBe(false)
-    expect(result.model).toBe('claude-opus-4-8')
+    expect(result.model).toBe('claude-opus-5-5')
   })
 
   it('appends userContext to the final user message only, not to history', async () => {
@@ -781,7 +783,8 @@ describe('askClaude escalation backstop', () => {
 
     expect(betaCreateMock).toHaveBeenCalledTimes(2)
     const rerun = betaCreateMock.mock.calls[1]?.[0]
-    expect(rerun.model).toBe('claude-opus-4-8')
+    expect(rerun.model).toBe('claude-opus-5-5')
+    expect(rerun.output_config).toEqual({ effort: 'high' })
     expect(rerun.system[0].text).not.toContain('[ESCALATE]') // advisor never sees the rule
     expect(rerun.messages).toEqual([{ role: 'user', content: 'sneaky-deep question' }])
 
@@ -789,7 +792,7 @@ describe('askClaude escalation backstop', () => {
     expect(result.text).not.toContain('[ESCALATE]')
     expect(result.tier).toBe('simple')
     expect(result.escalated).toBe(true)
-    expect(result.model).toBe('claude-opus-4-8')
+    expect(result.model).toBe('claude-opus-5-5')
     // Usage summed across both calls
     expect(result.usage).toEqual({
       input_tokens: 300,
@@ -980,7 +983,7 @@ describe('askClaude logging', () => {
       evt: 'llm',
       tier: 'simple',
       escalated: false,
-      model: 'claude-sonnet-5',
+      model: 'claude-sonnet-5-5',
       usage: { input_tokens: 100, output_tokens: 50 },
     })
     expect(typeof parsed.ms).toBe('number')
@@ -999,7 +1002,7 @@ describe('askClaude logging', () => {
       .find((l: unknown) => typeof l === 'string' && l.includes('"evt":"llm"'))
     const parsed = JSON.parse(line as string)
     expect(parsed.escalated).toBe(true)
-    expect(parsed.model).toBe('claude-opus-4-8')
+    expect(parsed.model).toBe('claude-opus-5-5')
   })
 
   // Chart usage is folded into the same line (never a second console.log) so

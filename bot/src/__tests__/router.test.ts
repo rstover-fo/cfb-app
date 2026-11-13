@@ -24,9 +24,9 @@ vi.mock('../config.js', () => ({
     mcpUrl: 'https://example.com/api/mcp',
     mcpAuthToken: 'secret-token',
     anthropicApiKey: 'sk-ant-test',
-    modelDefault: 'claude-sonnet-5',
-    modelAdvisor: 'claude-opus-4-8',
-    modelRouter: 'claude-haiku-4-5',
+    modelDefault: 'claude-sonnet-5-5',
+    modelAdvisor: 'claude-opus-5-5',
+    modelRouter: 'claude-haiku-5-5',
     defaultSeason: 2025,
   })),
   getDefaultSeason: vi.fn(() => 2025),
@@ -77,10 +77,11 @@ describe('routeQuestion', () => {
 
     expect(createMock).toHaveBeenCalledTimes(1)
     const request = createMock.mock.calls[0]?.[0]
-    expect(request.model).toBe('claude-haiku-4-5')
+    expect(request.model).toBe('claude-haiku-5-5')
     expect(request.max_tokens).toBeLessThanOrEqual(50)
     expect(request).not.toHaveProperty('tools')
-    expect(request).not.toHaveProperty('thinking')
+    expect(request.thinking).toEqual({ type: 'disabled' })
+    expect(request.output_config).toEqual({ effort: 'low' })
     expect(request.messages).toEqual([{ role: 'user', content: 'who is ranked #1?' }])
   })
 

@@ -82,7 +82,7 @@ function rawResult(text: string) {
     tier: 'simple' as const,
     escalated: false,
     usage: { input_tokens: 1, output_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, web_search_requests: 0 },
-    model: 'claude-sonnet-5',
+    model: 'claude-sonnet-5-5',
   }
 }
 
@@ -347,7 +347,7 @@ describe('handleMention memory wiring', () => {
 
 describe('handleMention limits wiring', () => {
   it('records usage with the final model after a successful answer', async () => {
-    askClaudeMock.mockResolvedValue(askResult('answer', { model: 'claude-opus-4-8' }))
+    askClaudeMock.mockResolvedValue(askResult('answer', { model: 'claude-opus-5-5' }))
     const message = fakeMessage({ mentionsBot: true, content: `<@${BOT_ID}> hi`, authorId: 'author-7' })
 
     await handleMention(message)
@@ -355,7 +355,7 @@ describe('handleMention limits wiring', () => {
     expect(recordUsageMock).toHaveBeenCalledWith(
       'author-7',
       { input_tokens: 1, output_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, web_search_requests: 0 },
-      'claude-opus-4-8'
+      'claude-opus-5-5'
     )
   })
 
