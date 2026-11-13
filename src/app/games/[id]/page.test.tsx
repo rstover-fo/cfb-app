@@ -109,7 +109,7 @@ describe('Game detail page', () => {
       headline: 'Sooners Rally Late to Stun Ohio State',
       recap: 'Oklahoma overcame a 14-point deficit in the fourth quarter.',
       wp_available: true,
-      model: 'claude-sonnet',
+      model: 'claude-sonnet-5-5',
       generated_at: '2026-07-20T04:00:00Z',
     })
 

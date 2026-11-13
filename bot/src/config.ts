@@ -9,9 +9,9 @@
  */
 import { z } from 'zod'
 
-const MODEL_DEFAULT_FALLBACK = 'claude-sonnet-5'
-const MODEL_ADVISOR_FALLBACK = 'claude-opus-4-8'
-const MODEL_ROUTER_FALLBACK = 'claude-haiku-4-5'
+const MODEL_DEFAULT_FALLBACK = 'claude-sonnet-5-5'
+const MODEL_ADVISOR_FALLBACK = 'claude-opus-5-5'
+const MODEL_ROUTER_FALLBACK = 'claude-haiku-5-5'
 const PROFILES_PATH_FALLBACK = 'data/profiles.json'
 const SETTINGS_PATH_FALLBACK = 'data/settings.json'
 const MEMORY_PATH_FALLBACK = 'data/memory.json'

@@ -3,7 +3,7 @@
  * (/ask, @-mentions). One process, ~100 users -- in-memory counters that
  * reset on restart are accepted at this scale, per the plan.
  *
- * Router calls (router.ts's Haiku triage) are cheap (~$0.001/question) and
+ * Router calls (router.ts's Haiku triage) are cheap (~$0.0001/question) and
  * are NOT tracked here -- negligible in the budget math, ignored on purpose.
  */
 import { createHash } from 'node:crypto'
@@ -25,15 +25,21 @@ interface ModelRates {
   output: number
 }
 
-// USD per MILLION tokens, matched by prefix of the model string.
+// USD per MILLION tokens, matched by the first prefix of the model string.
+// 5.5 prefixes are listed first: `claude-sonnet-5-5` also starts with
+// `claude-sonnet-5`, so the shorter prefix must not win.
 const MODEL_RATES: [prefix: string, rates: ModelRates][] = [
+  ['claude-sonnet-5-5', { input: 2, output: 10 }],
+  ['claude-opus-5-5', { input: 4, output: 20 }],
+  ['claude-haiku-5-5', { input: 0.1, output: 0.5 }],
+  // Previous generation, used only when a MODEL_* env override still names it.
   ['claude-sonnet-5', { input: 3, output: 15 }],
   ['claude-opus-4-8', { input: 5, output: 25 }],
   ['claude-haiku-4-5', { input: 1, output: 5 }],
 ]
-// Unknown model: price as opus -- fail conservative (overestimate spend
+// Unknown model: price as Opus 5.5 -- fail conservative (overestimate spend
 // rather than silently blow past the daily budget).
-const UNKNOWN_MODEL_RATES: ModelRates = { input: 5, output: 25 }
+const UNKNOWN_MODEL_RATES: ModelRates = { input: 4, output: 20 }
 
 const CACHE_WRITE_MULTIPLIER = 1.25 // cache_creation_input_tokens, relative to the input rate
 const CACHE_READ_MULTIPLIER = 0.1 // cache_read_input_tokens, relative to the input rate

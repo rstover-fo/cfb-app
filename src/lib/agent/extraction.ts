@@ -30,7 +30,7 @@ import { getMemories, rememberMemory, forgetMemories } from '@/lib/memory/client
 import { resolvePickCandidates, type PickCandidate } from './pick-resolve'
 import { recordPick, listPicks } from './picks-store'
 
-const EXTRACT_MODEL = 'claude-haiku-4-5'
+const EXTRACT_MODEL = 'claude-haiku-5-5'
 // Bumped from 300 (the bot's pre-picks value) when the picks contract was added (~60 tokens/pick).
 const EXTRACT_MAX_TOKENS = 500
 /** Answers are capped at ~3000 chars by the persona; trim runaways so the cheap call stays cheap. */
@@ -213,6 +213,14 @@ export async function runTurnExtraction({ userId, guildId, question, answer }: T
       system: EXTRACT_SYSTEM_PROMPT,
       prompt: content,
       maxOutputTokens: EXTRACT_MAX_TOKENS,
+      // Haiku 5.5 thinks by default and thinking counts toward maxOutputTokens.
+      // disabled is valid on Haiku at low effort, so this budget stays the JSON.
+      providerOptions: {
+        anthropic: {
+          effort: 'low',
+          thinking: { type: 'disabled' },
+        },
+      },
     })
 
     const parsed = ExtractionSchema.safeParse(JSON.parse(stripFence(result.text)))

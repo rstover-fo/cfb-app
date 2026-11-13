@@ -250,7 +250,7 @@ function fixtureAnswer(overrides: Record<string, unknown> = {}) {
     tier: 'simple' as const,
     escalated: false,
     usage: { input_tokens: 1000, output_tokens: 100, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, web_search_requests: 0 },
-    model: 'claude-sonnet-5',
+    model: 'claude-sonnet-5-5',
     ...overrides,
   }
 }
@@ -293,19 +293,19 @@ describe('runEntry', () => {
   })
 
   it('sums askClaude usage cost and judge usage cost into spend', async () => {
-    askClaudeMock.mockResolvedValue(fixtureAnswer({ usage: { input_tokens: 1_000_000, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, web_search_requests: 0 } })) // $3 on sonnet
+    askClaudeMock.mockResolvedValue(fixtureAnswer({ usage: { input_tokens: 1_000_000, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, web_search_requests: 0 } })) // $2 on sonnet 5.5
     const judgeFn: JudgeFn = vi.fn().mockResolvedValue({
       verdict: { pass: true, reason: 'ok' },
-      usage: { input_tokens: 1_000_000, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, web_search_requests: 0 }, // $1 on haiku
+      usage: { input_tokens: 1_000_000, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0, web_search_requests: 0 }, // $0.10 on haiku 5.5
     })
 
     const { spend } = await runEntry(entry({ judge: 'x' }), judgeFn)
 
-    expect(spend).toBeCloseTo(4, 6)
+    expect(spend).toBeCloseTo(2.1, 6)
   })
 
   it('reports the tier/escalated fields from the askClaude result', async () => {
-    askClaudeMock.mockResolvedValue(fixtureAnswer({ tier: 'gnarly', escalated: true, model: 'claude-opus-4-8' }))
+    askClaudeMock.mockResolvedValue(fixtureAnswer({ tier: 'gnarly', escalated: true, model: 'claude-opus-5-5' }))
     const judgeFn: JudgeFn = vi.fn()
 
     const { row } = await runEntry(entry({}), judgeFn)
