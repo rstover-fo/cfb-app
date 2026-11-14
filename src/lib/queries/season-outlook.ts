@@ -113,19 +113,23 @@ const SEASON_OUTLOOK_COLUMNS = `
 ` as const
 
 /**
- * The newest season present in the view.
+ * The newest PROJECTION season present in the view.
  *
- * This backs the tool's `season` default instead of CURRENT_SEASON, and the
- * distinction matters: CURRENT_SEASON trails the calendar during the offseason
- * (it was still 2025 in July 2026), and the trailing season is not empty -- it
- * is a *completed* season whose rows are final records wearing a projection's
+ * This backs the tool's `season` default instead of the app-wide season
+ * resolver (src/lib/queries/season.ts's getCurrentSeasonForRoute), and the
+ * distinction matters: that resolver answers "what season is currently being
+ * played" (keyed off completed games), which trails the calendar during the
+ * offseason (it stayed on the prior season for months after that season's
+ * bowls wrapped) -- and the season it trails to is not empty, it is a
+ * *completed* season whose rows are final records wearing a projection's
  * column names. Defaulting to it would hand callers hindsight labelled as a
  * forecast. Resolving from the data costs one round trip and stays correct
- * through every season rollover.
+ * through every season rollover. This is why get_season_outlook does NOT use
+ * the shared resolver for its primary path (R11).
  *
  * Returns null (with no error) when the view is empty.
  */
-export async function queryLatestOutlookSeason(): Promise<McpResult<{ season: number }>> {
+export async function queryLatestProjectionSeason(): Promise<McpResult<{ season: number }>> {
   const supabase = await createClient()
   const { data, error } = await supabase
     .schema('api')

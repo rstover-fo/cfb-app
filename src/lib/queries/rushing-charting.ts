@@ -1,6 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { fail, clamp, positive, ratio3dp, type McpResult } from './mcp'
-import { CURRENT_SEASON } from './constants'
+import { scaleFloor, type SeasonState } from './season'
 
 // ---------------------------------------------------------------------------
 // Query layer for the get_rushing_charting MCP tool (src/lib/mcp/tools.ts),
@@ -24,14 +24,14 @@ import { CURRENT_SEASON } from './constants'
 // (product decision, R3/R6): ranking on a ~40%-resolved denominator would
 // repeat the passing-charting coverage trap this module is built to avoid.
 //
-// Default season is CURRENT_SEASON (src/lib/queries/constants.ts), NOT the
-// MAX(season) pattern season-outlook.ts uses. That pattern is wrong here:
-// early in a season nobody has reached the 50-carry floor (2026 Week 0 max
-// was 25 attempts), so resolving to the newest season would point a
-// no-argument call at an empty board while the completed season sits one
-// constant away. When CURRENT_SEASON is bumped, re-derive DEFAULT_MIN_ATTEMPTS
-// from that season's live attempts distribution first -- see the Stage 5
-// watch in docs/WAREHOUSE_EXPANSION_RUNBOOK.md.
+// Default season comes from the caller's resolved SeasonState (src/lib/
+// queries/season.ts), NOT the MAX(season) pattern season-outlook.ts uses.
+// That pattern is wrong here: early in a season nobody has reached the
+// 50-carry floor (2026 Week 0 max was 25 attempts), so resolving to the
+// newest season would point a no-argument call at an empty board while the
+// completed season sits one lookup away. The floor scales down early in a
+// live season for the same reason -- see scaleFloor's doc comment in
+// season.ts and resolveMinAttempts below.
 //
 // MCP-only module: keeps mcp.ts's McpResult error-passthrough contract
 // (friendly "Error: ..." strings, never a throw) and is deliberately NOT
@@ -158,18 +158,28 @@ export interface RushingChartingFilter {
   minAttempts?: number
   sort?: RushingChartingSort
   limit?: number
+  /** Resolved season state; the season defaults from it and live-season floors scale by it. */
+  state: SeasonState
 }
 
 /**
  * The `attempts` floor these queries will actually apply, given a requested
- * value. Exported so the tool layer echoes the floor that was ENFORCED
- * rather than the one that was asked for -- those diverge whenever a value
- * is normalized away (`min_attempts: 0` from a direct caller applies the
- * default but would report 0), and a response that misstates its own
- * eligibility threshold is worse than one that omits it.
+ * value and (optionally) the caller's resolved season state. Exported so the
+ * tool layer echoes the floor that was ENFORCED rather than the one that was
+ * asked for -- those diverge whenever a value is normalized away
+ * (`min_attempts: 0` from a direct caller applies the default but would
+ * report 0), and a response that misstates its own eligibility threshold is
+ * worse than one that omits it.
+ *
+ * An explicit positive `requested` always wins. Otherwise, when `state` is
+ * given, the default floor scales down early in a live season (scaleFloor,
+ * season.ts) -- a caller with no state (e.g. a direct unit test) gets the
+ * unscaled default, same as before this default became state-aware.
  */
-export function resolveMinAttempts(requested?: number): number {
-  return positive(requested) ?? DEFAULT_MIN_ATTEMPTS
+export function resolveMinAttempts(requested?: number, state?: SeasonState): number {
+  const explicit = positive(requested)
+  if (explicit != null) return explicit
+  return state ? scaleFloor(DEFAULT_MIN_ATTEMPTS, state) : DEFAULT_MIN_ATTEMPTS
 }
 
 /**
@@ -205,19 +215,20 @@ export async function queryRushingChartingPlayers(
 ): Promise<McpResult<RushingChartingPlayerRow>> {
   const supabase = await createClient()
   const sort = filter.sort ?? 'ppa'
-  const minAttempts = resolveMinAttempts(filter.minAttempts)
+  const minAttempts = resolveMinAttempts(filter.minAttempts, filter.state)
   const position = resolvePosition(filter.position)
+  const season = filter.season ?? filter.state.season
 
   let query = supabase
     .schema('api')
     .from('rushing_charting_player_season')
     .select(PLAYER_COLUMNS)
-    .eq('season', filter.season ?? CURRENT_SEASON)
     // Server-side, before .limit(): the floor must shrink the candidate set,
     // not just the returned page (same rationale as passing-charting.ts and
     // coaches.ts's FBS filter).
     .gte('attempts', minAttempts)
 
+  query = query.eq('season', season)
   if (filter.team) query = query.eq('team', filter.team)
   if (filter.conference) query = query.eq('conference', filter.conference)
   if (position !== 'ALL') query = query.eq('position', position)

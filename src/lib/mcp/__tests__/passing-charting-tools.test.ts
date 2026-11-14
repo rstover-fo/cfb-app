@@ -9,7 +9,7 @@
  * charted rather than on who throws deepest. So every payload must carry the
  * denominators, the derived coverage, and the floor that was applied.
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 vi.mock('@/lib/queries/passing-charting', async () => {
   const actual = await vi.importActual<typeof import('@/lib/queries/passing-charting')>(
@@ -22,11 +22,30 @@ vi.mock('@/lib/queries/passing-charting', async () => {
   }
 })
 
+// Season-rollover U3: get_passing_charting/get_target_profile now resolve
+// their season default (and the min_charted scaling rule) via
+// getCurrentSeasonForRoute() instead of the CURRENT_SEASON constant. Pin it
+// to a fixed, non-live state so these tests keep their existing "defaults to
+// 2025"/floor expectations; scaleFloor stays real via importActual.
+vi.mock('@/lib/queries/season', async importOriginal => {
+  const actual = await importOriginal<typeof import('@/lib/queries/season')>()
+  return {
+    ...actual,
+    getCurrentSeasonForRoute: vi.fn().mockResolvedValue({
+      season: 2025,
+      through_week: 16,
+      is_live: false,
+      source: 'games',
+    }),
+  }
+})
+
 import {
   queryPassingChartingPlayers,
   queryTargetProfiles,
   DEFAULT_MIN_CHARTED,
 } from '@/lib/queries/passing-charting'
+import { getCurrentSeasonForRoute } from '@/lib/queries/season'
 import { getPassingChartingTool, getTargetProfileTool } from '../tools'
 
 // Carson Beck's real 2025 row: 462 attempts, but only 288 charted for air
@@ -128,6 +147,7 @@ describe('get_passing_charting', () => {
       minCharted: undefined,
       sort: 'air_yards',
       limit: 5,
+      state: { season: 2025, through_week: 16, is_live: false, source: 'games' },
     })
   })
 
@@ -151,6 +171,60 @@ describe('get_passing_charting', () => {
     await expect(getPassingChartingTool({})).resolves.toBe(
       'Error: api.passing_charting_player_season request failed: boom'
     )
+  })
+
+  it('carries the resolved season/through_week/source as as_of', async () => {
+    mockPlayers.mockResolvedValue({ rows: [BECK], error: null })
+    const out = JSON.parse(await getPassingChartingTool({}))
+    expect(out.as_of).toEqual({ season: 2025, through_week: 16, source: 'games' })
+  })
+})
+
+describe('get_passing_charting / get_target_profile floor scaling (live season)', () => {
+  beforeEach(() => {
+    vi.mocked(getCurrentSeasonForRoute).mockResolvedValue({
+      season: 2026,
+      through_week: 3,
+      is_live: true,
+      source: 'games',
+    })
+  })
+
+  afterEach(() => {
+    vi.mocked(getCurrentSeasonForRoute).mockResolvedValue({
+      season: 2025,
+      through_week: 16,
+      is_live: false,
+      source: 'games',
+    })
+  })
+
+  it('scales the passing floor to 13 in week 3 of a live season', async () => {
+    mockPlayers.mockResolvedValue({ rows: [BECK], error: null })
+    const out = JSON.parse(await getPassingChartingTool({}))
+    expect(out.min_charted_attempts).toBe(13)
+  })
+
+  it('scales the target floor to 10 (the scaling minimum) in week 3 of a live season', async () => {
+    mockTargets.mockResolvedValue({ rows: [TARGET], error: null })
+    const out = JSON.parse(await getTargetProfileTool({}))
+    expect(out.min_charted_targets).toBe(10)
+  })
+
+  it("names the season, 'through week', and the scaled floor in an empty passing-charting message", async () => {
+    mockPlayers.mockResolvedValue({ rows: [], error: null })
+    const out = await getPassingChartingTool({})
+    expect(out).toMatch(/2026/)
+    expect(out).toMatch(/through week 3/)
+    expect(out).toMatch(/13/)
+  })
+
+  it("names the season, 'through week', and the scaled floor in an empty target-profile message", async () => {
+    mockTargets.mockResolvedValue({ rows: [], error: null })
+    const out = await getTargetProfileTool({})
+    expect(out).toMatch(/2026/)
+    expect(out).toMatch(/through week 3/)
+    expect(out).toMatch(/10/)
   })
 })
 

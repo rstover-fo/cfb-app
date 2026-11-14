@@ -8,7 +8,7 @@
  * "only ~407 have anything charted" framing or use the word "charted" in its
  * causal clause, because that would misrepresent what the floor is for.
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 vi.mock('@/lib/queries/rushing-charting', async () => {
   const actual = await vi.importActual<typeof import('@/lib/queries/rushing-charting')>(
@@ -20,7 +20,26 @@ vi.mock('@/lib/queries/rushing-charting', async () => {
   }
 })
 
+// Season-rollover U3: get_rushing_charting now resolves its season default
+// (and the min_attempts scaling rule) via getCurrentSeasonForRoute() instead
+// of the CURRENT_SEASON constant. Pin it to a fixed, non-live state so these
+// tests keep their existing "defaults to 2025"/"floor 50" expectations;
+// scaleFloor stays real via importActual.
+vi.mock('@/lib/queries/season', async importOriginal => {
+  const actual = await importOriginal<typeof import('@/lib/queries/season')>()
+  return {
+    ...actual,
+    getCurrentSeasonForRoute: vi.fn().mockResolvedValue({
+      season: 2025,
+      through_week: 16,
+      is_live: false,
+      source: 'games',
+    }),
+  }
+})
+
 import { queryRushingChartingPlayers, DEFAULT_MIN_ATTEMPTS } from '@/lib/queries/rushing-charting'
+import { getCurrentSeasonForRoute } from '@/lib/queries/season'
 import {
   getRushingChartingTool,
   getRushingChartingDescription,
@@ -110,6 +129,7 @@ describe('get_rushing_charting', () => {
       minAttempts: 30,
       sort: 'ypc',
       limit: 10,
+      state: { season: 2025, through_week: 16, is_live: false, source: 'games' },
     })
   })
 
@@ -162,6 +182,52 @@ describe('get_rushing_charting', () => {
     mockQuery.mockResolvedValue({ rows: [{ ...HAMPTON, ppa: null }], error: null })
     const out = JSON.parse(await getRushingChartingTool({}))
     expect(out.rows[0].ppa).toBeNull()
+  })
+
+  it('carries the resolved season/through_week/source as as_of', async () => {
+    mockQuery.mockResolvedValue({ rows: [HAMPTON], error: null })
+    const out = JSON.parse(await getRushingChartingTool({}))
+    expect(out.as_of).toEqual({ season: 2025, through_week: 16, source: 'games' })
+  })
+})
+
+describe('get_rushing_charting floor scaling (live season)', () => {
+  beforeEach(() => {
+    vi.mocked(getCurrentSeasonForRoute).mockResolvedValue({
+      season: 2026,
+      through_week: 1,
+      is_live: true,
+      source: 'games',
+    })
+  })
+
+  afterEach(() => {
+    vi.mocked(getCurrentSeasonForRoute).mockResolvedValue({
+      season: 2025,
+      through_week: 16,
+      is_live: false,
+      source: 'games',
+    })
+  })
+
+  it('scales the default floor down to 10 in week 1 of a live season', async () => {
+    mockQuery.mockResolvedValue({ rows: [HAMPTON], error: null })
+    const out = JSON.parse(await getRushingChartingTool({}))
+    expect(out.min_attempts).toBe(10)
+  })
+
+  it('leaves an explicit min_attempts unscaled even in a live season', async () => {
+    mockQuery.mockResolvedValue({ rows: [HAMPTON], error: null })
+    const out = JSON.parse(await getRushingChartingTool({ min_attempts: 30 }))
+    expect(out.min_attempts).toBe(30)
+  })
+
+  it("names the season, 'through week', and the scaled floor in an empty-result message", async () => {
+    mockQuery.mockResolvedValue({ rows: [], error: null })
+    const out = await getRushingChartingTool({})
+    expect(out).toMatch(/2026/)
+    expect(out).toMatch(/through week 1/)
+    expect(out).toMatch(/10/)
   })
 })
 

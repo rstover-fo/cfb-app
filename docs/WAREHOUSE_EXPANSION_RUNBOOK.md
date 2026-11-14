@@ -213,6 +213,30 @@ QB on the board; a 2025 direction answer says "of N charted carries" using
 `direction_available_attempts`; a 2025 PPA answer carries no charting hedge. **MCP/agent surface
 only** — no public UI.
 
+### Stage 6 — season state (cfb-app side shipped; view requested)
+
+cfb-app now resolves the current season from the warehouse instead of a hardcoded constant:
+the newest season with at least one completed game, plus its highest completed week
+(`src/lib/queries/season.ts`). Resolution order: `CFB_SEASON` env override, `api.season_state`
+when it exists, three small `public.games` queries, then the `CURRENT_SEASON` constant as the
+last-resort fallback. Pages dedupe per request; the MCP route and the Discord bot cache for ten
+minutes. Every season-defaulted tool response carries `as_of {season, through_week, source}`,
+and the three charting floors scale by weeks played during a live season
+(`min(default, max(10, ceil(default × through_week / 12)))` -- `is_live` can stay true past week 12
+while bowls or a cancelled game remain incomplete, so the scaled floor is capped at the default).
+
+cfb-database is asked to ship `api.season_state` per `docs/SEASON_STATE_WORKORDER.md` so the
+definition lives with the data. Nothing is blocked on it.
+
+*Watch:* `CURRENT_SEASON` in `constants.ts` is now a fallback, not a setting. Do not bump it
+as a fix for a stale season; if a surface shows the wrong year, check `as_of.source` first
+(`fallback` means the warehouse query failed). `get_season_outlook` uses its own
+`projection_season` and must never be routed through the resolver.
+
+*Done when:* the bot, the dashboard stamp, and a no-argument `get_rushing_charting` call all
+name the same season and week, and `grep CURRENT_SEASON src/app src/components src/lib/mcp`
+returns nothing after PR 2.
+
 ---
 
 ## Notes on running it

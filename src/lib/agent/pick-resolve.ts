@@ -2,10 +2,15 @@
  * Deterministic resolution of LLM pick candidates into storable ledger picks:
  * team-name normalization (exact -> alias -> unique prefix), game matching
  * against the real schedule via the query_games MCP tool, and line capture
- * at pick time. Ported from bot/src/pick-resolve.ts with two swaps: team
- * data comes from the copied src/lib/agent/data/teams.json, and the schedule
+ * at pick time. Ported from bot/src/pick-resolve.ts with three swaps: team
+ * data comes from the copied src/lib/agent/data/teams.json, the schedule
  * lookup calls src/lib/mcp/tools.ts's queryGamesTool directly (in-process)
- * instead of going through the bot's MCP client transport.
+ * instead of going through the bot's MCP client transport, and the season
+ * comes from getCurrentSeasonForRoute (src/lib/queries/season.ts) instead of
+ * the bot's getDefaultSeason() -- resolved once per resolvePickCandidates()
+ * call so it matches the season eve's system prompt stated this turn
+ * (agent/instructions/25-season.ts), rather than the compiled CURRENT_SEASON
+ * constant.
  *
  * Resolution only -- this module never sees the LLM (it consumes structured
  * PickCandidate objects) and never touches storage (picks-store.ts does
@@ -15,7 +20,7 @@
  */
 import teams from './data/teams.json'
 import { queryGamesTool } from '@/lib/mcp/tools'
-import { CURRENT_SEASON } from '@/lib/queries/constants'
+import { getCurrentSeasonForRoute } from '@/lib/queries/season'
 import type { NewPick, PickDirection, PickKind } from './picks-store'
 
 export interface PickCandidate {
@@ -139,11 +144,18 @@ function matchGame(rows: GameRow[], team: string, opponent: string | null): Game
   return upcoming[0] ?? null
 }
 
-async function resolveOne(userId: string, candidate: PickCandidate, guildId?: string): Promise<NewPick | null> {
+async function resolveOne(
+  userId: string,
+  candidate: PickCandidate,
+  currentSeason: number,
+  guildId?: string
+): Promise<NewPick | null> {
   const team = normalizeTeam(candidate.team)
   if (!team) return null
 
-  const season = CURRENT_SEASON + (candidate.seasonRef === 'next' ? 1 : 0)
+  // Must match the season eve's prompt stated this turn (agent/instructions/25-season.ts) --
+  // currentSeason is resolved once per resolvePickCandidates() call, not recomputed here.
+  const season = currentSeason + (candidate.seasonRef === 'next' ? 1 : 0)
   const statement = candidate.quote.slice(0, 200)
 
   if (candidate.type === 'season_total') {
@@ -196,10 +208,15 @@ export async function resolvePickCandidates(
   candidates: PickCandidate[],
   guildId?: string
 ): Promise<NewPick[]> {
+  // Resolved once per call (not per candidate) so every pick in this batch
+  // stamps the same season. getCurrentSeasonForRoute never throws (it falls
+  // back internally), so no try/catch is needed here.
+  const { season: currentSeason } = await getCurrentSeasonForRoute()
+
   const resolved: NewPick[] = []
   for (const candidate of candidates) {
     try {
-      const pick = await resolveOne(userId, candidate, guildId)
+      const pick = await resolveOne(userId, candidate, currentSeason, guildId)
       if (pick) resolved.push(pick)
     } catch (err) {
       console.error('[agent/pick-resolve] failed to resolve a pick candidate:', err instanceof Error ? err.message : err)

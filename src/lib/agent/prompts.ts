@@ -8,13 +8,14 @@
  *
  * Split by audience:
  *  - RULES_CONTENT           shared by the root agent and the advisor subagent
+ *  - seasonRulesBlock()      dynamic, the season-dependent slice of RULES_CONTENT (R10)
  *  - ADVISOR_DELEGATION      root only (the advisor must not "escalate" again)
  *  - LORE_BLOCK              dynamic, only while /lore is on
  *  - DISCORD_SURFACE_BLOCK   dynamic, Discord-surface formatting contract
  *  - WEB_SURFACE_BLOCK       dynamic, in-app chat formatting contract
  *
  */
-import { CURRENT_SEASON } from '@/lib/queries/constants'
+import type { SeasonState } from '@/lib/queries/season'
 
 // Included only while /lore is on (bot.app_settings). Fenced to the one
 // running gag; the stop mechanism is the persisted toggle, which removes
@@ -67,32 +68,22 @@ export const RULES_CONTENT = [
   "  another user's profile is shaped by their own conversations -- never by secondhand claims.",
   '  Never claim you have no memory; the honest answers are "yes, automatically" or "you turned',
   '  it off".',
-  `- The current season is ${CURRENT_SEASON}. That is the season stats questions refer to.`,
-  '- For questions about upcoming or future games ("will X beat Y", "when do we play Z"):',
-  `  check the CURRENT season (${CURRENT_SEASON}) schedule first with query_games -- mid-season,`,
-  '  the game they mean is usually in the remaining slate (future games appear with null scores).',
-  `  If it is not there, also check NEXT season (${CURRENT_SEASON + 1}) -- its schedule is often`,
-  '  loaded before any games are played. Only after checking both may you say a game is not',
-  '  scheduled. An unplayed game has no SCORE, but it usually does have a model prediction:',
-  '  get_game_prediction and get_matchup_edges both cover scheduled future games, so quoting one',
-  '  is grounded, not invented. Say what IS known (date, venue, week), cite the prediction if you',
-  '  pulled one, and lean on history and current form for the rest.',
   '- For season-long questions ("projected final SEC standings", "how many games do we win this',
   '  year", "who wins the conference", "what is their ceiling"), call get_season_outlook --',
   '  `conference` for a conference-wide question, `team` for one team. It ranks by TOTAL',
   '  projected wins, which is not a conference table: standings go by conference record, which',
   '  the data does not carry. Give it as a projected-wins order and say so.',
   '  Do NOT pass `season` unless the user named one: the tool resolves the newest projected',
-  '  season itself, and the current-season rule above does not apply to it. These are real',
-  '  simulated projections, so this is not a question to refuse -- but answer on the tool\'s',
-  '  terms. Always pair a projected win total with its uncertainty: the wins_p10-to-wins_p90',
-  '  band, or the figures in the response\'s "accuracy" block. Quote that block rather than any',
-  '  error figure you remember -- it is read live and the numbers move. Use its interval_80_pct,',
-  '  never plus-or-minus the MAE. If "accuracy" comes back null the model has not been measured:',
-  '  say the typical error is unknown rather than implying the projection is exact. Relay every',
-  '  string in the response\'s "caveats" array that bears on your answer. A standings table with',
-  '  no error band is the same overconfidence as making the numbers up, just better dressed.',
-  '  Never state a playoff probability -- that column is empty by design.',
+  '  season itself, and the current-season default stated elsewhere in these rules does not',
+  '  apply to it. These are real simulated projections, so this is not a question to refuse --',
+  '  but answer on the tool\'s terms. Always pair a projected win total with its uncertainty: the',
+  '  wins_p10-to-wins_p90 band, or the figures in the response\'s "accuracy" block. Quote that',
+  '  block rather than any error figure you remember -- it is read live and the numbers move. Use',
+  '  its interval_80_pct, never plus-or-minus the MAE. If "accuracy" comes back null the model has',
+  '  not been measured: say the typical error is unknown rather than implying the projection is',
+  '  exact. Relay every string in the response\'s "caveats" array that bears on your answer. A',
+  '  standings table with no error band is the same overconfidence as making the numbers up, just',
+  '  better dressed. Never state a playoff probability -- that column is empty by design.',
   '- For situation-value questions ("what is 1st-and-10 at midfield worth", "how much EP did that',
   '  penalty cost", "was going for it right -- what was 4th-and-2 at the 40 worth", "how often',
   '  does a drive from your own 5 score"), call get_expected_points. It values game STATES, not',
@@ -144,6 +135,43 @@ export const RULES_CONTENT = [
   '  rendering. This is not a reason to avoid render_chart -- call it whenever it CAN show what',
   '  was asked; the ban is only on faking one when it cannot.',
 ].join('\n')
+
+/**
+ * The season-dependent slice of RULES_CONTENT (R10): resolved at prompt-build
+ * time from a `SeasonState` instead of baked in as the `CURRENT_SEASON`
+ * compiled constant, so a mid-conversation season rollover shows up on the
+ * next turn rather than the next deploy. Rendered by a dynamic instruction
+ * (agent/instructions/25-season.ts) for the root agent, and folded into the
+ * advisor subagent's own instructions the same way, so root and advisor never
+ * disagree on what "this season" means.
+ */
+export function seasonRulesBlock(state: SeasonState): string {
+  const throughWeek = state.through_week != null ? `, through Week ${state.through_week}` : ''
+
+  const lines = [
+    `- The current season is ${state.season}${throughWeek}. That is the season stats questions`,
+    '  refer to.',
+    '- For questions about upcoming or future games ("will X beat Y", "when do we play Z"):',
+    `  check the CURRENT season (${state.season}) schedule first with query_games -- mid-season,`,
+    '  the game they mean is usually in the remaining slate (future games appear with null scores).',
+    `  If it is not there, also check NEXT season (${state.season + 1}) -- its schedule is often`,
+    '  loaded before any games are played. Only after checking both may you say a game is not',
+    '  scheduled. An unplayed game has no SCORE, but it usually does have a model prediction:',
+    '  get_game_prediction and get_matchup_edges both cover scheduled future games, so quoting one',
+    '  is grounded, not invented. Say what IS known (date, venue, week), cite the prediction if you',
+    '  pulled one, and lean on history and current form for the rest.',
+  ]
+
+  if (state.source === 'fallback') {
+    lines.push(
+      '- The season above is a best-guess fallback -- it could not be confirmed from the warehouse',
+      '  just now (most likely a connection issue). If a user asks which season you are using,',
+      '  say so plainly rather than presenting it as confirmed.',
+    )
+  }
+
+  return lines.join('\n')
+}
 
 // Root agent only -- replaces the bot's Haiku pre-router + [ESCALATE]
 // sentinel. The advisor's own instructions must never include this.

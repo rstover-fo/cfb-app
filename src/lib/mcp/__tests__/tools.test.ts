@@ -33,6 +33,22 @@ vi.mock('@/lib/queries/compare', () => ({
   getTeamHistory: vi.fn(),
 }))
 
+// Season-rollover U2: get_data_freshness now also reports the resolved
+// current_season/through_week/season_source from getCurrentSeasonForRoute().
+// Pin it to a fixed, non-live state for a deterministic assertion.
+vi.mock('@/lib/queries/season', async importOriginal => {
+  const actual = await importOriginal<typeof import('@/lib/queries/season')>()
+  return {
+    ...actual,
+    getCurrentSeasonForRoute: vi.fn().mockResolvedValue({
+      season: 2025,
+      through_week: 16,
+      is_live: false,
+      source: 'games',
+    }),
+  }
+})
+
 vi.mock('@/lib/queries/matchups', () => ({
   getMatchup: vi.fn(),
   getMatchupGames: vi.fn(),
@@ -312,6 +328,9 @@ describe('getDataFreshnessTool', () => {
 
     const parsed = JSON.parse(await getDataFreshnessTool())
     expect(parsed).toEqual({
+      current_season: 2025,
+      through_week: 16,
+      season_source: 'games',
       _source: 'public.get_data_freshness',
       count: 1,
       rows: [{ table_name: 'games', is_stale: false }],

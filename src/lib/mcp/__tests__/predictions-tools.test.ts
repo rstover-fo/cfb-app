@@ -20,6 +20,23 @@ vi.mock('@/lib/queries/predictions', () => ({
   getScoredMatchupEdges: vi.fn(),
 }))
 
+// Season-rollover U2: getTeamEloTool/getMatchupEdgesTool now resolve their
+// season default via getCurrentSeasonForRoute() instead of the CURRENT_SEASON
+// constant. Pin it to a fixed, non-live state so these tests keep their
+// existing "defaults to 2025" expectations; scaleFloor/etc stay real.
+vi.mock('@/lib/queries/season', async importOriginal => {
+  const actual = await importOriginal<typeof import('@/lib/queries/season')>()
+  return {
+    ...actual,
+    getCurrentSeasonForRoute: vi.fn().mockResolvedValue({
+      season: 2025,
+      through_week: 16,
+      is_live: false,
+      source: 'games',
+    }),
+  }
+})
+
 import { getGamePrediction, getTeamElo, getTeamEloHistory, getScoredMatchupEdges } from '@/lib/queries/predictions'
 import { getGamePredictionTool, getTeamEloTool, getMatchupEdgesTool } from '../tools'
 
@@ -144,7 +161,12 @@ describe('getMatchupEdgesTool', () => {
 
     const parsed = JSON.parse(await getMatchupEdgesTool({ season: 2025, week: 6, model_version: 'elo_v1' }))
 
-    expect(parsed).toEqual({ _source: 'api.scored_matchup_edges', count: 1, rows: [{ game_id: 1, abs_edge: 5 }] })
+    expect(parsed).toEqual({
+      _source: 'api.scored_matchup_edges',
+      count: 1,
+      rows: [{ game_id: 1, abs_edge: 5 }],
+      as_of: { season: 2025, through_week: 16, source: 'games' },
+    })
     expect(getScoredMatchupEdges).toHaveBeenCalledWith(2025, 6, 'elo_v1')
   })
 
@@ -180,7 +202,14 @@ describe('getMatchupEdgesTool', () => {
 
     const parsed = JSON.parse(await getMatchupEdgesTool({ season: 2035 }))
 
-    expect(parsed).toEqual({ _source: 'api.scored_matchup_edges', count: 0, rows: [] })
+    expect(parsed).toEqual({
+      _source: 'api.scored_matchup_edges',
+      count: 0,
+      rows: [],
+      // 2035 differs from the resolved season (2025), so through_week is
+      // unknown for it rather than borrowed from the resolver's answer.
+      as_of: { season: 2035, through_week: null, source: 'games' },
+    })
   })
 
   it('never throws: an empty result resolves to valid JSON, not a rejection', async () => {

@@ -17,6 +17,23 @@ vi.mock('@/lib/queries/penalties', () => ({
   queryPenaltyLog: vi.fn(),
 }))
 
+// Season-rollover U2: getPenaltyProfileTool now resolves its season default
+// via getCurrentSeasonForRoute() instead of the CURRENT_SEASON constant. Pin
+// it to a fixed, non-live state so these tests keep their existing "defaults
+// to 2025" expectations; scaleFloor/etc stay real.
+vi.mock('@/lib/queries/season', async importOriginal => {
+  const actual = await importOriginal<typeof import('@/lib/queries/season')>()
+  return {
+    ...actual,
+    getCurrentSeasonForRoute: vi.fn().mockResolvedValue({
+      season: 2025,
+      through_week: 16,
+      is_live: false,
+      source: 'games',
+    }),
+  }
+})
+
 import {
   queryTeamPenaltyGames,
   queryTeamSeasonPenaltyPlays,
@@ -83,6 +100,9 @@ describe('getPenaltyProfileTool', () => {
 
     expect(parsed.team).toBe('Oklahoma')
     expect(parsed.season).toBe(2024)
+    // 2024 differs from the resolved season (2025), so through_week is
+    // unknown for it rather than borrowed from the resolver's answer.
+    expect(parsed.as_of).toEqual({ season: 2024, through_week: null, source: 'games' })
     expect(parsed.summary).toEqual({
       _source: 'api.team_penalties (aggregated)',
       games: 2,
@@ -140,6 +160,7 @@ describe('getPenaltyProfileTool', () => {
     const parsed = JSON.parse(await getPenaltyProfileTool({ team: 'Oklahoma' }))
 
     expect(parsed.season).toBe(2025)
+    expect(parsed.as_of).toEqual({ season: 2025, through_week: 16, source: 'games' })
     expect(queryTeamPenaltyGames).toHaveBeenCalledWith('Oklahoma', 2025)
   })
 

@@ -15,7 +15,7 @@ import {
   type InteractionReplyOptions,
   type Message,
 } from 'discord.js'
-import { isAllowedGuild, loadConfig } from './config.js'
+import { isAllowedGuild, loadConfig, refreshSeasonState } from './config.js'
 import { loadEnvFileIfPresent } from './env.js'
 import { commandsByName } from './commands/index.js'
 import { errorEmbed } from './format.js'
@@ -24,6 +24,12 @@ import { registerCommands } from './register.js'
 import { startSettlementLoop } from './settlement.js'
 
 const HOME_SERVER_ONLY_MESSAGE = 'This bot is only available in its home server.'
+
+// R15: refresh cadence for the module-level season-state cache (config.ts's
+// getDefaultSeason()/getSeasonState()) -- matches cfb-app's own
+// SEASON_CACHE_TTL_MS so a season rollover can't take any longer to reach
+// the bot than it takes to reach the app itself.
+const SEASON_REFRESH_INTERVAL_MS = 600_000
 
 export function createClient(): Client {
   return new Client({
@@ -107,6 +113,22 @@ async function main(): Promise<void> {
   wireProcessGuards()
   loadEnvFileIfPresent()
   const config = loadConfig()
+
+  // R15: resolve the current season before anything else needs it (command
+  // registration doesn't, but the first interaction might). refreshSeasonState
+  // never throws -- every failure path inside it degrades to a cached/calendar
+  // value and logs a warning -- but it's still wrapped here as defense in
+  // depth, since a season lookup blip must never be the reason the gateway
+  // fails to come up.
+  try {
+    await refreshSeasonState()
+  } catch (err) {
+    console.error('[bot] Initial season refresh failed (continuing boot):', err)
+  }
+  // Keep refreshing every 10 minutes so a season rollover (or the warehouse
+  // catching up mid-week) reaches the bot without a redeploy. unref()'d, same
+  // as the settlement loop, so it never holds the process open.
+  setInterval(() => void refreshSeasonState(), SEASON_REFRESH_INTERVAL_MS).unref()
 
   // Keep guild slash commands in sync with the code on every boot
   // (idempotent PUT per guild). Non-fatal by design: a Discord API blip
