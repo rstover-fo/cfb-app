@@ -7,6 +7,15 @@
 // directly -- it does not track season rollover on its own.
 export const CURRENT_SEASON = 2025
 
+// Upper bound for a season a chart request may name. This is a plausibility
+// cap on user input, NOT the current season: the render_chart MCP tool
+// (src/lib/mcp/tools.ts) validates against it before minting a signed URL and
+// the image route (src/app/api/chart/[chart]/route.ts) validates the same URL
+// against it again, so the two must agree exactly or the tool hands Discord a
+// URL the route will 400. Keep it a shared constant rather than deriving it
+// from the resolver on one side only.
+export const CHART_MAX_SEASON = CURRENT_SEASON + 5
+
 // Week boundary constants for regular/postseason split
 export const REGULAR_SEASON_MAX_WEEK = 14
 export const POSTSEASON_MIN_WEEK = 15

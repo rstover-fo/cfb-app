@@ -99,15 +99,21 @@ interface SeasonStateRow {
 }
 
 /**
- * Is this PostgREST error "the relation doesn't exist" (api.season_state not
- * shipped yet), as opposed to a real failure? Code 42P01 is Postgres's own
- * undefined_table SQLSTATE; the message substrings cover how PostgREST and
- * the supabase-js schema cache each phrase the same condition.
+ * Is this PostgREST error "the relation api.season_state doesn't exist" (the
+ * view not shipped yet), as opposed to a real failure? Code 42P01 is
+ * Postgres's own undefined_table SQLSTATE; the two message shapes are how
+ * Postgres ('relation "api.season_state" does not exist') and the supabase-js
+ * schema cache ("Could not find the table 'api.season_state' ...") each phrase
+ * that same condition. Both patterns name the RELATION on purpose: a bare
+ * /does not exist/ would also swallow 'column season_state.x does not exist'
+ * (42703) -- a shipped view with a renamed column -- and silently route every
+ * consumer to the games fallback with no console.warn, which is exactly the
+ * failure the work order says must stay visible.
  */
 function isMissingRelationError(error: { message?: string; code?: string }): boolean {
   if (error.code === '42P01') return true
   const message = error.message ?? ''
-  return /does not exist/i.test(message) || /Could not find the table/i.test(message)
+  return /relation .*season_state.* does not exist/i.test(message) || /Could not find the table .*season_state/i.test(message)
 }
 
 /**

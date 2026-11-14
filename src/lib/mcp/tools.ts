@@ -95,7 +95,7 @@ import {
   type ExpectedPointsDistanceBucket,
   type ExpectedPointsRow,
 } from '@/lib/queries/expected-points'
-import { PREDICTION_MODEL_VERSIONS, DEFAULT_PREDICTION_MODEL } from '@/lib/queries/constants'
+import { PREDICTION_MODEL_VERSIONS, DEFAULT_PREDICTION_MODEL, CHART_MAX_SEASON } from '@/lib/queries/constants'
 import { getCurrentSeasonForRoute, type SeasonState } from '@/lib/queries/season'
 
 // ---------------------------------------------------------------------------
@@ -2082,7 +2082,7 @@ function trendRequest(args: RenderChartArgs, defaultSeason: number): ChartReques
 
   const to = args.to ?? defaultSeason
   const from = args.from ?? to - (TREND_DEFAULT_SPAN - 1)
-  const maxSeason = defaultSeason + 5
+  const maxSeason = CHART_MAX_SEASON
   if (!Number.isInteger(from) || !Number.isInteger(to) || from < METRIC_MIN_SEASON || to > maxSeason) {
     return { guidance: `Seasons must be whole years between ${METRIC_MIN_SEASON} and ${maxSeason}.` }
   }
@@ -2129,7 +2129,7 @@ function barsRequest(args: RenderChartArgs, defaultSeason: number): ChartRequest
   const { teams } = named
 
   const season = args.season ?? defaultSeason
-  const maxSeason = defaultSeason + 5
+  const maxSeason = CHART_MAX_SEASON
   if (!Number.isInteger(season) || season < METRIC_MIN_SEASON || season > maxSeason) {
     return { guidance: `\`season\` must be a whole year between ${METRIC_MIN_SEASON} and ${maxSeason}.` }
   }
@@ -2191,7 +2191,7 @@ function scatterRequest(args: RenderChartArgs, defaultSeason: number): ChartRequ
   }
 
   const season = args.season ?? defaultSeason
-  const maxSeason = defaultSeason + 5
+  const maxSeason = CHART_MAX_SEASON
   if (!Number.isInteger(season) || season < METRIC_MIN_SEASON || season > maxSeason) {
     return { guidance: `\`season\` must be a whole year between ${METRIC_MIN_SEASON} and ${maxSeason}.` }
   }

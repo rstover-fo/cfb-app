@@ -58,7 +58,7 @@ import { checkChartRateLimit, rateLimitKey } from '@/lib/charts/server/rateLimit
 import { verifyChartSignature } from '@/lib/charts/server/signing'
 import type { ChartThemeName } from '@/lib/charts/tokens'
 import { METRICS, METRIC_IDS, type MetricId } from '@/lib/charts/metrics'
-import { CURRENT_SEASON } from '@/lib/queries/constants'
+import { CURRENT_SEASON, CHART_MAX_SEASON } from '@/lib/queries/constants'
 import { getPlaycallingProfile } from '@/lib/queries/playcalling'
 import { getTeamLogoDataUris } from '@/lib/queries/teamLogos'
 import {
@@ -167,7 +167,7 @@ const teamPlaycallingParams = z
   .object({
     team: z.string().min(1).max(120),
     // Query values are strings; coerce, then constrain to a plausible season.
-    season: z.coerce.number().int().min(1869).max(CURRENT_SEASON + 5),
+    season: z.coerce.number().int().min(1869).max(CHART_MAX_SEASON),
     mode: modeParam,
     sig: sigParam,
   })
@@ -187,7 +187,7 @@ const teamPlaycallingParams = z
 // what keeps these URLs permanent, cacheable, and short enough for Discord.
 
 /** A season inside the window `api.team_history` can plausibly answer for. */
-const metricSeason = z.coerce.number().int().min(MIN_METRIC_SEASON).max(CURRENT_SEASON + 5)
+const metricSeason = z.coerce.number().int().min(MIN_METRIC_SEASON).max(CHART_MAX_SEASON)
 
 const metricParam = z.enum(METRIC_IDS)
 

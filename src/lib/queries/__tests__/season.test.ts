@@ -221,6 +221,37 @@ describe('resolveCurrentSeason: api.season_state', () => {
     expect(mock.from).not.toHaveBeenCalled()
   })
 
+  it('treats the supabase-js schema-cache phrasing of a missing view as not-shipped too (no console.warn)', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    mockClient({
+      apiTables: { season_state: dbError("Could not find the table 'api.season_state' in the schema cache") },
+      tables: { games: [ok([{ season: 2026 }]), ok([{ week: 1 }]), ok([{ week: 2 }])] },
+    })
+
+    const { resolveCurrentSeason } = await freshSeasonModule()
+    const result = await resolveCurrentSeason()
+
+    expect(result.source).toBe('games')
+    expect(warnSpy).not.toHaveBeenCalled()
+  })
+
+  it('a shipped view with a renamed column is a REAL failure: warns once, then falls back to games', async () => {
+    // 'column ... does not exist' must not be mistaken for "view not shipped" --
+    // the work order says a contract mismatch has to stay visible in the logs.
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    mockClient({
+      apiTables: { season_state: { data: null, error: { message: 'column season_state.games_completed does not exist', code: '42703' } } },
+      tables: { games: [ok([{ season: 2026 }]), ok([{ week: 1 }]), ok([{ week: 2 }])] },
+    })
+
+    const { resolveCurrentSeason } = await freshSeasonModule()
+    const result = await resolveCurrentSeason()
+
+    expect(result.source).toBe('games')
+    expect(warnSpy).toHaveBeenCalledTimes(1)
+    expect(warnSpy.mock.calls[0]?.[0]).toContain('api.season_state query failed')
+  })
+
   it('a missing relation (42P01) falls through to games silently (no console.warn)', async () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
     mockClient({
